@@ -3,38 +3,47 @@
 
 //! Fake parts for the behaviour tests: a part of each role, and the parts
 //! the tests compose between them, on a toy whose shot state is classical
-//! bits, written in QIR's `h`, `x` and `mz`.
+//! bits, written in the [`Measuring`] gates `h`, `x` and `mz`.
 //!
 //! - Drivers: [`CoinCopy`], which branches on a readout; [`Program`],
 //!   one batch for every shot, or one for each half of them, in
-//!   [`CoinGates`] or another set, such as [`ParityGates`], requiring the
-//!   run's shots, and seeded runs if its seed is fixed; [`PassesTheRun`],
-//!   which keeps the default `requires`.
+//!   [`coin_gates`], requiring the run's shots, and seeded runs if its
+//!   seed is fixed; [`PassesTheRun`], which keeps the default `requires`.
 //! - Executors: [`Bits`]; executors that answer later ([`Later`]) or
 //!   from a thread ([`FromThread`]); and [`StatesNoLimits`], which keeps
 //!   the default `provides`.
 //! - Adapters: [`BitFlip`], which draws; [`Profiler`], which draws nothing;
 //!   [`Splitter`], which sends each instruction as a batch of its own;
 //!   [`NamesBelow`], which logs the names of the part below and its set;
-//!   [`Spread`], an encoding, which may state the qubits it takes and
-//!   requires; [`Stating`], a pass-through with capabilities of its own,
-//!   one toy per constructor: an interleaver, a part reserving ancillas,
-//!   a job splitter, a job queue, a cap on qubits, a lowering carrying no
-//!   readout parities, a replayer, and a sampler seeding its runs itself;
+//!   [`Spread`], an encoding, which may state the instructions a batch it
+//!   takes and requires; [`Stating`], a pass-through with capabilities of
+//!   its own, one toy per constructor: an interleaver, a part adding
+//!   ancilla resets, a job splitter, a job queue, a cap on instructions a
+//!   batch, a replayer, and a sampler seeding its runs itself;
 //!   [`Trap`],
 //!   which fails a shot; [`FailsOnce`], which fails, or panics in, one
 //!   `adapt`;
 //!   [`PanicsEnding`], which panics in `end_shots`, each time or once;
 //!   [`EndsBelow`], which ends its shots below inside `adapt`;
 //!   [`Impatient`], which stops waiting for its first answer from below;
-//!   [`Misbehaving`], which breaks the protocol's rules;
-//!   [`ForwardsParity`], which passes readout parities down while it
-//!   requires none below.
+//!   [`Misbehaving`], which breaks the protocol's rules.
 //! - Driver and executor: [`Panics`], which panics in `drive` and in
 //!   `execute`.
 //! - Any role: [`Renamed`], a part with a name other than its type's;
 //!   [`PanicsInDrop`], a part whose futures may panic once dropped;
 //!   [`SeesSeeds`], a part that logs the seed of each call it gets.
+//! - On [`QubitLimited`](crate::tests::example_sets::QubitLimited), whose
+//!   capabilities are a count of qubits: [`QubitProgram`], a driver;
+//!   [`QubitPassThrough`], an adapter keeping the defaults;
+//!   [`QubitNarrowing`], an adapter requiring fewer qubits below than it
+//!   sends on; and [`QubitRegister`], an executor.
+//! - Across a lowering of
+//!   [`WithToffoli`](crate::tests::example_sets::WithToffoli) to
+//!   [`WithoutToffoli`](crate::tests::example_sets::WithoutToffoli):
+//!   [`ToffoliProgram`], a driver; [`CliffordTRegister`], an executor; and
+//!   the lowerings [`ToffoliFree`], which rewrites `ccz`, [`ReadThrice`],
+//!   which reads its own readouts, and [`ReadTwiceUnread`], which forgets
+//!   to.
 //!
 //! Each part writes what it does to a shared [`Log`], which the test reads
 //! once the parts are composed.
@@ -45,13 +54,12 @@
 use std::cell::RefCell;
 use std::pin::Pin;
 use std::rc::Rc;
-use std::sync::OnceLock;
 use std::task::{Context, Poll};
 
 use crate::prelude::*;
+use crate::tests::example_sets::{Gate, Measuring, NoCapabilities};
 use crate::{
-    Batch, BatchReadouts, ExecuteError, Instruction, InstructionSet, OpcodeMap, ReadoutValue,
-    Resources, Seed, instruction_set,
+    Batch, BatchReadouts, Capabilities, ExecuteError, Features, ReadoutValue, Resources, Seed,
 };
 
 mod adapters;
@@ -59,28 +67,26 @@ mod drivers;
 mod executors;
 mod panics;
 mod panics_in_drop;
+mod qubit_limited;
 mod renamed;
 mod sees_seeds;
+mod toffoli;
 
 pub(crate) use adapters::*;
 pub(crate) use drivers::*;
 pub(crate) use executors::*;
 pub(crate) use panics::{Panics, PanicsWhen};
 pub(crate) use panics_in_drop::PanicsInDrop;
+pub(crate) use qubit_limited::{QubitNarrowing, QubitPassThrough, QubitProgram, QubitRegister};
 pub(crate) use renamed::Renamed;
 pub(crate) use sees_seeds::SeesSeeds;
+pub(crate) use toffoli::{
+    CliffordTRegister, ReadThrice, ReadTwiceUnread, ToffoliFree, ToffoliProgram,
+};
 
-instruction_set! {
-    /// QIR's `h`, `x` and `mz`: what every fake part accepts and sends,
-    /// unless a test gives it another set.
-    pub(crate) CoinGates { H = h(qubit), X = x(qubit), MZ = mz(qubit) -> 1 outcome }
-}
-
-instruction_set! {
-    /// `mz`, and an `x` run if a bit is 1, which a readout parity may give:
-    /// what the tests of readout parities send.
-    pub(crate) ParityGates { MZ = mz(qubit) -> 1 outcome, X_IF = x_if(qubit; c: Bit) }
-}
+/// `h`, `x` and `mz`: what every fake part accepts and sends, unless a
+/// test gives it another set.
+static COIN_GATES: Measuring = Measuring::new(&["h", "x", "mz"]);
 
 /// What the fake parts did, in order, shared with the test that reads it.
 #[derive(Clone, Default)]
@@ -122,26 +128,48 @@ impl Stream {
     }
 }
 
-/// [`CoinGates`]' set, made once: what most fakes accept and send.
-pub(crate) fn coin_gates() -> &'static InstructionSet {
-    static SET: OnceLock<InstructionSet> = OnceLock::new();
-    SET.get_or_init(CoinGates::set)
+/// `h`, `x` and `mz`: what most fakes accept and send.
+pub(crate) fn coin_gates() -> &'static Measuring {
+    &COIN_GATES
 }
 
-/// `n` qubits, and no other resource.
-pub(crate) fn qubits(n: u32) -> Resources {
-    Resources::unconstrained().with_qubits(n)
+/// A gate at position 99, beyond [`coin_gates`] and every other set the
+/// tests give a part, as a faulty sender writes it.
+pub(crate) const BEYOND_THE_SET: Gate = Gate { at: 99, qubit: 0 };
+
+/// The gate `name` of [`coin_gates`] on `qubit`.
+pub(crate) fn coin_gate(name: &str, qubit: u32) -> Gate {
+    COIN_GATES.gate(name, qubit)
 }
 
-/// `instructions`, rewritten in the receiver's opcodes.
-fn mapped(map: &OpcodeMap, instructions: &[Instruction]) -> Vec<Instruction> {
-    instructions
+/// The capabilities `resources` and `features` of a [`Measuring`] set,
+/// which has none of its own.
+pub(crate) fn capabilities(resources: Resources, features: Features) -> Capabilities<Measuring> {
+    Capabilities::new(resources, features, NoCapabilities)
+}
+
+/// The capabilities of a [`Measuring`] set that state nothing.
+pub(crate) fn unconstrained() -> Capabilities<Measuring> {
+    Measuring::unconstrained().clone()
+}
+
+/// Batches of at most `n` instructions, and no other resource.
+pub(crate) fn batches_of(n: u32) -> Resources {
+    Resources::unconstrained().with_instructions_per_batch(n)
+}
+
+/// What `part` logs once ready for `above`: the instructions a batch it
+/// gets may hold, 0 if unstated.
+pub(crate) fn ready_for(part: &str, above: &Capabilities<Measuring>) -> String {
+    let n = above.resources().instructions_per_batch.unwrap_or(0);
+    format!("{part} ready for batches of {n}")
+}
+
+/// `gates`, re-encoded with `binding`, the receiver's.
+fn mapped(binding: &[u32], gates: &[Gate]) -> Vec<Gate> {
+    gates
         .iter()
-        .map(|instruction| {
-            let mut mapped = instruction.clone();
-            mapped.opcode = map.map(instruction.opcode);
-            mapped
-        })
+        .map(|&gate| Measuring::bound(binding, gate))
         .collect()
 }
 
@@ -150,14 +178,14 @@ fn mapped(map: &OpcodeMap, instructions: &[Instruction]) -> Vec<Instruction> {
 /// with the readouts below, filled into `readouts`: the run time of an
 /// adapter that keeps each batch's shots and readout slots.
 async fn forward(
-    batches: &[Batch<'_>],
+    batches: &[Batch<'_, Measuring>],
     seed: Seed,
-    below: &mut impl Executor,
+    below: &mut impl Executor<Accepts = Measuring>,
     readouts: &mut [BatchReadouts],
-    rewrite: impl FnMut(&Batch<'_>) -> Vec<Instruction>,
+    rewrite: impl FnMut(&Batch<'_, Measuring>) -> Vec<Gate>,
 ) -> Result<(), ExecuteError> {
-    let sent: Vec<Vec<Instruction>> = batches.iter().map(rewrite).collect();
-    let below_batches: Vec<Batch<'_>> = batches
+    let sent: Vec<Vec<Gate>> = batches.iter().map(rewrite).collect();
+    let below_batches: Vec<Batch<'_, Measuring>> = batches
         .iter()
         .zip(&sent)
         .map(|(batch, instructions)| {
@@ -168,16 +196,9 @@ async fn forward(
     below.execute(&below_batches, seed, readouts).await
 }
 
-/// The receiver's opcodes, given by the join's `bind`.
-fn bound(map: Option<&OpcodeMap>) -> &OpcodeMap {
-    map.expect("the join binds before any `execute`")
-}
-
-/// The instruction `mnemonic` of [`CoinGates`] on `qubit`.
-pub(crate) fn coin_gate(mnemonic: &str, qubit: u32) -> Instruction {
-    CoinGates::set()
-        .instruction(mnemonic, [qubit], &[])
-        .expect("an instruction of CoinGates")
+/// The receiver's encoding, given by the join's `bind`.
+fn bound(binding: Option<&Vec<u32>>) -> &[u32] {
+    binding.expect("the join binds before any `execute`")
 }
 
 /// Each shot's values, in the order it read them.

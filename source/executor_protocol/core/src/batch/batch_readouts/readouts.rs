@@ -12,7 +12,7 @@
 //! once it has held readouts as large, shaping them allocates nothing.
 
 use super::BatchReadouts;
-use crate::Batch;
+use crate::{Batch, InstructionSet};
 
 /// The readouts of a caller's `execute`s, kept from one to the next so
 /// that each reuses their memory: [`readouts_for`](Self::readouts_for)
@@ -42,7 +42,10 @@ impl Readouts {
     /// [`BatchReadouts::new`]`(batch.shots.len(), batch.readout_slots())`
     /// for each batch instead.
     #[inline]
-    pub fn readouts_for(&mut self, batches: &[Batch<'_>]) -> &mut [BatchReadouts] {
+    pub fn readouts_for<S: InstructionSet>(
+        &mut self,
+        batches: &[Batch<'_, S>],
+    ) -> &mut [BatchReadouts] {
         let count = batches.len();
         if self.batch_readouts.len() < count {
             self.batch_readouts

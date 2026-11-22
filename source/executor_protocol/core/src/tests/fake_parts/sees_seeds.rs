@@ -7,8 +7,8 @@
 use crate::prelude::*;
 use crate::tests::fake_parts::Log;
 use crate::{
-    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, InstructionSet, NotReady,
-    OpcodeMap, Seed, ShotId, ShotSet,
+    Batch, BatchReadouts, Binding, Capabilities, DriveError, ExecuteError, NotReady, Seed, ShotId,
+    ShotSet,
 };
 
 /// `part`, which logs `"{label} got seed {stream}"` for each `drive`,
@@ -40,21 +40,26 @@ impl<P> SeesSeeds<P> {
 }
 
 impl<P: Driver> Driver for SeesSeeds<P> {
-    fn sends(&self) -> &InstructionSet {
+    type Sends = P::Sends;
+
+    fn sends(&self) -> &P::Sends {
         self.part.sends()
     }
 
-    fn requires(&self, run: &Capabilities) -> Capabilities {
+    fn requires(&self, run: &Capabilities<P::Sends>) -> Capabilities<P::Sends> {
         self.part.requires(run)
     }
 
-    fn bind(&mut self, below: OpcodeMap) {
+    fn bind(&mut self, below: Binding<P::Sends>) {
         self.part.bind(below);
     }
 
     type Output = P::Output;
 
-    fn ready(&mut self, run: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
+    fn ready(
+        &mut self,
+        run: &Capabilities<P::Sends>,
+    ) -> impl Future<Output = Result<(), NotReady>> {
         self.part.ready(run)
     }
 
@@ -62,7 +67,7 @@ impl<P: Driver> Driver for SeesSeeds<P> {
         &mut self,
         shots: &ShotSet,
         seed: Seed,
-        below: &mut impl Executor,
+        below: &mut impl Executor<Accepts = P::Sends>,
     ) -> impl Future<Output = Result<Vec<P::Output>, DriveError>> {
         self.saw(seed);
         self.part.drive(shots, seed, below)
@@ -70,35 +75,41 @@ impl<P: Driver> Driver for SeesSeeds<P> {
 }
 
 impl<P: Adapter> Adapter for SeesSeeds<P> {
-    fn accepts(&self) -> &InstructionSet {
+    type Accepts = P::Accepts;
+    type Sends = P::Sends;
+
+    fn accepts(&self) -> &P::Accepts {
         self.part.accepts()
     }
 
-    fn sends(&self) -> &InstructionSet {
+    fn sends(&self) -> &P::Sends {
         self.part.sends()
     }
 
-    fn provides(&self) -> &Capabilities {
+    fn provides(&self) -> &Capabilities<P::Accepts> {
         self.part.provides()
     }
 
-    fn requires(&self, above: &Capabilities) -> Capabilities {
+    fn requires(&self, above: &Capabilities<P::Accepts>) -> Capabilities<P::Sends> {
         self.part.requires(above)
     }
 
-    fn bind(&mut self, below: OpcodeMap) {
+    fn bind(&mut self, below: Binding<P::Sends>) {
         self.part.bind(below);
     }
 
-    fn ready(&mut self, above: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
+    fn ready(
+        &mut self,
+        above: &Capabilities<P::Accepts>,
+    ) -> impl Future<Output = Result<(), NotReady>> {
         self.part.ready(above)
     }
 
     fn adapt(
         &mut self,
-        batches: &[Batch<'_>],
+        batches: &[Batch<'_, P::Accepts>],
         seed: Seed,
-        below: &mut impl Executor,
+        below: &mut impl Executor<Accepts = P::Sends>,
         readouts: &mut [BatchReadouts],
     ) -> impl Future<Output = Result<(), ExecuteError>> {
         self.saw(seed);
@@ -111,21 +122,26 @@ impl<P: Adapter> Adapter for SeesSeeds<P> {
 }
 
 impl<P: Executor> Executor for SeesSeeds<P> {
-    fn accepts(&self) -> &InstructionSet {
+    type Accepts = P::Accepts;
+
+    fn accepts(&self) -> &P::Accepts {
         self.part.accepts()
     }
 
-    fn provides(&self) -> &Capabilities {
+    fn provides(&self) -> &Capabilities<P::Accepts> {
         self.part.provides()
     }
 
-    fn ready(&mut self, above: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
+    fn ready(
+        &mut self,
+        above: &Capabilities<P::Accepts>,
+    ) -> impl Future<Output = Result<(), NotReady>> {
         self.part.ready(above)
     }
 
     fn execute(
         &mut self,
-        batches: &[Batch<'_>],
+        batches: &[Batch<'_, P::Accepts>],
         seed: Seed,
         readouts: &mut [BatchReadouts],
     ) -> impl Future<Output = Result<(), ExecuteError>> {

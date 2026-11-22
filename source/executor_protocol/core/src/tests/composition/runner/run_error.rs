@@ -8,12 +8,13 @@
 //! the successful run's and the runner's own refusals.
 
 use crate::prelude::*;
+use crate::tests::example_sets::Measuring;
 use crate::tests::fake_parts::{
-    Bits, CoinCopy, Log, Panics, PanicsWhen, Program, Renamed, Stating, Trap, coin_gates, qubits,
+    Bits, CoinCopy, Log, Panics, PanicsWhen, Program, Renamed, Stating, Trap, batches_of,
+    coin_gates,
 };
 use crate::{
-    Batch, BatchReadouts, ExecuteError, ExecuteRefusal, Failure, Features, InstructionSet, Seed,
-    ShotId, ShotSet,
+    Batch, BatchReadouts, ExecuteError, ExecuteRefusal, Failure, Features, Seed, ShotId, ShotSet,
 };
 
 use super::{SEED, failed, runner};
@@ -32,24 +33,27 @@ fn a_failing_shot_ends_the_run_naming_it() {
     );
 }
 
-/// An executor of [`CoinGates`](crate::tests::fake_parts::CoinGates)
-/// refusing every `execute` with `refusal`.
+/// An executor of the coin's gates refusing every `execute` with
+/// `refusal` of `shot`.
 struct Refuses {
-    refusal: ExecuteRefusal,
+    refusal: fn(ShotId) -> ExecuteRefusal,
+    shot: ShotId,
 }
 
 impl Executor for Refuses {
-    fn accepts(&self) -> &InstructionSet {
+    type Accepts = Measuring;
+
+    fn accepts(&self) -> &Measuring {
         coin_gates()
     }
 
     async fn execute(
         &mut self,
-        _batches: &[Batch<'_>],
+        _batches: &[Batch<'_, Measuring>],
         _seed: Seed,
         _readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
-        Err(ExecuteError::Refused(self.refusal.clone()))
+        Err(ExecuteError::Refused((self.refusal)(self.shot)))
     }
 }
 
@@ -59,17 +63,15 @@ impl Executor for Refuses {
 #[test]
 fn a_refused_shot_ends_the_run_naming_it() {
     let shot = ShotId::new(2);
-    for refusal in [
-        ExecuteRefusal::EarlierFailure(shot),
-        ExecuteRefusal::ShotNotHeld(shot),
-    ] {
-        let mut runner = runner(measure().on(Refuses {
-            refusal: refusal.clone(),
-        }));
+    let refusals: [fn(ShotId) -> ExecuteRefusal; 2] =
+        [ExecuteRefusal::EarlierFailure, ExecuteRefusal::ShotNotHeld];
+    for refusal in refusals {
+        let expected = format!("{:?}", refusal(shot));
+        let mut runner = runner(measure().on(Refuses { refusal, shot }));
         let error = failed(runner.run(&ShotSet::ids(0..4), SEED));
-        assert_eq!(error.shot, shot, "{refusal:?}");
+        assert_eq!(error.shot, shot, "{expected}");
         assert!(
-            matches!(&error.failure, Failure::Refused(why) if *why == refusal),
+            matches!(&error.failure, Failure::Refused(why) if format!("{why:?}") == expected),
             "{error:?}"
         );
     }
@@ -91,7 +93,7 @@ fn a_runs_error_says_what_ended_it_and_names_what_is_at_fault() {
     let log = Log::default();
     let shots = ShotSet::ids(0..8);
     let coin = || CoinCopy::new();
-    let limited = Bits::new(&log).with_resources(qubits(64).with_shots(4));
+    let limited = Bits::new(&log).with_resources(batches_of(64).with_shots(4));
     let without_seeded_runs =
         Bits::new(&log).with_features(Features::unconstrained().with_seeded_runs(false));
     for (row, error, said) in [
@@ -106,7 +108,7 @@ fn a_runs_error_says_what_ended_it_and_names_what_is_at_fault() {
                 measure()
                     .through(Stating::queue(4, &log))
                     .through(Stating::repeating_shots(2, &log))
-                    .on(Bits::new(&log).with_resources(qubits(64).with_shots(8))),
+                    .on(Bits::new(&log).with_resources(batches_of(64).with_shots(8))),
             )
             .run(&shots, SEED)
             .map(drop),
@@ -152,12 +154,12 @@ fn a_runs_error_says_what_ended_it_and_names_what_is_at_fault() {
         ),
         (
             "a part panicking",
-            runner(measure().on(Renamed::new(Panics(PanicsWhen::Polled), "qodec runtime")))
+            runner(measure().on(Renamed::new(Panics(PanicsWhen::Polled), "device runtime")))
                 .run(&shots, SEED)
                 .map(drop),
             &[
                 "run failed",
-                "`qodec runtime` (part 1) panicked",
+                "`device runtime` (part 1) panicked",
                 "the part broke while it was polled",
             ],
         ),

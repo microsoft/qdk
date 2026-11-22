@@ -13,47 +13,54 @@ use crate::{
     Seed, ShotSet,
 };
 
-impl<U: Adapter, L: Executor> Composed<U, L> {
-    /// `upper` on `lower`: binds `upper` where its instructions fit those
-    /// `lower` accepts.
+impl<U: Adapter, L: Executor<Accepts = U::Sends>> Composed<U, L, U::Sends> {
+    /// `upper` on `lower`: binds `upper` where its set fits the one `lower`
+    /// accepts.
     pub(crate) fn adapter_on(mut upper: U, lower: L) -> Self {
-        let fit = boundary(upper.sends(), lower.accepts(), lower.provides());
-        if let Ok(boundary) = &fit {
-            upper.bind(boundary.opcode_map().clone());
-        }
+        let fit = boundary(upper.sends(), lower.accepts(), lower.provides()).map(
+            |(boundary, binding)| {
+                upper.bind(binding);
+                boundary
+            },
+        );
         let mut parts = DeclaredParts::checking();
-        upper.declare(&Capabilities::UNCONSTRAINED, &mut parts);
+        upper.declare(U::Accepts::unconstrained(), &mut parts);
         let upper_parts = parts.len();
         Self::new((upper, upper_parts), lower, fit)
     }
 }
 
 /// An adapter on an executor: an executor.
-impl<U: Adapter, L: Executor> Executor for Composed<U, L> {
+impl<U: Adapter, L: Executor<Accepts = U::Sends>> Executor for Composed<U, L, U::Sends> {
+    type Accepts = U::Accepts;
+
     /// The adapter's, which receives its calls.
     fn name(&self) -> &str {
         self.upper.name()
     }
 
     /// The adapter's.
-    fn accepts(&self) -> &InstructionSet {
+    fn accepts(&self) -> &U::Accepts {
         self.upper.accepts()
     }
 
     /// The adapter's: what arrives at the executor is checked against what
     /// it provides when the joined part gets ready.
-    fn provides(&self) -> &Capabilities {
+    fn provides(&self) -> &Capabilities<U::Accepts> {
         self.upper.provides()
     }
 
     /// As [`ready_at`](Self::ready_at), at a position not known.
-    fn ready(&mut self, above: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
+    fn ready(
+        &mut self,
+        above: &Capabilities<U::Accepts>,
+    ) -> impl Future<Output = Result<(), NotReady>> {
         self.ready_at(above, ChainPosition::UNKNOWN)
     }
 
     async fn execute(
         &mut self,
-        batches: &[Batch<'_>],
+        batches: &[Batch<'_, U::Accepts>],
         seed: Seed,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
@@ -77,19 +84,19 @@ impl<U: Adapter, L: Executor> Executor for Composed<U, L> {
     }
 
     /// The adapter, then the executor, given what the adapter requires.
-    fn declare<'a>(&'a self, above: &Capabilities, parts: &mut DeclaredParts<'a>) {
+    fn declare<'a>(&'a self, above: &Capabilities<U::Accepts>, parts: &mut DeclaredParts<'a>) {
         let required = self.upper.declare(above, parts);
         self.lower.declare(&required, parts);
     }
 
-    /// Refuses the run if the halves' instructions do not fit, or if what the
+    /// Refuses the run if the halves' sets do not fit, or if what the
     /// adapter requires does not fit what the executor provides, with every
     /// mismatch at their boundary; else the executor first, for what the
     /// adapter requires, then the adapter, for `above`. A refusal from the
     /// executor names it, at its position, if `at` is known.
     async fn ready_at(
         &mut self,
-        above: &Capabilities,
+        above: &Capabilities<U::Accepts>,
         at: ChainPosition<'_>,
     ) -> Result<(), NotReady> {
         let (lower, below_required, below, part) =

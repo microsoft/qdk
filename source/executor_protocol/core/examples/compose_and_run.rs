@@ -4,15 +4,15 @@
 //! Three toy parts, one of each role, joined with `through` and `on` and
 //! run: a driver that tosses a coin and copies it onto a second qubit, an
 //! adapter that adds bit-flip noise, and an executor whose qubits are
-//! classical bits.
+//! classical bits, all on a small instruction set written here.
 //!
 //! It prints each shot's two values, runs two of the shots again to show
 //! that a shot's values, noise included, are the same each time the chain
 //! runs it with the same seed, whatever shots run beside it, since its
 //! parts are replayable, runs the shots again with every batch checked to
 //! show the checks change no value, and shows a run the chain refuses. The
-//! run comes first, in `coin_runner` and `main`; the three parts follow,
-//! each in its own section. Run it with
+//! run comes first, in `coin_runner` and `main`; the instruction set and
+//! the three parts follow, each in its own section. Run it with
 //! `cargo run --example compose_and_run`.
 
 #![expect(
@@ -23,18 +23,15 @@
 )]
 
 use std::collections::BTreeMap;
+use std::convert::Infallible;
+use std::error::Error;
+use std::fmt;
 
 use executor_protocol_core::prelude::*;
 use executor_protocol_core::{
-    Batch, BatchReadouts, BlockType, Capabilities, DriveError, ExecuteError, Features, Instruction,
-    InstructionSet, NotReady, OpcodeMap, ReadoutValue, Readouts, Resources, Runner, Seed, ShotId,
-    ShotSet, instruction_set,
+    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, Features, NotReady, ReadoutValue,
+    Readouts, Resources, Runner, Seed, ShotId, ShotSet,
 };
-
-instruction_set! {
-    /// QIR's `h`, `x` and `mz`: what every part here sends and accepts.
-    pub CoinGates { H = h(qubit), X = x(qubit), MZ = mz(qubit) -> 1 outcome }
-}
 
 /// The seed of the runs: the same seed gives the same values.
 const SEED: u64 = 1;
@@ -47,10 +44,10 @@ const SEED: u64 = 1;
 /// After each run, the protocol ends every shot of the run on every part, so
 /// the parts free its state and a rerun with the same seed starts it
 /// afresh; the driver need not end them.
-fn coin_runner<E: Executor>(
+fn coin_runner<E: Executor<Accepts = CoinGates>>(
     coin: CoinCopy,
     bits: E,
-) -> Runner<impl Driver<Output = Vec<ReadoutValue>>, E> {
+) -> Runner<impl Driver<Sends = CoinGates, Output = Vec<ReadoutValue>>, E> {
     // `through` joins the driver and the adapter into one driver, and `on`
     // joins that driver and the executor into the runner. The `on` that
     // makes the runner checks that each part accepts the instructions the
@@ -105,6 +102,135 @@ fn text(value: ReadoutValue) -> String {
     }
 }
 
+// ------------------------------------------------------- the instruction set
+
+/// `h`, `x` and `mz` on numbered qubits: what every part here sends and
+/// accepts. Its parts all know the one encoding, so any two fit and the
+/// binding is `()`; its own capabilities are the qubits a shot holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct CoinGates;
+
+/// A gate of [`CoinGates`], on its qubit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Gate {
+    H(u32),
+    X(u32),
+    Mz(u32),
+}
+
+impl Gate {
+    fn qubit(self) -> u32 {
+        match self {
+            Self::H(qubit) | Self::X(qubit) | Self::Mz(qubit) => qubit,
+        }
+    }
+}
+
+impl BoundaryCompatible for CoinGates {
+    type Fit = ();
+    type Mismatch = Infallible;
+
+    fn fits(&self, _accepted: &Self) -> Result<(), Infallible> {
+        Ok(())
+    }
+}
+
+impl InstructionSet for CoinGates {
+    type Instruction = Gate;
+    type Capabilities = Qubits;
+    /// The qubits a shot holds, read once per checked batch.
+    type Requirement = u32;
+    type Fault = QubitBeyond;
+
+    fn unconstrained() -> &'static Capabilities<Self> {
+        static UNCONSTRAINED: Capabilities<CoinGates> = Capabilities::new(
+            Resources::unconstrained(),
+            Features::unconstrained(),
+            Qubits(u32::MAX),
+        );
+        &UNCONSTRAINED
+    }
+
+    fn readout_slots(&self, gate: &Gate) -> u32 {
+        u32::from(matches!(gate, Gate::Mz(_)))
+    }
+
+    fn requirement(&self, required: &Qubits) -> u32 {
+        required.0
+    }
+
+    /// A gate on a qubit the shots hold; any other is refused.
+    fn check(&self, gate: &Gate, qubits: &u32) -> Result<u32, QubitBeyond> {
+        if gate.qubit() < *qubits {
+            Ok(self.readout_slots(gate))
+        } else {
+            Err(QubitBeyond {
+                qubit: gate.qubit(),
+                qubits: *qubits,
+            })
+        }
+    }
+}
+
+/// The qubits each shot holds: what a part requires, or provides, of
+/// [`CoinGates`] beside the protocol's resources and features.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Qubits(u32);
+
+impl BoundaryCompatible for Qubits {
+    type Fit = ();
+    type Mismatch = TooFewQubits;
+
+    fn fits(&self, provided: &Self) -> Result<(), TooFewQubits> {
+        if self.0 <= provided.0 {
+            Ok(())
+        } else {
+            Err(TooFewQubits {
+                required: self.0,
+                provided: provided.0,
+            })
+        }
+    }
+}
+
+/// Fewer qubits provided than required.
+#[derive(Debug)]
+struct TooFewQubits {
+    required: u32,
+    provided: u32,
+}
+
+impl fmt::Display for TooFewQubits {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "qubits: {} required, {} provided",
+            self.required, self.provided
+        )
+    }
+}
+
+impl Error for TooFewQubits {}
+
+/// A gate on a qubit beyond those the shots hold.
+#[derive(Debug)]
+struct QubitBeyond {
+    qubit: u32,
+    qubits: u32,
+}
+
+impl fmt::Display for QubitBeyond {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "a gate on qubit {} of {} qubits",
+            self.qubit, self.qubits
+        )
+    }
+}
+
+impl Error for QubitBeyond {}
+
 // ---------------------------------------------------------------- the driver
 
 /// A coin tossed on qubit 0, copied onto qubit 1: every shot tosses the
@@ -114,10 +240,8 @@ fn text(value: ReadoutValue) -> String {
 /// its two values: the coin, then the copy. Its batches go unchecked,
 /// unless made by [`checked`](Self::checked).
 struct CoinCopy {
-    /// `CoinGates`, the instructions it sends.
-    sends: InstructionSet,
     /// Toss; heads: flip and read qubit 1; tails: read qubit 1.
-    sequences: [Vec<Instruction>; 3],
+    sequences: [Vec<Gate>; 3],
     /// Each sequence's readout slots, which a batch of it states.
     slots: [u32; 3],
     /// Whether every batch it sends is checked.
@@ -126,22 +250,18 @@ struct CoinCopy {
 
 impl CoinCopy {
     fn new() -> Self {
-        let set = CoinGates::set();
-        let gate = |mnemonic: &str, qubit: u32| {
-            set.instruction(mnemonic, [qubit], &[])
-                .expect("an instruction of CoinGates")
-        };
         let sequences = [
-            vec![gate("h", 0), gate("mz", 0)],
-            vec![gate("x", 1), gate("mz", 1)],
-            vec![gate("mz", 1)],
+            vec![Gate::H(0), Gate::Mz(0)],
+            vec![Gate::X(1), Gate::Mz(1)],
+            vec![Gate::Mz(1)],
         ];
         let slots = sequences.each_ref().map(|sequence| {
-            set.readout_slots_of(sequence)
-                .expect("instructions of CoinGates")
+            sequence
+                .iter()
+                .map(|gate| CoinGates.readout_slots(gate))
+                .sum()
         });
         Self {
-            sends: set,
             sequences,
             slots,
             checked: false,
@@ -159,22 +279,19 @@ impl CoinCopy {
 }
 
 impl Driver for CoinCopy {
-    fn sends(&self) -> &InstructionSet {
-        &self.sends
+    type Sends = CoinGates;
+
+    fn sends(&self) -> &CoinGates {
+        &CoinGates
     }
 
     /// What the run requires, on 2 qubits.
-    fn requires(&self, run: &Capabilities) -> Capabilities {
-        run.clone()
-            .map_resources(|resources| resources.with_qubits(2))
+    fn requires(&self, run: &Capabilities<CoinGates>) -> Capabilities<CoinGates> {
+        Capabilities::new(*run.resources(), *run.features(), Qubits(2))
     }
 
-    /// Rewrites the sequences in the receiver's opcodes, once.
-    fn bind(&mut self, below: OpcodeMap) {
-        for instruction in self.sequences.iter_mut().flatten() {
-            instruction.opcode = below.map(instruction.opcode);
-        }
-    }
+    /// Every part here encodes the gates alike: nothing to rewrite.
+    fn bind(&mut self, (): ()) {}
 
     type Output = Vec<ReadoutValue>;
 
@@ -182,7 +299,7 @@ impl Driver for CoinCopy {
         &mut self,
         shots: &ShotSet,
         seed: Seed,
-        below: &mut impl Executor,
+        below: &mut impl Executor<Accepts = CoinGates>,
     ) -> Result<Vec<Vec<ReadoutValue>>, DriveError> {
         // First, every shot tosses its coin. Unchecked by default, as a
         // sender that trusts the chain sends; `.checked()` asks every
@@ -212,7 +329,7 @@ impl Driver for CoinCopy {
                 sides.push((positions, side, sequence, slots));
             }
         }
-        let batches: Vec<Batch<'_>> = sides
+        let batches: Vec<Batch<'_, CoinGates>> = sides
             .iter()
             .map(|(_, shots, sequence, slots)| {
                 Batch::new(shots, sequence, *slots).checked_if(self.checked)
@@ -248,11 +365,7 @@ fn positions_showing(coin: &BatchReadouts, value: ReadoutValue) -> Vec<usize> {
 /// differently. It states only its instructions: by default it takes
 /// whatever arrives, and requires it below.
 struct BitFlip {
-    /// `CoinGates`, the instructions it accepts and sends.
-    set: InstructionSet,
     probability: f64,
-    /// The receiver's opcodes, from `bind`.
-    below: Option<OpcodeMap>,
     streams: BTreeMap<ShotId, Stream>,
     /// The readouts of the shots sent below one each, kept to reuse their
     /// memory from one `adapt` to the next.
@@ -262,9 +375,7 @@ struct BitFlip {
 impl BitFlip {
     fn new(probability: f64) -> Self {
         Self {
-            set: CoinGates::set(),
             probability,
-            below: None,
             streams: BTreeMap::new(),
             one_each: Readouts::new(),
         }
@@ -272,63 +383,52 @@ impl BitFlip {
 }
 
 impl Adapter for BitFlip {
-    fn accepts(&self) -> &InstructionSet {
-        &self.set
+    type Accepts = CoinGates;
+    type Sends = CoinGates;
+
+    fn accepts(&self) -> &CoinGates {
+        &CoinGates
     }
 
-    fn sends(&self) -> &InstructionSet {
-        &self.set
+    fn sends(&self) -> &CoinGates {
+        &CoinGates
     }
 
-    fn bind(&mut self, below: OpcodeMap) {
-        self.below = Some(below);
-    }
+    fn bind(&mut self, (): ()) {}
 
     async fn adapt(
         &mut self,
-        batches: &[Batch<'_>],
+        batches: &[Batch<'_, CoinGates>],
         seed: Seed,
-        below: &mut impl Executor,
+        below: &mut impl Executor<Accepts = CoinGates>,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
-        let map = self.below.as_ref().expect("the join binds before any run");
         // Apart from the executor's streams, which draw from `seed` itself.
         let own = seed.derive("bit_flip");
-        let mut sent: Vec<(ShotSet, Vec<Instruction>, u32, bool)> = Vec::new();
+        let mut sent: Vec<(ShotSet, Vec<Gate>, u32, bool)> = Vec::new();
         for batch in batches {
             for (j, id) in batch.shots.iter().enumerate() {
                 let stream = self
                     .streams
                     .entry(id)
                     .or_insert_with(|| Stream(own.shot(id)));
-                let mut instructions = Vec::with_capacity(batch.instructions.len() + 1);
-                for instruction in batch.instructions {
-                    // It came in this adapter's opcodes: the sender's
-                    // `bind` mapped it.
-                    let flips =
-                        instruction.opcode == CoinGates::X && stream.chance(self.probability);
-                    let mut mapped = instruction.clone();
-                    mapped.opcode = map.map(instruction.opcode);
-                    if flips {
-                        instructions.push(mapped.clone());
+                let mut gates = Vec::with_capacity(batch.instructions.len() + 1);
+                for &gate in batch.instructions {
+                    if matches!(gate, Gate::X(_)) && stream.chance(self.probability) {
+                        gates.push(gate);
                     }
-                    instructions.push(mapped);
+                    gates.push(gate);
                 }
                 let shot = batch.shots.select(&[j]).expect("a position of the batch");
-                sent.push((
-                    shot,
-                    instructions,
-                    batch.readout_slots(),
-                    batch.is_checked(),
-                ));
+                sent.push((shot, gates, batch.readout_slots(), batch.is_checked()));
             }
         }
-        let one_each: Vec<Batch<'_>> = sent
+        let one_each: Vec<Batch<'_, CoinGates>> = sent
             .iter()
-            .map(|(shots, instructions, slots, checked)| {
+            .map(|(shots, gates, slots, checked)| {
                 // Checked if the batch it came from was, as `Adapter`'s rule
                 // says; an `x` adds no readout slot.
-                Batch::new(shots, instructions, *slots).checked_if(*checked)
+                Batch::new(shots, gates, *slots).checked_if(*checked)
             })
             .collect();
         let readouts_below = self.one_each.readouts_for(&one_each);
@@ -359,16 +459,13 @@ impl Adapter for BitFlip {
 // -------------------------------------------------------------- the executor
 
 /// A toy executor whose qubits are classical bits: `h` tosses a bit from
-/// the shot's stream, `x` flips it, and `mz` reads it. It runs at most
-/// 1000 shots in one run, and resolves no readout parity (an argument
-/// that is the parity of earlier readouts, `Bit::Parity`): the coin's
-/// instructions take none. It counts the batches it receives, checked and
-/// unchecked, which shows whether a sender's checks reach it.
+/// the shot's stream, `x` flips it, and `mz` reads it. It holds 64 qubits
+/// and runs at most 1000 shots in one run. It counts the batches it
+/// receives, checked and unchecked, which shows whether a sender's checks
+/// reach it.
 struct Bits {
-    /// `CoinGates`, the instructions it runs.
-    accepts: InstructionSet,
-    /// 64 qubits, 1000 shots a run, no readout parity.
-    provides: Capabilities,
+    /// 64 qubits, 1000 shots a run.
+    provides: Capabilities<CoinGates>,
     /// The qubits each shot requires, from `ready`.
     qubits: usize,
     /// Each running shot's bits and stream, until it ends.
@@ -381,11 +478,12 @@ struct Bits {
 
 impl Bits {
     fn new() -> Self {
-        let resources = Resources::unconstrained().with_qubits(64).with_shots(1000);
-        let features = Features::unconstrained().with_readout_parity(false);
         Self {
-            accepts: CoinGates::set(),
-            provides: Capabilities::new(resources, features),
+            provides: Capabilities::new(
+                Resources::unconstrained().with_shots(1000),
+                Features::unconstrained(),
+                Qubits(64),
+            ),
             qubits: 0,
             shots: BTreeMap::new(),
             checked_batches: 0,
@@ -395,28 +493,25 @@ impl Bits {
 }
 
 impl Executor for Bits {
-    fn accepts(&self) -> &InstructionSet {
-        &self.accepts
+    type Accepts = CoinGates;
+
+    fn accepts(&self) -> &CoinGates {
+        &CoinGates
     }
 
-    fn provides(&self) -> &Capabilities {
+    fn provides(&self) -> &Capabilities<CoinGates> {
         &self.provides
     }
 
-    /// Holds the qubits the parts above require, or, if none states them,
-    /// every qubit it provides.
-    async fn ready(&mut self, above: &Capabilities) -> Result<(), NotReady> {
-        let qubit = BlockType::qubit();
-        let stated = above.resources().blocks(&qubit);
-        self.qubits = stated
-            .or(self.provides.resources().blocks(&qubit))
-            .unwrap_or(0) as usize;
+    /// Holds the qubits the parts above require.
+    async fn ready(&mut self, above: &Capabilities<CoinGates>) -> Result<(), NotReady> {
+        self.qubits = above.instructions().0 as usize;
         Ok(())
     }
 
     async fn execute(
         &mut self,
-        batches: &[Batch<'_>],
+        batches: &[Batch<'_, CoinGates>],
         seed: Seed,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
@@ -435,17 +530,16 @@ impl Executor for Bits {
                     .entry(id)
                     .or_insert_with(|| (vec![false; qubits], Stream(seed.shot(id))));
                 let mut row = batch_readouts.row_mut(position).iter_mut();
-                for instruction in batch.instructions {
+                for &gate in batch.instructions {
                     // Below the shot's qubits, as the parts above send them;
                     // a checked batch's checks refuse any other.
-                    let qubit = instruction.blocks[0] as usize;
-                    match instruction.opcode {
-                        CoinGates::H => bits[qubit] = stream.chance(0.5),
-                        CoinGates::X => bits[qubit] = !bits[qubit],
-                        CoinGates::MZ => {
+                    let qubit = gate.qubit() as usize;
+                    match gate {
+                        Gate::H(_) => bits[qubit] = stream.chance(0.5),
+                        Gate::X(_) => bits[qubit] = !bits[qubit],
+                        Gate::Mz(_) => {
                             *row.next().expect("a readout slot per `mz`") = bits[qubit].into();
                         }
-                        _ => unreachable!("the parts above send only instructions of the set"),
                     }
                 }
             }
@@ -481,7 +575,7 @@ impl Stream {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use executor_protocol_core::{Resource, ResourceMismatch, RunError, RunRefusal};
+    use executor_protocol_core::{ResourceMismatch, RunError, RunRefusal};
 
     /// A user who runs a few shots of a run again, with its seed, to look
     /// at them: each gets the values it had in the first run, the noise's
@@ -515,8 +609,7 @@ mod tests {
         };
         assert_eq!(
             fault.mismatch.capabilities.resources,
-            [ResourceMismatch {
-                key: Resource::Shots,
+            [ResourceMismatch::Shots {
                 required: 2000,
                 provided: 1000
             }]

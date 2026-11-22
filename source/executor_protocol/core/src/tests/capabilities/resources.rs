@@ -1,47 +1,73 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! What `Resources` adds to the one rule of every kind: blocks keyed by
-//! their type.
+//! How amounts fit: a required amount fits unless the provider states a
+//! smaller one.
 
-use super::carbon;
-use crate::{
-    BlockType, BoundaryCompatible, Capabilities, Features, Resource, ResourceMismatch, Resources,
-};
+use crate::tests::fake_parts::capabilities;
+use crate::{BoundaryCompatible, Features, ResourceMismatch, Resources};
 
 /// Each amount `required` states above what `provided` states, as
 /// [`Capabilities`](crate::Capabilities)' fit lists them.
-fn fit(required: Resources, provided: &Resources) -> Result<(), Vec<ResourceMismatch>> {
-    let fit = Capabilities::new(required, Features::unconstrained()).fits(&Capabilities::new(
-        provided.clone(),
-        Features::unconstrained(),
-    ));
-    fit.map(drop).map_err(|mismatch| mismatch.resources)
+fn fit(required: Resources, provided: Resources) -> Vec<ResourceMismatch> {
+    let fit = capabilities(required, Features::unconstrained())
+        .fits(&capabilities(provided, Features::unconstrained()));
+    fit.map_or_else(|mismatch| mismatch.resources, |()| Vec::new())
 }
 
-fn short_blocks(block_type: BlockType, required: u32, provided: u32) -> ResourceMismatch {
-    ResourceMismatch {
-        key: Resource::Blocks(block_type),
-        required,
-        provided,
-    }
-}
-
-/// Each block type is a resource of its own, as qubits are one type among
-/// them: a requirement of one type is checked against the provider's count
-/// of that type alone. So a type provided 0 times is short of any blocks
-/// of it, beside qubits that fit. A fit reading one type's count as
-/// another's, or keying every block type alike, fails it.
+/// A required amount fits a provided one unless the provider states a
+/// smaller one, so that a part states only what it needs or limits: an
+/// amount a part does not state, it neither needs nor limits, on either
+/// side. Each amount required above the one provided is listed, with both
+/// amounts, every one at once and in the fields' order. A fit refusing an
+/// equal amount fails "an equal amount"; one reading an amount the
+/// provider does not state as a limit fails "an amount the provider does
+/// not state"; one listing only the first, or in another order, fails
+/// "every larger amount".
 #[test]
-fn each_block_type_is_a_resource_of_its_own() {
-    let required = Resources::unconstrained()
-        .with_qubits(1)
-        .with_blocks(carbon(), 2);
-    let provided = Resources::unconstrained()
-        .with_qubits(8)
-        .with_blocks(carbon(), 0);
-    assert_eq!(
-        fit(required, &provided),
-        Err(vec![short_blocks(carbon(), 2, 0)])
-    );
+fn a_required_amount_fits_unless_a_stated_provided_amount_is_smaller() {
+    let none = Resources::unconstrained();
+    let shots = |n| none.with_shots(n);
+    for (row, required, provided, expected) in [
+        (
+            "an amount the requirer does not state",
+            none,
+            shots(0),
+            vec![],
+        ),
+        (
+            "an amount the provider does not state",
+            shots(u32::MAX),
+            none,
+            vec![],
+        ),
+        ("an equal amount", shots(4), shots(4), vec![]),
+        ("a smaller amount", shots(3), shots(4), vec![]),
+        (
+            "a larger amount",
+            shots(5),
+            shots(4),
+            vec![ResourceMismatch::Shots {
+                required: 5,
+                provided: 4,
+            }],
+        ),
+        (
+            "every larger amount",
+            none.with_instructions_per_batch(9).with_shots(5),
+            none.with_shots(4).with_instructions_per_batch(8),
+            vec![
+                ResourceMismatch::Shots {
+                    required: 5,
+                    provided: 4,
+                },
+                ResourceMismatch::InstructionsPerBatch {
+                    required: 9,
+                    provided: 8,
+                },
+            ],
+        ),
+    ] {
+        assert_eq!(fit(required, provided), expected, "{row}");
+    }
 }

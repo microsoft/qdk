@@ -37,22 +37,24 @@ use crate::{
 /// is checked against what is accepted and provided across it, the count
 /// of every batch, and the instructions of each checked one. The readouts
 /// of each batch are shaped from the batch.
-pub(crate) struct BoundaryCrossing<'a, E> {
+pub(crate) struct BoundaryCrossing<'a, E: Executor> {
     inner: &'a mut E,
     /// The boundary: the part that receives `inner`'s calls, if known,
     /// which a panic of `inner` names, what is accepted and provided across
     /// it, and the batch limits.
-    boundary: &'a Boundary,
+    boundary: &'a Boundary<E::Accepts>,
 }
 
 impl<'a, E: Executor> BoundaryCrossing<'a, E> {
     /// `inner`, below `boundary`.
-    pub(crate) fn new(inner: &'a mut E, boundary: &'a Boundary) -> Self {
+    pub(crate) fn new(inner: &'a mut E, boundary: &'a Boundary<E::Accepts>) -> Self {
         Self { inner, boundary }
     }
 }
 
 impl<E: Executor> Executor for BoundaryCrossing<'_, E> {
+    type Accepts = E::Accepts;
+
     /// The receiver's.
     fn name(&self) -> &str {
         self.inner.name()
@@ -61,12 +63,12 @@ impl<E: Executor> Executor for BoundaryCrossing<'_, E> {
     /// What is accepted across the boundary, as the joins' fit read it,
     /// not the receiver's answer now: a receiver whose set changes later
     /// gets checked batches checked against the set read at composition.
-    fn accepts(&self) -> &InstructionSet {
+    fn accepts(&self) -> &E::Accepts {
         &self.boundary.accepted
     }
 
     /// What is provided across the boundary, as the joins' fit read it.
-    fn provides(&self) -> &Capabilities {
+    fn provides(&self) -> &Capabilities<E::Accepts> {
         &self.boundary.provided
     }
 
@@ -81,7 +83,7 @@ impl<E: Executor> Executor for BoundaryCrossing<'_, E> {
     /// receiver.
     async fn execute(
         &mut self,
-        batches: &[Batch<'_>],
+        batches: &[Batch<'_, E::Accepts>],
         seed: Seed,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
@@ -137,7 +139,11 @@ impl<E: Executor> Executor for BoundaryCrossing<'_, E> {
 /// batch is refused.
 #[cold]
 #[inline(never)]
-fn refused(index: usize, batch: &Batch<'_>, fault: BatchFault) -> ExecuteError {
+fn refused<S: InstructionSet>(
+    index: usize,
+    batch: &Batch<'_, S>,
+    fault: BatchFault,
+) -> ExecuteError {
     ExecuteError::Refused(ExecuteRefusal::Batch {
         shot: batch.shots.first(),
         batch: index,

@@ -5,10 +5,11 @@
 //! shot without ending it.
 //!
 //! A level of a code rejects a shot whose checks failed, a decoder finds a
-//! shot's checks inconsistent, an executor cannot resolve a readout parity
-//! that counts a lost readout: in each case the shot runs on, and its readouts
-//! stand, but whoever reads its results must know they are suspect. So each
-//! row of a batch's readouts carries its shot's conditions; a part above
+//! shot's checks inconsistent, an executor cannot resolve a value its
+//! instructions read that counts a lost readout: in each case the shot
+//! runs on, and its readouts stand, but whoever reads its results must
+//! know they are suspect. So each row of a batch's readouts carries its
+//! shot's conditions; a part above
 //! must merge those it reads below with its own, by union, and pass them up,
 //! so that the driver sees every condition raised on the shot, at any
 //! level. A row reports the conditions raised on its shot in that
@@ -42,8 +43,8 @@ impl ShotConditions {
     /// cannot all hold, so its corrected results may be wrong.
     pub const INCONSISTENT: Self = Self(1 << 1);
     /// A value the shot depends on could not be determined, such as a
-    /// readout parity, steering a later instruction, that counts a lost
-    /// readout.
+    /// value its instructions read, steering a later instruction, that
+    /// counts a lost readout.
     pub const UNRESOLVED: Self = Self(1 << 2);
 
     /// The named conditions, in the order `Debug` lists them.

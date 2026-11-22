@@ -5,10 +5,15 @@
 //! once: `use executor_protocol_core::prelude::*;`.
 //!
 //! The roles ([`Driver`], [`Adapter`], [`Executor`]) are what a part
-//! implements; the joins ([`DriverJoins`], [`AdapterJoins`]) give every
+//! implements; [`InstructionSet`] is what the instructions they exchange
+//! implement, and [`Lowering`] what runs one set's instructions on
+//! another's; the joins ([`DriverJoins`], [`AdapterJoins`]) give every
 //! part `through` and `on`, and [`BoundaryCompatible`] gives
-//! [`Capabilities`](crate::Capabilities) and
-//! [`InstructionSet`](crate::InstructionSet) their `fits`, which a method
-//! call reaches only when its trait is in scope.
+//! [`Capabilities`](crate::Capabilities) and every instruction set their
+//! `fits`. A method call reaches a trait's methods only when the trait is
+//! in scope.
 
-pub use crate::{Adapter, AdapterJoins, BoundaryCompatible, Driver, DriverJoins, Executor};
+pub use crate::{
+    Adapter, AdapterJoins, BoundaryCompatible, Driver, DriverJoins, Executor, InstructionSet,
+    Lowering,
+};

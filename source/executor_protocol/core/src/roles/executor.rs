@@ -15,7 +15,8 @@ use crate::{
     ShotId, ShotSet,
 };
 
-/// Runs batches of the instructions it accepts on their shots' states.
+/// Runs batches of the instructions it accepts, of its set
+/// [`Accepts`](Self::Accepts), on their shots' states.
 ///
 /// It is the part at the bottom of a chain, and the part a driver or an
 /// adapter calls below it: the rest of the chain, joined, is one executor
@@ -35,7 +36,7 @@ use crate::{
 /// [`AdapterJoins`](crate::AdapterJoins)) read them before any run:
 /// [`name`](Self::name), [`accepts`](Self::accepts) and
 /// [`provides`](Self::provides). It gets no hand-back: it sends nothing,
-/// so it gets no opcode map. A join only decides, from what the parts
+/// so it gets no binding. A join only decides, from what the parts
 /// declare; what prepares a part to run belongs to each run, which starts
 /// with [`ready`](Self::ready), given what arrives at it.
 ///
@@ -51,6 +52,10 @@ use crate::{
 /// ends its shots ([`end_shots`](Self::end_shots)), and the part above
 /// calls it ([`execute`](Self::execute)).
 pub trait Executor {
+    /// The instruction set it runs: the part above must send the same,
+    /// checked at compile time.
+    type Accepts: InstructionSet;
+
     /// The part's name in messages, such as a composition fault or a
     /// run's failure; by default its type's, `std::any::type_name`.
     ///
@@ -74,26 +79,28 @@ pub trait Executor {
     /// Each checked batch it receives is checked against them as read by
     /// the `on` that made the runner, or by the join that made the joined
     /// part it is in.
-    fn accepts(&self) -> &InstructionSet;
+    fn accepts(&self) -> &Self::Accepts;
 
-    /// Its fixed limits on what arrives from above, such as its most
-    /// qubits, its most shots in a run, or whether a run may fix its seed:
-    /// what arrives must fit them, as [`Capabilities`] says.
+    /// Its fixed limits on what arrives from above, such as its most shots
+    /// in a run, whether a run may fix its seed, or what its set's
+    /// capabilities say it holds: what arrives must fit them, as
+    /// [`Capabilities`] says.
     ///
-    /// By default [`Capabilities::UNCONSTRAINED`]: it states nothing.
+    /// By default its set's
+    /// [`unconstrained`](InstructionSet::unconstrained): it states nothing.
     /// Stating its real limits is the writer's job: an executor that does
     /// not lets `on` accept a chain it cannot run, which then fails as it
     /// runs.
-    fn provides(&self) -> &Capabilities {
-        &crate::capabilities::NO_LIMITS
+    fn provides(&self) -> &Capabilities<Self::Accepts> {
+        Self::Accepts::unconstrained()
     }
 
     /// Gets this part ready for a run, before anything of the run runs, for
-    /// `above`, what arrives from the part above: each
-    /// [`Resource`](crate::Resource) and [`Feature`](crate::Feature) it
-    /// states, such as the blocks of each type a shot holds at once, the most
-    /// shots of a run, or whether a shot is run again alone. It takes what it
-    /// needs to run, such as a device, or a layout of its blocks; or, when it
+    /// `above`, what arrives from the part above: its
+    /// [`Resources`](crate::Resources), such as the most shots of a run, its
+    /// [`Features`](crate::Features), such as whether a shot is run again
+    /// alone, and its set's capabilities. It takes what it needs to run, such
+    /// as a device; or, when it
     /// cannot take a run now, such as when its device is busy or its resources
     /// are not available, answers [`NotReady`], which refuses the run
     /// ([`RunRefusal::PartNotReady`](crate::RunRefusal::PartNotReady)). By
@@ -106,7 +113,10 @@ pub trait Executor {
     /// that refuses: no part above it is asked, nor any part when the run
     /// is refused for what it requires, nor a part the run has not
     /// reached when its future is dropped, or is never polled.
-    fn ready(&mut self, above: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
+    fn ready(
+        &mut self,
+        above: &Capabilities<Self::Accepts>,
+    ) -> impl Future<Output = Result<(), NotReady>> {
         let _ = above;
         async { Ok(()) }
     }
@@ -175,7 +185,7 @@ pub trait Executor {
     /// first polled.
     fn execute(
         &mut self,
-        batches: &[Batch<'_>],
+        batches: &[Batch<'_, Self::Accepts>],
         seed: Seed,
         readouts: &mut [BatchReadouts],
     ) -> impl Future<Output = Result<(), ExecuteError>>;
@@ -204,7 +214,7 @@ pub trait Executor {
     /// The [`on`](crate::DriverJoins::on) that makes a runner calls it,
     /// and the runner on each run.
     #[doc(hidden)]
-    fn declare<'a>(&'a self, above: &Capabilities, parts: &mut DeclaredParts<'a>) {
+    fn declare<'a>(&'a self, above: &Capabilities<Self::Accepts>, parts: &mut DeclaredParts<'a>) {
         parts.push(Executor::name(self));
         parts.receive(self.accepts(), self.provides(), above);
     }
@@ -215,7 +225,7 @@ pub trait Executor {
     #[doc(hidden)]
     fn ready_at(
         &mut self,
-        above: &Capabilities,
+        above: &Capabilities<Self::Accepts>,
         at: ChainPosition<'_>,
     ) -> impl Future<Output = Result<(), NotReady>> {
         let _ = at;
@@ -227,25 +237,30 @@ pub trait Executor {
 // lint fails the build if a new one falls back to its default instead.
 #[deny(clippy::missing_trait_methods)]
 impl<E: Executor + ?Sized> Executor for &mut E {
+    type Accepts = E::Accepts;
+
     fn name(&self) -> &str {
         (**self).name()
     }
 
-    fn accepts(&self) -> &InstructionSet {
+    fn accepts(&self) -> &E::Accepts {
         (**self).accepts()
     }
 
-    fn provides(&self) -> &Capabilities {
+    fn provides(&self) -> &Capabilities<E::Accepts> {
         (**self).provides()
     }
 
-    fn ready(&mut self, above: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
+    fn ready(
+        &mut self,
+        above: &Capabilities<E::Accepts>,
+    ) -> impl Future<Output = Result<(), NotReady>> {
         (**self).ready(above)
     }
 
     fn execute(
         &mut self,
-        batches: &[Batch<'_>],
+        batches: &[Batch<'_, E::Accepts>],
         seed: Seed,
         readouts: &mut [BatchReadouts],
     ) -> impl Future<Output = Result<(), ExecuteError>> {
@@ -256,13 +271,13 @@ impl<E: Executor + ?Sized> Executor for &mut E {
         (**self).end_shots(shots);
     }
 
-    fn declare<'a>(&'a self, above: &Capabilities, parts: &mut DeclaredParts<'a>) {
+    fn declare<'a>(&'a self, above: &Capabilities<E::Accepts>, parts: &mut DeclaredParts<'a>) {
         (**self).declare(above, parts);
     }
 
     fn ready_at(
         &mut self,
-        above: &Capabilities,
+        above: &Capabilities<E::Accepts>,
         at: ChainPosition<'_>,
     ) -> impl Future<Output = Result<(), NotReady>> {
         (**self).ready_at(above, at)
@@ -312,7 +327,7 @@ impl Error for ExecuteError {}
 /// [`EarlierFailure`](Self::EarlierFailure). They share one type because
 /// the boundary is itself an [`Executor`] to the part above, which gets
 /// either kind from the `execute` it calls.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum ExecuteRefusal {
     /// `batches[batch]` is refused, for `fault`; `shot` is that batch's

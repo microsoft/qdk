@@ -1,27 +1,63 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! What `Features` adds to the one rule of every kind: replay requires
-//! seeded runs.
+//! How features fit: one used and stated lacking is the one mismatch; and
+//! replay requires seeded runs.
 
-use crate::{BoundaryCompatible, Capabilities, Feature, FeatureMismatch, Features, Resources};
+use crate::tests::fake_parts::capabilities;
+use crate::{BoundaryCompatible, FeatureMismatch, Features, Resources};
 
-/// Each feature `required` uses that `provided` states it does not provide,
-/// as [`Capabilities`](crate::Capabilities)' fit lists them.
-fn fit(required: Features, provided: &Features) -> Result<(), Vec<FeatureMismatch>> {
-    let fit = Capabilities::new(Resources::unconstrained(), required).fits(&Capabilities::new(
-        Resources::unconstrained(),
-        provided.clone(),
-    ));
-    fit.map(drop).map_err(|mismatch| mismatch.features)
+/// Each feature `required` uses that `provided` states it lacks, as
+/// [`Capabilities`](crate::Capabilities)' fit lists them.
+fn fit(required: Features, provided: Features) -> Vec<FeatureMismatch> {
+    let fit = capabilities(Resources::unconstrained(), required)
+        .fits(&capabilities(Resources::unconstrained(), provided));
+    fit.map_or_else(|mismatch| mismatch.features, |()| Vec::new())
 }
 
-/// The mismatch of `feature`, required and not provided.
-fn missing(feature: Feature) -> FeatureMismatch {
-    FeatureMismatch {
-        key: feature,
-        required: true,
-        provided: false,
+/// A feature required fits unless it is used (`true`) and the provider
+/// states it lacking (`false`): a feature a part does not state, it
+/// neither uses nor lacks, on either side. Each one lacking is listed, in
+/// the fields' order. A fit refusing a feature not used fails "`false`
+/// over `true`"; one reading a feature the provider does not state as
+/// lacking fails "a feature the provider does not state"; one listing only
+/// the first fails "every feature lacking".
+#[test]
+fn a_used_feature_fits_unless_the_provider_states_it_lacking() {
+    let none = Features::unconstrained();
+    let replay = |yes| Features {
+        replay: Some(yes),
+        ..none
+    };
+    for (row, required, provided, expected) in [
+        (
+            "a feature the requirer does not state",
+            none,
+            replay(false),
+            vec![],
+        ),
+        (
+            "a feature the provider does not state",
+            replay(true),
+            none,
+            vec![],
+        ),
+        ("`false` over `true`", replay(false), replay(true), vec![]),
+        ("`true` over `true`", replay(true), replay(true), vec![]),
+        (
+            "`true` over `false`",
+            replay(true),
+            replay(false),
+            vec![FeatureMismatch::Replay],
+        ),
+        (
+            "every feature lacking",
+            none.with_replay(true),
+            none.with_seeded_runs(false),
+            vec![FeatureMismatch::Replay, FeatureMismatch::SeededRuns],
+        ),
+    ] {
+        assert_eq!(fit(required, provided), expected, "{row}");
     }
 }
 
@@ -35,18 +71,19 @@ fn missing(feature: Feature) -> FeatureMismatch {
 #[test]
 fn replay_requires_seeded_runs() {
     let replay = || Features::unconstrained().with_replay(true);
+    let both = vec![FeatureMismatch::Replay, FeatureMismatch::SeededRuns];
     for (row, required, provided, expected) in [
         (
             "replay over runs without seeded runs",
             replay(),
             Features::unconstrained().with_seeded_runs(false),
-            Err(vec![missing(Feature::Replay), missing(Feature::SeededRuns)]),
+            both.clone(),
         ),
         (
             "replay, then no seeded runs, stated by a provider",
             replay(),
             replay().with_seeded_runs(false),
-            Err(vec![missing(Feature::Replay), missing(Feature::SeededRuns)]),
+            both,
         ),
         (
             "no seeded runs, then replay, stated by a provider",
@@ -54,9 +91,9 @@ fn replay_requires_seeded_runs() {
             Features::unconstrained()
                 .with_seeded_runs(false)
                 .with_replay(true),
-            Ok(()),
+            vec![],
         ),
     ] {
-        assert_eq!(fit(required, &provided), expected, "{row}");
+        assert_eq!(fit(required, provided), expected, "{row}");
     }
 }

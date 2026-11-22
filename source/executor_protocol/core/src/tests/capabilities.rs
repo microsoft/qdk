@@ -2,140 +2,139 @@
 // Licensed under the MIT License.
 
 //! What a part requires against what the part below provides, at one
-//! boundary: every mismatch of each kind, at once. The one rule every kind
-//! follows is pinned once, in `statements.rs`; each kind's file pins only
-//! what that kind adds.
+//! boundary: every mismatch of each kind, the set's own capabilities
+//! among them, at once; and the set's capabilities, which flow down a
+//! chain as its resources and features do. Each kind's file pins how that
+//! kind fits.
 
 mod features;
 mod resources;
-mod statements;
 
 /// The boundary a run's batches cross.
 mod boundary {
     mod batch_limits;
 }
 
+use std::any::type_name;
+
+use crate::prelude::*;
+use crate::tests::example_sets::{QubitLimited, Qubits, TooFewQubits};
+use crate::tests::fake_parts::{Log, QubitPassThrough, QubitProgram, QubitRegister};
 use crate::{
-    BlockType, BoundaryCompatible, Capabilities, CapabilitiesMismatch, Feature, FeatureMismatch,
-    Features, Resource, ResourceMismatch, Resources,
+    Capabilities, CapabilitiesMismatch, FeatureMismatch, Features, PartId, ResourceMismatch,
+    Resources, ShotSet,
 };
 
-fn carbon() -> BlockType {
-    BlockType::new("carbon")
-}
-
-/// A driver requiring 9 qubits, 3 carbon blocks, runs of 10 shots and
-/// batches of 4, using every feature, over an executor taking 8 qubits and
-/// 2 carbon blocks, runs of 5 and batches of 1, and no feature.
-fn every_kind_short() -> (Capabilities, Capabilities) {
+/// A driver requiring 9 qubits, runs of 10 shots and batches of 4, using
+/// every feature, over an executor taking 8 qubits, runs of 5 and batches
+/// of 1, and no feature.
+fn every_kind_short() -> (Capabilities<QubitLimited>, Capabilities<QubitLimited>) {
     let required = Capabilities::new(
         Resources::unconstrained()
-            .with_qubits(9)
-            .with_blocks(carbon(), 3)
             .with_shots(10)
             .with_instructions_per_batch(4),
-        Features::unconstrained()
-            .with_seeded_runs(true)
-            .with_replay(true)
-            .with_readout_parity(true),
+        Features::unconstrained().with_replay(true),
+        Qubits(9),
     );
     let provided = Capabilities::new(
         Resources::unconstrained()
-            .with_qubits(8)
-            .with_blocks(carbon(), 2)
             .with_shots(5)
             .with_instructions_per_batch(1),
-        Features::unconstrained()
-            .with_readout_parity(false)
-            .with_replay(false)
-            .with_seeded_runs(false),
+        Features::unconstrained().with_seeded_runs(false),
+        Qubits(8),
     );
     (required, provided)
 }
 
+/// The set's own mismatch in `mismatch`, read as its type.
+fn qubits_short(mismatch: &CapabilitiesMismatch) -> Option<&TooFewQubits> {
+    (mismatch.instructions.as_ref())
+        .map(|mismatch| mismatch.downcast_ref().expect("the set's own mismatch"))
+}
+
 /// Whoever builds the chain fixes every mismatch at once: each short
-/// amount, the blocks by type, the shots, the instructions per batch, then
-/// each feature not provided, readout parity, replay, seeded runs.
+/// amount, the shots, then the instructions per batch; each feature not
+/// provided, replay, then seeded runs; and the set's own capabilities
+/// short, as the set's own mismatch, which reads as its type.
 #[test]
 fn every_mismatch_of_each_kind_is_listed_at_once_in_order() {
     let (required, provided) = every_kind_short();
     let mismatch = required.fits(&provided).expect_err("nothing fits");
-    let short = |key, required, provided| ResourceMismatch {
-        key,
-        required,
-        provided,
-    };
-    let missing = |key| FeatureMismatch {
-        key,
-        required: true,
-        provided: false,
-    };
-    let expected = CapabilitiesMismatch {
-        resources: vec![
-            short(Resource::Blocks(carbon()), 3, 2),
-            short(Resource::Blocks(BlockType::qubit()), 9, 8),
-            short(Resource::Shots, 10, 5),
-            short(Resource::InstructionsPerBatch, 4, 1),
-        ],
-        features: vec![
-            missing(Feature::ReadoutParity),
-            missing(Feature::Replay),
-            missing(Feature::SeededRuns),
-        ],
-    };
-    assert_eq!(mismatch, expected);
+    assert_eq!(
+        mismatch.resources,
+        [
+            ResourceMismatch::Shots {
+                required: 10,
+                provided: 5
+            },
+            ResourceMismatch::InstructionsPerBatch {
+                required: 4,
+                provided: 1
+            },
+        ]
+    );
+    assert_eq!(
+        mismatch.features,
+        [FeatureMismatch::Replay, FeatureMismatch::SeededRuns]
+    );
+    assert_eq!(
+        qubits_short(&mismatch),
+        Some(&TooFewQubits {
+            required: 9,
+            provided: 8
+        })
+    );
 }
 
-/// Capabilities fit only when both kinds fit: a resource short alone, or
-/// a feature missing alone, is a mismatch listing it and nothing of the
-/// other kind. A fit reading one kind alone fails the row of the other.
+/// Capabilities fit only when every kind fits: a resource short alone, a
+/// feature missing alone, or the set's capabilities short alone, is a
+/// mismatch listing it and nothing of the other kinds. A fit reading some
+/// kinds alone fails the row of another.
 #[test]
 fn capabilities_fit_only_when_every_kind_fits() {
-    let required = Capabilities::new(
-        Resources::unconstrained().with_qubits(9),
+    let required = Capabilities::<QubitLimited>::new(
+        Resources::unconstrained().with_shots(9),
         Features::unconstrained().with_replay(true),
+        Qubits(9),
     );
-    let short_qubits = ResourceMismatch {
-        key: Resource::Blocks(BlockType::qubit()),
-        required: 9,
-        provided: 8,
-    };
-    let no_replay = FeatureMismatch {
-        key: Feature::Replay,
-        required: true,
-        provided: false,
-    };
-    for (row, provided, expected) in [
+    let fitting = || required.clone();
+    for (row, provided, shots_short, replay_missing, qubits_short_by) in [
         (
             "a resource short alone",
-            Capabilities::new(
-                Resources::unconstrained().with_qubits(8),
-                Features::unconstrained(),
-            ),
-            CapabilitiesMismatch {
-                resources: vec![short_qubits],
-                ..CapabilitiesMismatch::default()
-            },
+            fitting().map_resources(|resources| resources.with_shots(8)),
+            true,
+            false,
+            None,
         ),
         (
             "a feature missing alone",
-            Capabilities::new(
-                Resources::unconstrained(),
-                Features::unconstrained().with_replay(false),
-            ),
-            CapabilitiesMismatch {
-                features: vec![no_replay],
-                ..CapabilitiesMismatch::default()
-            },
+            fitting().map_features(|features| features.with_replay(false)),
+            false,
+            true,
+            None,
+        ),
+        (
+            "the set's capabilities short alone",
+            Capabilities::new(*required.resources(), *required.features(), Qubits(8)),
+            false,
+            false,
+            Some(TooFewQubits {
+                required: 9,
+                provided: 8,
+            }),
         ),
     ] {
-        assert_eq!(required.fits(&provided).map(drop), Err(expected), "{row}");
+        let mismatch = required.fits(&provided).expect_err(row);
+        assert_eq!(!mismatch.resources.is_empty(), shots_short, "{row}");
+        assert_eq!(!mismatch.features.is_empty(), replay_missing, "{row}");
+        assert_eq!(qubits_short(&mismatch), qubits_short_by.as_ref(), "{row}");
     }
+    assert!(required.fits(&fitting()).is_ok(), "what it requires itself");
 }
 
 /// A mismatch's message names what is at fault, for a user who reads which
 /// requirement to lower, or which part to change: each of its mismatches,
-/// a short amount with both amounts.
+/// a short amount with both amounts, the set's own in the set's words.
 #[test]
 fn a_mismatch_names_what_is_at_fault() {
     let (required, provided) = every_kind_short();
@@ -144,17 +143,61 @@ fn a_mismatch_names_what_is_at_fault() {
         .expect_err("nothing fits")
         .to_string();
     for named in [
-        &["carbon", "3", "2"][..],
-        &["qubit", "9", "8"],
-        &["shots", "10", "5"],
+        &["shots", "10", "5"][..],
         &["instructions per batch", "4", "1"],
-        &["readout parit"],
         &["replay"],
-        &["seed"],
+        &["seeded runs"],
+        &["qubits", "9", "8"],
     ] {
         let piece = message
             .split("; ")
             .find(|piece| named.iter().all(|word| piece.contains(word)));
         assert!(piece.is_some(), "one mismatch names {named:?}: {message}");
     }
+}
+
+/// The set's capabilities flow down the chain as its resources and
+/// features do: what the driver requires passes the adapter and is fit
+/// against the executor's at `on`, which refuses a short one naming the
+/// driver and the executor, with the set's own mismatch; and a chain that
+/// fits gets each part ready for the qubits the driver requires. A
+/// default `requires` dropping the set's capabilities, or a fit not
+/// reading them, fails.
+#[test]
+fn the_sets_capabilities_flow_down_and_are_fit_at_on() {
+    let log = Log::default();
+    let faults = QubitProgram::new(&[0, 2], 3)
+        .through(QubitPassThrough::new(&log))
+        .on(QubitRegister::new(2, &log))
+        .err()
+        .expect("2 qubits are short of 3");
+    let [fault] = faults.faults() else {
+        panic!("one fault: {faults}");
+    };
+    assert_eq!(fault.requirer, PartId::new(0, type_name::<QubitProgram>()));
+    assert_eq!(fault.provider, PartId::new(2, type_name::<QubitRegister>()));
+    assert_eq!(
+        qubits_short(&fault.mismatch.capabilities),
+        Some(&TooFewQubits {
+            required: 3,
+            provided: 2
+        })
+    );
+
+    let log = Log::default();
+    let Ok(mut runner) = QubitProgram::new(&[0, 2], 3)
+        .through(QubitPassThrough::new(&log))
+        .on(QubitRegister::new(4, &log))
+    else {
+        panic!("3 qubits of 4 compose");
+    };
+    runner.run(&ShotSet::ids([1]), 7).expect("3 qubits of 4");
+    assert_eq!(
+        log.entries(),
+        [
+            "QubitRegister ready for 3 qubits",
+            "QubitPassThrough ready for 3 qubits",
+            "QubitRegister execute",
+        ]
+    );
 }

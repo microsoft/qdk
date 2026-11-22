@@ -12,6 +12,7 @@ mod boundary_compatible;
 mod capabilities;
 mod composition;
 mod instruction_set;
+mod lowering;
 mod part_id;
 pub mod prelude;
 mod roles;
@@ -33,19 +34,15 @@ pub use batch::{
 pub use boundary_compatible::BoundaryCompatible;
 pub(crate) use capabilities::Boundary;
 pub use capabilities::{
-    BatchFault, Capabilities, CapabilitiesMismatch, Feature, FeatureMismatch, Features, Resource,
-    ResourceMismatch, Resources, StatementMismatch, Statements,
+    BatchFault, Capabilities, CapabilitiesMismatch, FeatureMismatch, Features, ResourceMismatch,
+    Resources,
 };
 pub use composition::{
     AdapterJoins, BoundaryMismatch, CompositionFault, CompositionFaults, DriverJoins, RunError,
     RunRefusal, Runner,
 };
-pub use instruction_set::{
-    Angle, Argument, Arguments, Bit, BlockOperand, BlockType, Blocks, DeclarationFault, Guard,
-    Instruction, InstructionDef, InstructionFault, InstructionMismatch, InstructionSet, Meaning,
-    MeaningFault, Observable, Opcode, OpcodeMap, Parameter, ParameterKind, Pauli, ReadoutParity,
-    SelectPattern,
-};
+pub use instruction_set::{Binding, InstructionSet};
+pub use lowering::{Lowered, Lowering};
 pub use part_id::PartId;
 pub use roles::{
     Adapter, DriveError, Driver, ExecuteError, ExecuteRefusal, Executor, Failure, NotReady,

@@ -3,18 +3,19 @@
 
 //! The fake drivers.
 
-use super::{CoinGates, Log, Values, coin_gate, coin_gates};
+use super::{BEYOND_THE_SET, Log, Values, batches_of, capabilities, coin_gate, coin_gates};
 use crate::prelude::*;
+use crate::tests::example_sets::{Gate, Measuring};
 use crate::{
-    Batch, Capabilities, DriveError, Feature, Features, Instruction, InstructionSet, NotReady,
-    OpcodeMap, ReadoutValue, Readouts, Resource, Resources, Seed, ShotConditions, ShotSet,
+    Batch, Binding, Capabilities, DriveError, Features, NotReady, ReadoutValue, Readouts,
+    Resources, Seed, ShotConditions, ShotSet,
 };
 
 /// A coin tossed on qubit 0, copied onto qubit 1: a toss for every shot in
 /// one batch, then, by the coin, a flip and a read, or a read, as two
 /// batches of one `execute`. Each shot's output is its two values.
 pub(crate) struct CoinCopy {
-    sequences: [Vec<Instruction>; 3],
+    sequences: [Vec<Gate>; 3],
     /// Each sequence's readout slots.
     slots: [u32; 3],
     /// Where it logs that it gets ready, and for what, if anywhere.
@@ -30,11 +31,9 @@ impl CoinCopy {
             vec![coin_gate("x", 1), coin_gate("mz", 1)],
             vec![coin_gate("mz", 1)],
         ];
-        let slots = sequences.each_ref().map(|sequence| {
-            coin_gates()
-                .readout_slots_of(sequence)
-                .expect("instructions of the set")
-        });
+        let slots = sequences
+            .each_ref()
+            .map(|sequence| slots_of(coin_gates(), sequence));
         Self {
             sequences,
             slots,
@@ -53,7 +52,7 @@ impl CoinCopy {
     }
 
     /// What it logs when it gets ready for a run that requires `run`.
-    pub(crate) fn ready_for(run: &Capabilities) -> String {
+    pub(crate) fn ready_for(run: &Capabilities<Measuring>) -> String {
         format!("CoinCopy ready for {run:?}")
     }
 
@@ -67,25 +66,27 @@ impl CoinCopy {
 }
 
 impl Driver for CoinCopy {
-    fn sends(&self) -> &InstructionSet {
+    type Sends = Measuring;
+
+    fn sends(&self) -> &Measuring {
         coin_gates()
     }
 
-    /// The run's, on 2 qubits.
-    fn requires(&self, run: &Capabilities) -> Capabilities {
+    /// The run's, in batches of 2 instructions, its longest.
+    fn requires(&self, run: &Capabilities<Measuring>) -> Capabilities<Measuring> {
         run.clone()
-            .map_resources(|resources| resources.with_qubits(2))
+            .map_resources(|resources| resources.with_instructions_per_batch(2))
     }
 
-    fn bind(&mut self, below: OpcodeMap) {
-        for instruction in self.sequences.iter_mut().flatten() {
-            instruction.opcode = below.map(instruction.opcode);
+    fn bind(&mut self, below: Vec<u32>) {
+        for gate in self.sequences.iter_mut().flatten() {
+            *gate = Measuring::bound(&below, *gate);
         }
     }
 
     type Output = Values;
 
-    async fn ready(&mut self, run: &Capabilities) -> Result<(), NotReady> {
+    async fn ready(&mut self, run: &Capabilities<Measuring>) -> Result<(), NotReady> {
         if let Some(log) = &self.log {
             log.push(Self::ready_for(run));
         }
@@ -99,7 +100,7 @@ impl Driver for CoinCopy {
         &mut self,
         shots: &ShotSet,
         seed: Seed,
-        below: &mut impl Executor,
+        below: &mut impl Executor<Accepts = Measuring>,
     ) -> Result<Vec<Values>, DriveError> {
         let mut tossed = Readouts::new();
         let toss = [Batch::new(shots, &self.sequences[0], self.slots[0])];
@@ -113,7 +114,7 @@ impl Driver for CoinCopy {
                 .collect()
         };
         let (heads, tails) = (at(ReadoutValue::One), at(ReadoutValue::Zero));
-        let sets: Vec<(&[usize], ShotSet, &[Instruction], u32)> = [
+        let sets: Vec<(&[usize], ShotSet, &[Gate], u32)> = [
             (&heads, &self.sequences[1], self.slots[1]),
             (&tails, &self.sequences[2], self.slots[2]),
         ]
@@ -127,7 +128,7 @@ impl Driver for CoinCopy {
             ))
         })
         .collect();
-        let batches: Vec<Batch<'_>> = sets
+        let batches: Vec<Batch<'_, Measuring>> = sets
             .iter()
             .map(|(_, shots, instructions, slots)| Batch::new(shots, instructions, *slots))
             .collect();
@@ -149,17 +150,22 @@ impl Driver for CoinCopy {
 pub(crate) struct PassesTheRun<D>(pub(crate) D);
 
 impl<D: Driver> Driver for PassesTheRun<D> {
-    fn sends(&self) -> &InstructionSet {
+    type Sends = D::Sends;
+
+    fn sends(&self) -> &D::Sends {
         self.0.sends()
     }
 
-    fn bind(&mut self, below: OpcodeMap) {
+    fn bind(&mut self, below: Binding<D::Sends>) {
         self.0.bind(below);
     }
 
     type Output = D::Output;
 
-    fn ready(&mut self, run: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
+    fn ready(
+        &mut self,
+        run: &Capabilities<D::Sends>,
+    ) -> impl Future<Output = Result<(), NotReady>> {
         self.0.ready(run)
     }
 
@@ -167,7 +173,7 @@ impl<D: Driver> Driver for PassesTheRun<D> {
         &mut self,
         shots: &ShotSet,
         seed: Seed,
-        below: &mut impl Executor,
+        below: &mut impl Executor<Accepts = D::Sends>,
     ) -> impl Future<Output = Result<Vec<D::Output>, DriveError>> {
         self.0.drive(shots, seed, below)
     }
@@ -178,12 +184,13 @@ impl<D: Driver> Driver for PassesTheRun<D> {
 /// batches of one `execute`, unchecked unless it is told; each shot's
 /// output is its row and its conditions.
 pub(crate) struct Program {
-    sequences: Vec<Vec<Instruction>>,
+    sequences: Vec<Vec<Gate>>,
     /// Each sequence's readout slots in the set it sends, counted when it
-    /// is bound; 0 for one beyond that set, which a checked batch refuses
-    /// for its opcode.
+    /// is bound.
     slots: Vec<u32>,
-    sends: InstructionSet,
+    /// The sequence it ends with [`BEYOND_THE_SET`] once bound, if any.
+    beyond_its_set: Option<usize>,
+    sends: Measuring,
     /// What it requires besides the run's shots and seeded runs.
     resources: Resources,
     features: Features,
@@ -194,8 +201,8 @@ pub(crate) struct Program {
 }
 
 impl Program {
-    /// The instructions `text`, each a mnemonic of [`CoinGates`] and its
-    /// qubit, requiring the qubits they name.
+    /// The instructions `text`, each a gate of [`coin_gates`] and its
+    /// qubit, requiring batches of as many instructions.
     pub(crate) fn new(text: &[(&str, u32)]) -> Self {
         Self::of(&[text])
     }
@@ -207,42 +214,23 @@ impl Program {
     }
 
     fn of(texts: &[&[(&str, u32)]]) -> Self {
-        let qubits = texts
-            .iter()
-            .copied()
-            .flatten()
-            .map(|&(_, qubit)| qubit + 1)
-            .max()
-            .unwrap_or(0);
+        let longest = texts.iter().map(|text| text.len()).max().unwrap_or(0);
         Self {
             sequences: texts
                 .iter()
                 .map(|text| {
                     text.iter()
-                        .map(|&(mnemonic, qubit)| coin_gate(mnemonic, qubit))
+                        .map(|&(name, qubit)| coin_gate(name, qubit))
                         .collect()
                 })
                 .collect(),
             slots: Vec::new(),
-            sends: CoinGates::set(),
-            resources: super::qubits(qubits),
+            beyond_its_set: None,
+            sends: *coin_gates(),
+            resources: batches_of(u32::try_from(longest).expect("a short program")),
             features: Features::unconstrained(),
             ends_its_shots: true,
             checked: vec![false; texts.len()],
-        }
-    }
-
-    /// `instructions`, as one batch for every shot, in `sends`, requiring
-    /// nothing besides the run's shots and seeded runs.
-    pub(crate) fn sending(instructions: Vec<Instruction>, sends: InstructionSet) -> Self {
-        Self {
-            sequences: vec![instructions],
-            slots: Vec::new(),
-            sends,
-            resources: Resources::unconstrained(),
-            features: Features::unconstrained(),
-            ends_its_shots: true,
-            checked: vec![false],
         }
     }
 
@@ -272,6 +260,14 @@ impl Program {
         self
     }
 
+    /// This program, its sequence `sequence` (0 for the first half)
+    /// ending with [`BEYOND_THE_SET`], as a faulty driver's would.
+    pub(crate) fn ending_beyond_its_set(mut self, sequence: usize) -> Self {
+        assert!(sequence < self.sequences.len(), "a sequence of the program");
+        self.beyond_its_set = Some(sequence);
+        self
+    }
+
     /// This program, never ending its shots below, which it leaves to the
     /// runner.
     pub(crate) fn not_ending(mut self) -> Self {
@@ -281,33 +277,36 @@ impl Program {
 }
 
 impl Driver for Program {
-    fn sends(&self) -> &InstructionSet {
+    type Sends = Measuring;
+
+    fn sends(&self) -> &Measuring {
         &self.sends
     }
 
     /// Its own resources and features, with the run's shots, and seeded
     /// runs if the run's seed is fixed.
-    fn requires(&self, run: &Capabilities) -> Capabilities {
-        let mut resources = self.resources.clone();
-        if let Some(shots) = run.resources().get(&Resource::Shots) {
+    fn requires(&self, run: &Capabilities<Measuring>) -> Capabilities<Measuring> {
+        let mut resources = self.resources;
+        if let Some(shots) = run.resources().shots {
             resources = resources.with_shots(shots);
         }
-        let mut features = self.features.clone();
-        if run.features().get(&Feature::SeededRuns) == Some(true) {
+        let mut features = self.features;
+        if run.features().seeded_runs == Some(true) {
             features = features.with_seeded_runs(true);
         }
-        Capabilities::new(resources, features)
+        capabilities(resources, features)
     }
 
-    fn bind(&mut self, below: OpcodeMap) {
+    fn bind(&mut self, below: Vec<u32>) {
         let set = &self.sends;
-        self.slots = self
-            .sequences
-            .iter()
-            .map(|sequence| set.readout_slots_of(sequence).unwrap_or(0))
+        self.slots = (self.sequences.iter())
+            .map(|sequence| slots_of(set, sequence))
             .collect();
-        for instruction in self.sequences.iter_mut().flatten() {
-            instruction.opcode = below.map(instruction.opcode);
+        for gate in self.sequences.iter_mut().flatten() {
+            *gate = Measuring::bound(&below, *gate);
+        }
+        if let Some(sequence) = self.beyond_its_set {
+            self.sequences[sequence].push(BEYOND_THE_SET);
         }
     }
 
@@ -317,7 +316,7 @@ impl Driver for Program {
         &mut self,
         shots: &ShotSet,
         seed: Seed,
-        below: &mut impl Executor,
+        below: &mut impl Executor<Accepts = Measuring>,
     ) -> Result<Vec<Self::Output>, DriveError> {
         let parts: Vec<ShotSet> = if let [_] = self.sequences.as_slice() {
             vec![shots.clone()]
@@ -331,7 +330,7 @@ impl Driver for Program {
                 })
                 .collect()
         };
-        let batches: Vec<Batch<'_>> = parts
+        let batches: Vec<Batch<'_, Measuring>> = parts
             .iter()
             .zip(self.sequences.iter().zip(&self.slots).zip(&self.checked))
             .map(|(shots, ((instructions, &slots), &checked))| {
@@ -349,4 +348,9 @@ impl Driver for Program {
             .flat_map(|rows| (0..rows.shots()).map(|i| (rows.row(i).to_vec(), rows.conditions(i))))
             .collect())
     }
+}
+
+/// The readout slots of `sequence` in `set`.
+fn slots_of(set: &Measuring, sequence: &[Gate]) -> u32 {
+    sequence.iter().map(|gate| set.readout_slots(gate)).sum()
 }

@@ -1,9 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Joining parts with `through` and `on`: each sender writing in its
-//! receiver's opcodes, the laws of the brackets, and what each part gets
-//! ready for on every run. The joins' check of a chain, what each part
+//! Joining parts with `through` and `on`: each sender writing as its
+//! binding to its receiver's set says, the laws of the brackets, and what
+//! each part gets ready for on every run. The joins' check of a chain, what each part
 //! requires against what the parts below provide, is in
 //! `composition/driver_joins.rs`, running its shots in
 //! `composition/runner.rs`, the calls across its boundaries in
@@ -20,19 +20,18 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use crate::prelude::*;
+use crate::tests::example_sets::Measuring;
 use crate::tests::fake_parts::{
-    BitFlip, Bits, CoinCopy, CoinGates, FromThread, Later, Log, NamesBelow, Profiler, Program,
-    Renamed, Splitter, Spread, Stating, Trap, Values, in_each_bracketing, qubits,
+    BitFlip, Bits, CoinCopy, FromThread, Later, Log, NamesBelow, Profiler, Program, Renamed,
+    Splitter, Spread, Stating, Trap, Values, batches_of, capabilities, coin_gate,
+    in_each_bracketing,
 };
-use crate::{
-    BlockType, Capabilities, CompositionFaults, Features, InstructionDef, InstructionSet,
-    Resources, Runner, ShotSet,
-};
+use crate::{Capabilities, CompositionFaults, Features, Resources, Runner, ShotSet};
 
 const SEED: u64 = 7;
 
 /// The records of `shots` on the chain `composed` gave, which must compose.
-pub(super) fn records<D: Driver, E: Executor>(
+pub(super) fn records<D: Driver, E: Executor<Accepts = D::Sends>>(
     composed: Result<Runner<D, E>, CompositionFaults>,
     shots: &ShotSet,
 ) -> Vec<D::Output> {
@@ -43,7 +42,7 @@ pub(super) fn records<D: Driver, E: Executor>(
 }
 
 /// The faults of the chain `composed` gave, which must not compose.
-pub(super) fn faults<D: Driver, E: Executor>(
+pub(super) fn faults<D: Driver, E: Executor<Accepts = D::Sends>>(
     composed: Result<Runner<D, E>, CompositionFaults>,
 ) -> CompositionFaults {
     composed.err().expect("the chain does not compose")
@@ -55,29 +54,18 @@ pub(super) fn plain(shots: &ShotSet) -> Vec<Values> {
     records(CoinCopy::new().on(Bits::new(&log)), shots)
 }
 
-// ------------------------------------------------------------ the opcodes
+// ------------------------------------------------------------ the binding
 
-/// An executor whose opcodes are in another order than the driver's: the
-/// driver writes in the executor's opcodes, so the records are those on
-/// an executor of the driver's own set.
+/// An executor whose set lists the driver's gates in another order: the
+/// driver writes each gate as its binding to the executor's set says, so
+/// the records are those on an executor of the driver's own set.
 #[test]
-fn a_sender_writes_in_the_receivers_opcodes() {
+fn a_sender_writes_as_its_binding_to_the_receivers_set_says() {
     let log = Log::default();
-    let reordered = InstructionSet::new(
-        "CoinGates",
-        [(BlockType::qubit(), 1)],
-        [
-            InstructionDef::new("mz")
-                .acts_on([BlockType::qubit()])
-                .outcomes(1),
-            InstructionDef::new("x").acts_on([BlockType::qubit()]),
-            InstructionDef::new("h").acts_on([BlockType::qubit()]),
-        ],
-    )
-    .expect("a valid set");
+    let reordered = Measuring::new(&["mz", "x", "h"]);
     let shots = ShotSet::ids(0..16);
-    for (mnemonic, opcode) in [("h", CoinGates::H), ("mz", CoinGates::MZ)] {
-        assert_ne!(reordered.opcode(mnemonic), Some(opcode), "another order");
+    for name in ["h", "mz"] {
+        assert_ne!(reordered.gate(name, 0), coin_gate(name, 0), "another order");
     }
     let composed = CoinCopy::new().on(Bits::accepting(reordered, &log));
     assert_eq!(records(composed, &shots), plain(&shots));
@@ -160,7 +148,7 @@ fn where_the_brackets_go_changes_no_record() {
 /// The results of two runs on the chain `composed` gave, which must
 /// compose, a run of shots 0 to 3 and one of shots 0 to 7, and all `log`
 /// saw.
-fn two_runs<D: Driver, E: Executor>(
+fn two_runs<D: Driver, E: Executor<Accepts = D::Sends>>(
     composed: Result<Runner<D, E>, CompositionFaults>,
     log: &Log,
 ) -> (String, Vec<String>)
@@ -212,7 +200,7 @@ fn a_joined_part_runs_the_same_held_by_a_part_forwarding_its_role() {
         let Parts { log, d, a, b, c, e } = parts();
         two_runs(d.through(a).through(b).through(c).on(e), &log)
     };
-    let one_instruction = || qubits(64).with_instructions_per_batch(1);
+    let one_instruction = || batches_of(1);
     let provision_rows = [
         ("a driver through a splitter", {
             let [log, unwrapped_log] = [Log::default(), Log::default()];
@@ -341,7 +329,7 @@ fn a_joined_part_is_named_for_its_top_part() {
 
 /// What `composed` logs over two runs, in order, of entries containing
 /// `containing`.
-fn logged_over_two_runs<D: Driver, E: Executor>(
+fn logged_over_two_runs<D: Driver, E: Executor<Accepts = D::Sends>>(
     composed: Result<Runner<D, E>, CompositionFaults>,
     log: &Log,
     containing: &str,
@@ -363,14 +351,15 @@ fn logged_over_two_runs<D: Driver, E: Executor>(
 /// Parts over bits, in each bracketing the joins make a runner of, the
 /// inner parts of each composed part included, over two runs: each part
 /// gets ready, on every run and bottom up, for what arrives at it, which
-/// each part above makes of what arrives at that part. Under a driver of
-/// 2 qubits, through encodings of 2 and 3, they come down as 4, then 12.
-/// Under a program of 1 qubit, through two encodings that state nothing,
-/// each part below it gets ready for the program's 1 qubit, which they
-/// pass. Through an interleaver running each shot on 3 qubits at least,
-/// the bits get ready for a program's 5 qubits, or for 3 under a program
-/// of 2; over bits that do not state qubits, for the program's 5; and for 30
-/// through an encoding of 3 built for 10, under a program of 10.
+/// each part above makes of what arrives at that part. Under a driver
+/// sending batches of 2 instructions, through encodings of 2 and 3, they
+/// come down as batches of 4, then 12. Under a program of 1 instruction,
+/// through two encodings that state nothing, each part below it gets
+/// ready for the program's batches of 1, which they pass. Through an
+/// interleaver sending batches of 3 instructions at least, the bits get
+/// ready for a program's batches of 5, or of 3 under a program of 2; over
+/// bits that do not state instructions a batch, for the program's 5; and
+/// for 30 through an encoding of 3 built for 10, under a program of 10.
 #[test]
 fn every_part_gets_ready_on_every_run_for_what_arrives_at_it() {
     in_each_bracketing!(
@@ -384,9 +373,9 @@ fn every_part_gets_ready_on_every_run_for_what_arrives_at_it() {
         |chain, brackets| assert_eq!(
             logged_over_two_runs(chain, &log, "ready"),
             [
-                "Bits ready for 12 qubits".to_owned(),
-                "Spread ready for 4 qubits".to_owned(),
-                "Spread ready for 2 qubits".to_owned(),
+                "Bits ready for batches of 12".to_owned(),
+                "Spread ready for batches of 4".to_owned(),
+                "Spread ready for batches of 2".to_owned(),
                 CoinCopy::ready_for(&run_of(4, true)),
             ]
             .iter()
@@ -408,28 +397,28 @@ fn every_part_gets_ready_on_every_run_for_what_arrives_at_it() {
         |chain, brackets| assert_eq!(
             logged_over_two_runs(chain, &log, "ready"),
             [
-                "Bits ready for 1 qubits",
-                "Spread ready for 1 qubits",
-                "Spread ready for 1 qubits",
+                "Bits ready for batches of 1",
+                "Spread ready for batches of 1",
+                "Spread ready for batches of 1",
             ]
             .repeat(2),
             "a requirement passing two encodings, {brackets}"
         ),
     );
-    let ready_for = |qubits| vec![format!("Bits ready for {qubits} qubits"); 2];
-    for (program, ready) in [(4, 5), (1, 3)] {
+    let ready_for = |n| vec![format!("Bits ready for batches of {n}"); 2];
+    let program_of = |n| Program::new(&vec![("mz", 0); n]);
+    for (program, ready) in [(5, 5), (2, 3)] {
         in_each_bracketing!(
             [d, a, e] from {
                 let log = Log::default();
-                let d = Program::new(&[("mz", program)]);
+                let d = program_of(program);
                 let a = Stating::interleaving(3, &log);
-                let e = Bits::new(&log).with_resources(qubits(6));
+                let e = Bits::new(&log).with_resources(batches_of(6));
             },
             |chain, brackets| assert_eq!(
                 logged_over_two_runs(chain, &log, "Bits ready"),
                 ready_for(ready),
-                "through an interleaver, under {} qubits, {brackets}",
-                program + 1
+                "through an interleaver, under a program of {program}, {brackets}"
             ),
         );
     }
@@ -437,22 +426,22 @@ fn every_part_gets_ready_on_every_run_for_what_arrives_at_it() {
         [d, a, e] from {
             let log = Log::default();
             let counted = Rc::new(Cell::new(0));
-            let d = Program::new(&[("mz", 4)]);
+            let d = program_of(5);
             let a = Profiler::new(&counted, &log);
             let e = Bits::new(&log).with_resources(Resources::unconstrained());
         },
         |chain, brackets| assert_eq!(
             logged_over_two_runs(chain, &log, "Bits ready"),
             ready_for(5),
-            "over bits not stating qubits, {brackets}"
+            "over bits not stating instructions a batch, {brackets}"
         ),
     );
     in_each_bracketing!(
         [d, a, e] from {
             let log = Log::default();
-            let d = Program::new(&[("mz", 9)]);
+            let d = program_of(10);
             let a = Spread::new(3, &log).built_for(10);
-            let e = Bits::new(&log).with_resources(qubits(40));
+            let e = Bits::new(&log).with_resources(batches_of(40));
         },
         |chain, brackets| assert_eq!(
             logged_over_two_runs(chain, &log, "Bits ready"),
@@ -464,9 +453,9 @@ fn every_part_gets_ready_on_every_run_for_what_arrives_at_it() {
 
 /// What a run of `shots` shots requires, as its driver gets it: that many
 /// shots, and seeded runs if `seeded`, its seed being fixed.
-fn run_of(shots: u32, seeded: bool) -> Capabilities {
+fn run_of(shots: u32, seeded: bool) -> Capabilities<Measuring> {
     let features = Features::unconstrained();
-    Capabilities::new(
+    capabilities(
         Resources::unconstrained().with_shots(shots),
         if seeded {
             features.with_seeded_runs(true)
@@ -478,7 +467,7 @@ fn run_of(shots: u32, seeded: bool) -> Capabilities {
 
 /// What a logging [`CoinCopy`] at the top of `composed`, which must
 /// compose, logs that it gets ready for, on a run of 3 shots with `seed`.
-fn driver_ready_for<D: Driver, E: Executor>(
+fn driver_ready_for<D: Driver, E: Executor<Accepts = D::Sends>>(
     composed: Result<Runner<D, E>, CompositionFaults>,
     log: &Log,
     seed: Option<u64>,
@@ -495,12 +484,13 @@ fn driver_ready_for<D: Driver, E: Executor>(
         .collect()
 }
 
-/// A coin copy through an encoding of 2 built for its 2 qubits, over bits,
-/// on a run of 3 shots, seeded or not: the driver gets ready for its run,
-/// what the run requires, however it is joined or wrapped: alone at the
-/// top, joined with the encoding, and so joined and held by a part of a
-/// user's. Neither for what it requires below (the run on 2 qubits) nor
-/// for what the encoding does (on 4), nor for nothing stated, as a runner
+/// A coin copy through an encoding of 2 built for its batches of 2, over
+/// bits, on a run of 3 shots, seeded or not: the driver gets ready for its
+/// run, what the run requires, however it is joined or wrapped: alone at
+/// the top, joined with the encoding, and so joined and held by a part of
+/// a user's. Neither for what it requires below (the run in batches of 2)
+/// nor for what the encoding does (in batches of 4), nor for nothing
+/// stated, as a runner
 /// or a joined driver readying it with one of those would.
 #[test]
 fn a_driver_gets_ready_for_its_run_however_it_is_joined_or_wrapped() {
@@ -535,14 +525,14 @@ fn a_driver_gets_ready_for_its_run_however_it_is_joined_or_wrapped() {
 }
 
 /// One device's stack, an encoding on bits, kept across programs: lent to
-/// a program of 1 qubit, then to one of 3, each run gets the bits ready
-/// for what that run's program requires, which passes the encoding, as it
-/// does not state qubits.
+/// a program of 1 instruction, then to one of 3, each run gets the bits
+/// ready for what that run's program requires, which passes the encoding,
+/// as it does not state instructions a batch.
 #[test]
 fn a_joined_part_gets_ready_for_what_each_chain_it_is_lent_to_requires() {
     let log = Log::default();
     let mut lent = Spread::new(1, &log).on(Bits::new(&log));
-    for program in [Program::new(&[("mz", 0)]), Program::new(&[("mz", 2)])] {
+    for program in [Program::new(&[("mz", 0)]), Program::new(&[("mz", 0); 3])] {
         records(program.on(&mut lent), &ShotSet::ids(0..1));
     }
     let ready: Vec<_> = (log.entries().into_iter())
@@ -550,7 +540,7 @@ fn a_joined_part_gets_ready_for_what_each_chain_it_is_lent_to_requires() {
         .collect();
     assert_eq!(
         ready,
-        ["Bits ready for 1 qubits", "Bits ready for 3 qubits"]
+        ["Bits ready for batches of 1", "Bits ready for batches of 3"]
     );
 }
 
@@ -565,7 +555,7 @@ fn an_adapter_reads_what_the_part_directly_below_provides_in_each_chain_it_is_le
     let log = Log::default();
     let mut lent = NamesBelow::new(&log).through(NamesBelow::new(&log));
     for most in [2, 1] {
-        let bits = Bits::new(&log).with_resources(qubits(1).with_instructions_per_batch(most));
+        let bits = Bits::new(&log).with_resources(batches_of(most));
         let program = Program::new(&[("mz", 0)]);
         records(program.through(&mut lent).on(bits), &ShotSet::ids(0..1));
     }

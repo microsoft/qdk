@@ -32,8 +32,8 @@ use super::part_panics::{PanicEndingShots, await_part, catch_panic, panic_messag
 use super::unended_shots::UnendedShots;
 use crate::part_id::ChainPosition;
 use crate::{
-    Boundary, Capabilities, DriveError, Driver, Executor, Failure, Features, PartId, Resources,
-    Seed, ShotSet,
+    Boundary, Capabilities, DriveError, Driver, Executor, Failure, Features, InstructionSet,
+    PartId, Resources, Seed, ShotSet,
 };
 
 pub use run_error::{RunError, RunRefusal};
@@ -46,7 +46,7 @@ pub use run_error::{RunError, RunRefusal};
 /// constructor: only `on` makes one, so that every runner's chain joined.
 /// A joined part's type cannot be named, so code that keeps the runner of
 /// a chain with adapters is generic over its type.
-pub struct Runner<D: Driver, E: Executor> {
+pub struct Runner<D: Driver, E: Executor<Accepts = D::Sends>> {
     pub(super) driver: D,
     pub(super) executor: E,
     /// Each part, top to bottom, by the name `on` read: what a refusal or a
@@ -57,10 +57,10 @@ pub struct Runner<D: Driver, E: Executor> {
     /// driver's `below.accepts()` and `below.provides()` answer, the limits
     /// of the batches the driver sends, and the executor's top part, which
     /// its panic in an `execute` and its refusal name.
-    pub(super) boundary: Boundary,
+    pub(super) boundary: Boundary<D::Sends>,
 }
 
-impl<D: Driver, E: Executor> Runner<D, E> {
+impl<D: Driver, E: Executor<Accepts = D::Sends>> Runner<D, E> {
     /// Runs `shots` with `seed`, and blocks until the run ends: the driver's
     /// outputs, as [`run_async`](Self::run_async) gives them. It is
     /// `run_async`'s future, waited for on this thread with no async
@@ -88,9 +88,10 @@ impl<D: Driver, E: Executor> Runner<D, E> {
     /// own seed.
     ///
     /// A run requires its shots
-    /// ([`Resources::with_shots`](crate::Resources::with_shots)), and
-    /// seeded runs when its seed is fixed
-    /// ([`Features::with_seeded_runs`](crate::Features::with_seeded_runs)):
+    /// ([`Resources::shots`](crate::Resources::shots)), and seeded runs
+    /// when its seed is fixed
+    /// ([`Features::seeded_runs`](crate::Features::seeded_runs)), stating
+    /// nothing of the set's capabilities:
     /// the driver's [`requires`](Driver::requires) gets that, and each part
     /// below gets what the part above requires given what arrived there.
     /// The run is refused, and nothing of it runs, when a part does not
@@ -99,8 +100,8 @@ impl<D: Driver, E: Executor> Runner<D, E> {
     /// each part gets ready for what arrives at it, in turn, the executor
     /// first, up to the first that refuses; a joined part inside a part of
     /// the user's, which the runner cannot see into, refuses then a run at
-    /// a boundary inside it that does not fit, in its instructions or in
-    /// what arrives there. Then the driver
+    /// a boundary inside it that does not fit, in its sets or in what
+    /// arrives there. Then the driver
     /// runs the shots, and a failure ends the run with the shot it names, a
     /// part's panic included, as the Panics section says.
     ///
@@ -213,11 +214,14 @@ impl<D: Driver, E: Executor> Runner<D, E> {
     }
 }
 
-impl<D: Driver, E: Executor> Runner<D, E> {
+impl<D: Driver, E: Executor<Accepts = D::Sends>> Runner<D, E> {
     /// What arrives at the executor on a run that requires `run`, if each
     /// part provides what arrives at it; else the refusal, which lists
     /// every part that does not.
-    fn required_below(&self, run: &Capabilities) -> Result<Capabilities, RunRefusal> {
+    fn required_below(
+        &self,
+        run: &Capabilities<D::Sends>,
+    ) -> Result<Capabilities<D::Sends>, RunRefusal> {
         let mut parts = DeclaredParts::checking();
         let required = self.driver.declare(run, &mut parts);
         self.executor.declare(&required, &mut parts);
@@ -233,7 +237,7 @@ impl<D: Driver, E: Executor> Runner<D, E> {
     /// cold, as the walk again, listing its faults.
     #[cold]
     #[inline(never)]
-    fn not_provided(&self, run: &Capabilities) -> RunRefusal {
+    fn not_provided(&self, run: &Capabilities<D::Sends>) -> RunRefusal {
         let mut parts = DeclaredParts::listing_faults();
         let required = self.driver.declare(run, &mut parts);
         self.executor.declare(&required, &mut parts);
@@ -242,8 +246,9 @@ impl<D: Driver, E: Executor> Runner<D, E> {
 }
 
 /// What a run of `shots` shots requires: that many shots, and seeded runs
-/// if `seeded`, its seed being fixed.
-fn run_requirement(shots: usize, seeded: bool) -> Capabilities {
+/// if `seeded`, its seed being fixed; nothing of the set's capabilities,
+/// which the driver states.
+fn run_requirement<S: InstructionSet>(shots: usize, seeded: bool) -> Capabilities<S> {
     // A run of more shots than a `u32` counts is checked as `u32::MAX`
     // shots, the most a part can state.
     let shots = u32::try_from(shots).unwrap_or(u32::MAX);
@@ -252,7 +257,11 @@ fn run_requirement(shots: usize, seeded: bool) -> Capabilities {
     } else {
         Features::unconstrained()
     };
-    Capabilities::new(Resources::unconstrained().with_shots(shots), features)
+    Capabilities::new(
+        Resources::unconstrained().with_shots(shots),
+        features,
+        S::unconstrained().instructions().clone(),
+    )
 }
 
 /// A seed for a run that fixes none: from the standard library's random

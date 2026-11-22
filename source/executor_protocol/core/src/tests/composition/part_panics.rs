@@ -23,7 +23,9 @@ use crate::{Failure, PartId, RunError, Runner, ShotId, ShotSet};
 use super::runner::{SEED, failed, runner};
 
 /// The panic `runner`'s run of shots 0 to 7 raises, which it must.
-fn raised<D: Driver, E: Executor>(runner: &mut Runner<D, E>) -> Box<dyn Any + Send> {
+fn raised<D: Driver, E: Executor<Accepts = D::Sends>>(
+    runner: &mut Runner<D, E>,
+) -> Box<dyn Any + Send> {
     catch_unwind(AssertUnwindSafe(|| {
         runner
             .run(&ShotSet::ids(0..8), SEED)
@@ -144,7 +146,7 @@ fn a_panic_ending_shots_the_protocol_ends_is_raised_from_the_run() {
 /// The run of shots 0 to 7 on `runner`, whose future is dropped once its
 /// first poll leaves it pending, by the caller's own panic if
 /// `by_a_panic`: the panic that leaves the drop, which it must.
-fn dropped_unfinished<D: Driver, E: Executor>(
+fn dropped_unfinished<D: Driver, E: Executor<Accepts = D::Sends>>(
     runner: &mut Runner<D, E>,
     by_a_panic: bool,
 ) -> Box<dyn Any + Send> {
@@ -399,7 +401,7 @@ fn a_panic_names_the_part_by_its_name() {
     let counted = Rc::new(Cell::new(0));
     let shots = ShotSet::ids([9, 1]);
     let mut executor = runner(
-        Program::new(&[("mz", 0)]).on(Renamed::new(Panics(PanicsWhen::Polled), "qodec runtime")),
+        Program::new(&[("mz", 0)]).on(Renamed::new(Panics(PanicsWhen::Polled), "device runtime")),
     );
     let mut driver =
         runner(Renamed::new(Panics(PanicsWhen::Polled), "h2 program").on(Bits::new(&log)));
@@ -419,7 +421,7 @@ fn a_panic_names_the_part_by_its_name() {
             "executor",
             failed(executor.run(&shots, SEED)),
             1,
-            "qodec runtime",
+            "device runtime",
         ),
         ("driver", failed(driver.run(&shots, SEED)), 0, "h2 program"),
         (
@@ -448,12 +450,12 @@ fn a_panic_names_the_part_by_its_name() {
             let counted = Rc::new(Cell::new(0));
             let d = Program::new(&[("mz", 0)]);
             let a = Profiler::new(&counted, &log);
-            let e = Renamed::new(Panics(PanicsWhen::Polled), "qodec runtime")
+            let e = Renamed::new(Panics(PanicsWhen::Polled), "device runtime")
                 .renamed_once_ready("renamed runtime");
         },
         |chain, brackets| {
             let row = format!("an executor renamed once ready, {brackets}");
-            named_as_read_at_on(&row, runner(chain), &PartId::new(2, "qodec runtime"));
+            named_as_read_at_on(&row, runner(chain), &PartId::new(2, "device runtime"));
         }
     );
     in_each_bracketing!(
@@ -472,7 +474,7 @@ fn a_panic_names_the_part_by_its_name() {
 
 /// Checks that two runs of shots 3 and 1 on `runner` each fail naming
 /// shot 3 and `part`, a row of [`a_panic_names_the_part_by_its_name`].
-fn named_as_read_at_on<D: Driver<Output: Debug>, E: Executor>(
+fn named_as_read_at_on<D: Driver<Output: Debug>, E: Executor<Accepts = D::Sends>>(
     row: &str,
     mut runner: Runner<D, E>,
     part: &PartId,

@@ -17,17 +17,18 @@ use std::task::{Context, Poll, Wake, Waker};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use super::driver_joins::{fault, no_x, part, short};
+use super::driver_joins::{NO_X, fault, listed, part, short_shots};
 use crate::prelude::*;
+use crate::tests::example_sets::Measuring;
 use crate::tests::fake_parts::{
-    BitFlip, Bits, CoinCopy, CoinGates, FailsOnce, FromThread, Later, Log, Panics, PanicsWhen,
-    Profiler, Program, Renamed, SeesSeeds, Splitter, Spread, Stating, Trap, Values, YieldNow,
-    in_each_bracketing, qubits,
+    BitFlip, Bits, CoinCopy, FailsOnce, FromThread, Later, Log, Panics, PanicsWhen, Profiler,
+    Program, Renamed, SeesSeeds, Splitter, Spread, Stating, Trap, Values, YieldNow, batches_of,
+    coin_gates, in_each_bracketing,
 };
 use crate::{
-    BlockType, BoundaryMismatch, CapabilitiesMismatch, CompositionFault, DriveError, Failure,
-    Feature, FeatureMismatch, Features, ReadoutFailure, ReadoutValue, Resource, ResourceMismatch,
-    RunError, RunRefusal, Runner, ShotConditions, ShotSet,
+    BoundaryCompatible, BoundaryMismatch, CapabilitiesMismatch, CompositionFault, DriveError,
+    Failure, FeatureMismatch, Features, ReadoutFailure, ReadoutValue, ResourceMismatch, RunError,
+    RunRefusal, Runner, ShotConditions, ShotSet,
 };
 
 pub(super) const SEED: u64 = 7;
@@ -36,7 +37,7 @@ pub(super) const SEED: u64 = 7;
 const PATIENT: Duration = Duration::from_secs(20);
 
 /// The runner of the chain `composed` gave, which must compose.
-pub(super) fn runner<D: Driver, E: Executor>(
+pub(super) fn runner<D: Driver, E: Executor<Accepts = D::Sends>>(
     composed: Result<Runner<D, E>, crate::CompositionFaults>,
 ) -> Runner<D, E> {
     let Ok(runner) = composed else {
@@ -167,7 +168,7 @@ fn a_shots_values_are_in_the_order_it_read_them() {
 #[test]
 fn an_adapter_that_changes_no_instructions_effect_changes_no_record() {
     /// Checks the records of `driver` through each adapter.
-    fn unchanged<D: Driver<Output: PartialEq + std::fmt::Debug>>(
+    fn unchanged<D: Driver<Sends = Measuring, Output: PartialEq + std::fmt::Debug>>(
         row: &str,
         driver: impl Fn() -> D,
     ) {
@@ -508,7 +509,7 @@ fn two_tasks_on_one_thread() {
 #[test]
 fn a_rerun_after_an_unfinished_run_gives_a_new_chains_records() {
     /// Polls `runner`'s run of `shots` twice, then drops it unfinished.
-    fn drop_unfinished<D: Driver, E: Executor>(
+    fn drop_unfinished<D: Driver, E: Executor<Accepts = D::Sends>>(
         runner: &mut Runner<D, E>,
         shots: &ShotSet,
         log: &Log,
@@ -735,7 +736,7 @@ fn the_parts_are_asked_bottom_up_until_one_refuses() {
     );
     assert_eq!(
         asked(&log),
-        ["Bits ready for 2 qubits", "Profiler ready"],
+        ["Bits ready for batches of 2", "Profiler ready"],
         "busy driver: the parts below asked"
     );
     assert_eq!(ended(&log), [] as [String; 0], "busy driver: no shot ended");
@@ -749,7 +750,7 @@ fn the_parts_are_asked_bottom_up_until_one_refuses() {
         .expect("the run succeeds");
     assert_eq!(
         asked(&log),
-        ["Bits ready for 1 qubits", "Profiler ready"],
+        ["Bits ready for batches of 1", "Profiler ready"],
         "the profiler with the driver"
     );
     let log = Log::default();
@@ -759,7 +760,7 @@ fn the_parts_are_asked_bottom_up_until_one_refuses() {
         .expect("the run succeeds");
     assert_eq!(
         asked(&log),
-        ["Bits ready for 1 qubits", "Profiler ready"],
+        ["Bits ready for batches of 1", "Profiler ready"],
         "the profiler with the bits"
     );
 }
@@ -767,7 +768,7 @@ fn the_parts_are_asked_bottom_up_until_one_refuses() {
 /// The refusals of runs of `shots`, in turn, on the one runner of the
 /// chain `composed` gave, which must compose, and whether anything ran:
 /// the instructions `counted` saw and the shots' ends `log` saw.
-fn refused_in_turn<D: Driver, E: Executor>(
+fn refused_in_turn<D: Driver, E: Executor<Accepts = D::Sends>>(
     composed: Result<Runner<D, E>, crate::CompositionFaults>,
     shots: &[u32],
     counted: &Cell<usize>,
@@ -797,35 +798,54 @@ where
 /// runs of 1, 2 and 1 shots with the instructions alone, then with the 4
 /// shots too, in one `BoundaryMismatch`, then the instructions alone
 /// again, each run checked anew; and an interleaver joined with a decoder
-/// limiting qubits to 4, under a program on 5, refuses every run, as the
-/// program's 5 qubits pass through the interleaver to the decoder.
+/// limiting batches to 4, under a program of batches of 5, refuses every
+/// run, as the program's batches of 5 pass through the interleaver to the
+/// decoder.
 #[test]
 #[expect(clippy::too_many_lines, reason = "one row per role and boundary")]
 fn a_wrapped_joined_part_refuses_each_run_its_inner_boundary_does_not_take() {
-    let no_x_fault = BoundaryMismatch {
-        instructions: CoinGates::set().fits(&no_x()).expect_err("no `x`"),
-        ..BoundaryMismatch::default()
-    };
-    let resource = |key, required, provided| CapabilitiesMismatch {
-        resources: vec![ResourceMismatch {
-            key,
-            required,
-            provided,
-        }],
+    let no_x = || Some(Box::new(coin_gates().fits(&NO_X).expect_err("no `x`")) as _);
+    let resource = |resource| CapabilitiesMismatch {
+        resources: vec![resource],
         ..CapabilitiesMismatch::default()
     };
-    let shots_fault = BoundaryMismatch {
-        capabilities: resource(Resource::Shots, 4, 3),
-        ..BoundaryMismatch::default()
+    let four_shots_over_3 = || {
+        resource(ResourceMismatch::Shots {
+            required: 4,
+            provided: 3,
+        })
     };
-    let qubits_fault = BoundaryMismatch {
-        capabilities: resource(Resource::Blocks(BlockType::qubit()), 5, 4),
-        ..BoundaryMismatch::default()
-    };
-    let no_x_and_shots = BoundaryMismatch {
-        capabilities: resource(Resource::Shots, 4, 3),
-        ..no_x_fault.clone()
-    };
+    let no_x_fault = format!(
+        "{:?}",
+        BoundaryMismatch {
+            instructions: no_x(),
+            ..BoundaryMismatch::default()
+        }
+    );
+    let shots_fault = format!(
+        "{:?}",
+        BoundaryMismatch {
+            capabilities: four_shots_over_3(),
+            ..BoundaryMismatch::default()
+        }
+    );
+    let batches_fault = format!(
+        "{:?}",
+        BoundaryMismatch {
+            capabilities: resource(ResourceMismatch::InstructionsPerBatch {
+                required: 5,
+                provided: 4,
+            }),
+            ..BoundaryMismatch::default()
+        }
+    );
+    let no_x_and_shots = format!(
+        "{:?}",
+        BoundaryMismatch {
+            instructions: no_x(),
+            capabilities: four_shots_over_3(),
+        }
+    );
     let counted = Rc::new(Cell::new(0));
     let profiler = |set, log: &Log| Profiler::on(set, &counted, log);
     let rows = [
@@ -837,11 +857,11 @@ fn a_wrapped_joined_part_refuses_each_run_its_inner_boundary_does_not_take() {
             {
                 let log = Log::default();
                 let held = Renamed::new(
-                    CoinCopy::new().through(profiler(no_x(), &log)),
+                    CoinCopy::new().through(profiler(NO_X, &log)),
                     "user's driver",
                 );
                 refused_in_turn(
-                    held.on(Bits::accepting(no_x(), &log)),
+                    held.on(Bits::accepting(NO_X, &log)),
                     &[4, 4],
                     &counted,
                     &log,
@@ -856,13 +876,13 @@ fn a_wrapped_joined_part_refuses_each_run_its_inner_boundary_does_not_take() {
             {
                 let log = Log::default();
                 let held = Renamed::new(
-                    profiler(CoinGates::set(), &log).through(profiler(no_x(), &log)),
+                    profiler(*coin_gates(), &log).through(profiler(NO_X, &log)),
                     "user's adapter",
                 );
                 refused_in_turn(
                     CoinCopy::new()
                         .through(held)
-                        .on(Bits::accepting(no_x(), &log)),
+                        .on(Bits::accepting(NO_X, &log)),
                     &[4, 4],
                     &counted,
                     &log,
@@ -877,7 +897,7 @@ fn a_wrapped_joined_part_refuses_each_run_its_inner_boundary_does_not_take() {
             {
                 let log = Log::default();
                 let held = Renamed::new(
-                    profiler(CoinGates::set(), &log).on(Bits::accepting(no_x(), &log)),
+                    profiler(*coin_gates(), &log).on(Bits::accepting(NO_X, &log)),
                     "user's executor",
                 );
                 refused_in_turn(CoinCopy::new().on(held), &[4, 4], &counted, &log)
@@ -891,8 +911,8 @@ fn a_wrapped_joined_part_refuses_each_run_its_inner_boundary_does_not_take() {
             {
                 let log = Log::default();
                 let held = Renamed::new(
-                    profiler(CoinGates::set(), &log)
-                        .on(Bits::new(&log).with_resources(qubits(64).with_shots(3))),
+                    profiler(*coin_gates(), &log)
+                        .on(Bits::new(&log).with_resources(batches_of(64).with_shots(3))),
                     "user's executor",
                 );
                 refused_in_turn(CoinCopy::new().on(held), &[4, 4], &counted, &log)
@@ -905,9 +925,9 @@ fn a_wrapped_joined_part_refuses_each_run_its_inner_boundary_does_not_take() {
             vec![&no_x_fault, &no_x_and_shots, &no_x_fault],
             {
                 let log = Log::default();
-                let bits = Bits::accepting(no_x(), &log).with_resources(qubits(64).with_shots(3));
+                let bits = Bits::accepting(NO_X, &log).with_resources(batches_of(64).with_shots(3));
                 let held = Renamed::new(
-                    Stating::repeating_shots(2, &log).on(profiler(CoinGates::set(), &log).on(bits)),
+                    Stating::repeating_shots(2, &log).on(profiler(*coin_gates(), &log).on(bits)),
                     "user's executor",
                 );
                 refused_in_turn(CoinCopy::new().on(held), &[1, 2, 1], &counted, &log)
@@ -928,10 +948,10 @@ fn a_wrapped_joined_part_refuses_each_run_its_inner_boundary_does_not_take() {
             },
         ),
         (
-            "an adapter through a decoder of 4 qubits",
+            "an adapter through a decoder of batches of 4",
             1,
             "user's adapter",
-            vec![&qubits_fault; 2],
+            vec![&batches_fault; 2],
             {
                 let log = Log::default();
                 let held = Renamed::new(
@@ -939,9 +959,9 @@ fn a_wrapped_joined_part_refuses_each_run_its_inner_boundary_does_not_take() {
                     "user's adapter",
                 );
                 let chain = Program::new(&[("mz", 0)])
-                    .with_resources(qubits(5))
+                    .with_resources(batches_of(5))
                     .through(held)
-                    .on(Bits::new(&log).with_resources(qubits(10)));
+                    .on(Bits::new(&log).with_resources(batches_of(10)));
                 refused_in_turn(chain, &[4, 4], &counted, &log)
             },
         ),
@@ -958,7 +978,9 @@ fn a_wrapped_joined_part_refuses_each_run_its_inner_boundary_does_not_take() {
                 "{row}"
             );
             assert_eq!(
-                not_ready.why().downcast_ref::<BoundaryMismatch>(),
+                (not_ready.why().downcast_ref::<BoundaryMismatch>())
+                    .map(|mismatch| format!("{mismatch:?}"))
+                    .as_ref(),
                 Some(fault),
                 "{row}: {refusal:?}"
             );
@@ -984,7 +1006,7 @@ fn the_one_fault(refusal: &RunRefusal) -> Option<&CapabilitiesMismatch> {
 /// asked or runs, then `most` shots, a record each: a row of
 /// [`a_run_of_more_shots_than_its_chain_provides_is_refused`], named
 /// `row`.
-fn takes_at_most<D: Driver<Output: std::fmt::Debug>, E: Executor>(
+fn takes_at_most<D: Driver<Output: std::fmt::Debug>, E: Executor<Accepts = D::Sends>>(
     row: &str,
     mut runner: Runner<D, E>,
     most: u32,
@@ -993,8 +1015,7 @@ fn takes_at_most<D: Driver<Output: std::fmt::Debug>, E: Executor>(
     let asked = bits_asked(log);
     let ran = log.count("Bits execute");
     let refusal = refused(runner.run(&ShotSet::ids(0..=most), SEED));
-    let short = ResourceMismatch {
-        key: Resource::Shots,
+    let short = ResourceMismatch::Shots {
         required: most + 1,
         provided: most,
     };
@@ -1021,7 +1042,7 @@ fn takes_at_most<D: Driver<Output: std::fmt::Debug>, E: Executor>(
 #[test]
 fn a_run_of_more_shots_than_its_chain_provides_is_refused() {
     let log = Log::default();
-    let bits = |most| Bits::new(&log).with_resources(qubits(64).with_shots(most));
+    let bits = |most| Bits::new(&log).with_resources(batches_of(64).with_shots(most));
     // An executor running 4 shots at most.
     let alone = runner(CoinCopy::new().on(bits(4)));
     takes_at_most("the executor alone", alone, 4, &log);
@@ -1070,7 +1091,7 @@ fn a_run_of_more_shots_than_its_chain_provides_is_refused() {
 fn a_part_requiring_fewer_shots_below_runs_more_than_the_parts_below_take() {
     let log = Log::default();
     let counted = Rc::new(Cell::new(0));
-    let bits = || Bits::new(&log).with_resources(qubits(64).with_shots(100));
+    let bits = || Bits::new(&log).with_resources(batches_of(64).with_shots(100));
     let shots = ShotSet::ids(0..1000);
     let runs_all = |records: Result<Vec<Values>, RunError>, row: &str| {
         let records = records.unwrap_or_else(|error| panic!("{row}: {error:?}"));
@@ -1125,18 +1146,19 @@ fn faults_listed(refusal: RunRefusal) -> Vec<CompositionFault> {
 /// `inserting_a_profiler_changes_only_the_positions_of_the_faults`.
 #[test]
 fn a_refused_run_names_each_part_whose_requirement_is_not_provided_and_its_provider() {
-    let shots_short = |required, provided| short(Resource::Shots, required, provided);
     let log = Log::default();
     let chain = Program::new(&[("mz", 0)])
         .through(Stating::queue(2, &log))
         .through(Stating::repeating_shots(2, &log))
-        .on(Bits::new(&log).with_resources(qubits(64).with_shots(4)));
+        .on(Bits::new(&log).with_resources(batches_of(64).with_shots(4)));
     assert_eq!(
-        faults_listed(refused(runner(chain).run(&ShotSet::ids(0..3), SEED))),
-        [
-            fault(part::<Program>(0), part::<Stating>(1), shots_short(3, 2)),
-            fault(part::<Stating>(2), part::<Bits>(3), shots_short(6, 4)),
-        ],
+        listed(&faults_listed(refused(
+            runner(chain).run(&ShotSet::ids(0..3), SEED)
+        ))),
+        listed(&[
+            fault(part::<Program>(0), part::<Stating>(1), short_shots(3, 2)),
+            fault(part::<Stating>(2), part::<Bits>(3), short_shots(6, 4)),
+        ]),
     );
 }
 
@@ -1144,7 +1166,7 @@ fn a_refused_run_names_each_part_whose_requirement_is_not_provided_and_its_provi
 /// asked or runs, then with no seed: a row of
 /// [`a_seeded_run_is_refused_unless_the_chain_provides_seeded_runs`], named
 /// `row`.
-fn refuses_a_seed<D: Driver<Output: std::fmt::Debug>, E: Executor>(
+fn refuses_a_seed<D: Driver<Output: std::fmt::Debug>, E: Executor<Accepts = D::Sends>>(
     row: &str,
     mut runner: Runner<D, E>,
     shots: u32,
@@ -1154,11 +1176,7 @@ fn refuses_a_seed<D: Driver<Output: std::fmt::Debug>, E: Executor>(
     let asked = bits_asked(log);
     let ran = log.count("Bits execute");
     let refusal = refused(runner.run(&shots, SEED));
-    let not_seeded = FeatureMismatch {
-        key: Feature::SeededRuns,
-        required: true,
-        provided: false,
-    };
+    let not_seeded = FeatureMismatch::SeededRuns;
     assert_eq!(
         the_one_fault(&refusal).map(|mismatch| &mismatch.features[..]),
         Some(&[not_seeded][..]),
@@ -1173,8 +1191,9 @@ fn refuses_a_seed<D: Driver<Output: std::fmt::Debug>, E: Executor>(
 
 /// A seeded run requires seeded runs of the parts below its driver: on an
 /// executor stating seeded runs `false`, a seeded run is refused before
-/// any part is asked or runs, and a run with no seed runs. An adapter requiring no seeded runs
-/// below, as a sampler seeding its own draws does, runs a seeded run over
+/// any part is asked or runs, and a run with no seed runs. An adapter
+/// requiring no seeded runs below, as a sampler seeding its own draws
+/// does, runs a seeded run over
 /// the same executor, in every bracketing. How the run's requirement
 /// passes each part below is the walk's, pinned with shots in
 /// [`a_run_of_more_shots_than_its_chain_provides_is_refused`].

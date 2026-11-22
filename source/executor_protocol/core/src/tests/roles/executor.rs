@@ -3,8 +3,9 @@
 
 //! What `Executor`'s default states: no limit.
 
-use crate::tests::fake_parts::{Bits, Log, StatesNoLimits};
-use crate::{Capabilities, Executor};
+use crate::tests::example_sets::QubitLimited;
+use crate::tests::fake_parts::{Log, QubitRegister, StatesNoLimits};
+use crate::{Executor, InstructionSet};
 
 /// An executor that does not state its limits keeps the default
 /// `provides`: it limits nothing, so a chain is never refused at its
@@ -12,6 +13,6 @@ use crate::{Capabilities, Executor};
 /// largest value, fails.
 #[test]
 fn by_default_provides_limits_nothing() {
-    let executor = StatesNoLimits(Bits::new(&Log::default()));
-    assert_eq!(Executor::provides(&executor), &Capabilities::UNCONSTRAINED);
+    let executor = StatesNoLimits(QubitRegister::new(8, &Log::default()));
+    assert_eq!(Executor::provides(&executor), QubitLimited::unconstrained());
 }

@@ -7,8 +7,9 @@
 /// A readout slot, by its position in a batch's rows, k: slot k is the same
 /// readout on every shot of the batch. It must be below the rows'
 /// [`readout_slots`](crate::BatchReadouts::readout_slots), which
-/// [`BatchReadouts::value`](crate::BatchReadouts::value) checks: those the batch's sender states, since
-/// the protocol shapes the rows from the batch.
+/// [`BatchReadouts::value`](crate::BatchReadouts::value) checks: those the
+/// batch's sender states, since the protocol shapes the rows from the
+/// batch.
 ///
 /// A `u32`, at no cost over one, so that a slot is not mistaken for a
 /// shot's position or a count.

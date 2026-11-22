@@ -10,9 +10,9 @@ in [Writing a part](writing-a-part.md).
 ## Readout slots
 
 A [`ReadoutSlot`](../src/batch/batch_readouts/readout_slot.rs) is a position in a shot's row.
-A batch's slots are each instruction's readouts, its measurement outcomes
-then its flags (named bits it also reports), in instruction order, so
-slot k is the same readout on every shot of the batch.
+A batch's slots are each instruction's readout slots, as its instruction
+set counts them, in instruction order, so slot k is the same readout on
+every shot of the batch.
 
 ## Batches
 
@@ -22,9 +22,9 @@ programs. A batch is made by
 [`Batch::new(shots, instructions, readout_slots)`](../src/batch.rs): its
 sender states the readout slots of its instructions, summed, since it
 knows them where it writes them
-([`InstructionSet::readout_slots_of`](../src/instruction_set.rs) counts
-them), so that no boundary below counts them again, unless the batch is
-checked.
+([`InstructionSet::readout_slots`](../src/instruction_set.rs) gives each
+instruction's), so that no boundary below counts them again, unless the
+batch is checked.
 
 A part sends its batches checked ([`Batch::checked`](../src/batch.rs))
 while it is developed, or when they may hold what the receiver does not

@@ -22,20 +22,18 @@ use std::pin::pin;
 use std::rc::Rc;
 use std::task::Poll;
 
-use smallvec::smallvec;
-
 use super::runner::{SEED, failed, runner};
 use crate::prelude::*;
 use crate::tests::allocations;
+use crate::tests::example_sets::{Gate, Measuring, QubitBeyond, UnknownGate};
 use crate::tests::fake_parts::{
-    Bits, ForwardsParity, Log, Misbehaving, Misbehaviour, NamesBelow, ParityGates, Profiler,
-    Program, Renamed, coin_gate, coin_gates, in_each_bracketing, qubits,
+    Bits, Log, Misbehaving, Misbehaviour, NamesBelow, Profiler, Program, QubitNarrowing,
+    QubitProgram, QubitRegister, Renamed, coin_gate, coin_gates, in_each_bracketing,
 };
 use crate::{
-    Argument, Batch, BatchFault, BatchReadouts, Capabilities, CompositionFaults, DriveError,
-    ExecuteError, ExecuteRefusal, Failure, Features, Instruction, InstructionFault, InstructionSet,
-    NotReady, OpcodeMap, PartId, ReadoutValue, Readouts, Runner, Seed, ShotConditions, ShotId,
-    ShotSet,
+    Batch, BatchFault, BatchReadouts, Capabilities, CompositionFaults, DriveError, ExecuteError,
+    ExecuteRefusal, Failure, NotReady, PartId, ReadoutValue, Readouts, Runner, Seed,
+    ShotConditions, ShotId, ShotSet,
 };
 
 use ReadoutValue::{One, Zero};
@@ -52,7 +50,11 @@ struct Failed {
 /// The failures of the run of `shots` on the chain `parts` makes, with the
 /// adapter bracketed with the driver, then with the executor; each
 /// bracketing gets new parts, a new log and a new count.
-fn failed_in_both_brackets<D: Driver<Output: std::fmt::Debug>, A: Adapter, E: Executor>(
+fn failed_in_both_brackets<
+    D: Driver<Output: std::fmt::Debug>,
+    A: Adapter<Accepts = D::Sends>,
+    E: Executor<Accepts = A::Sends>,
+>(
     shots: &ShotSet,
     parts: impl Fn(&Log, &Rc<Cell<usize>>) -> (D, A, E),
 ) -> [Failed; 2] {
@@ -77,7 +79,7 @@ fn failed_in_both_brackets<D: Driver<Output: std::fmt::Debug>, A: Adapter, E: Ex
 }
 
 /// The failure of the run of `shots` on the chain `composed` makes.
-fn failed_run<D: Driver<Output: std::fmt::Debug>, E: Executor>(
+fn failed_run<D: Driver<Output: std::fmt::Debug>, E: Executor<Accepts = D::Sends>>(
     composed: Result<Runner<D, E>, CompositionFaults>,
     shots: &ShotSet,
 ) -> DriveError {
@@ -93,7 +95,7 @@ fn flip_and_measure() -> Program {
 /// The failure of the run of `shots` on the chain `parts` makes, a driver
 /// over an executor: a [`Failed`] with no adapter, so with no profiler,
 /// whose count stays 0.
-fn failed_with_no_adapter<D: Driver<Output: std::fmt::Debug>, E: Executor>(
+fn failed_with_no_adapter<D: Driver<Output: std::fmt::Debug>, E: Executor<Accepts = D::Sends>>(
     shots: &ShotSet,
     parts: impl Fn(&Log) -> (D, E),
 ) -> [Failed; 1] {
@@ -119,7 +121,11 @@ fn refused_before_it_runs(row: &str, runs: &[Failed], refusal: &ExecuteRefusal) 
         let Failure::Refused(got) = &error.failure else {
             panic!("{row}, {brackets}: a refusal, not {:?}", error.failure);
         };
-        assert_eq!(got, refusal, "{row}, {brackets}");
+        assert_eq!(
+            format!("{got:?}"),
+            format!("{refusal:?}"),
+            "{row}, {brackets}"
+        );
         assert_eq!(error.shot, refusal.shot(), "{row}, {brackets}");
         assert_eq!(run.counted.get(), 0, "{row}, {brackets}: no count");
         assert_eq!(
@@ -130,121 +136,66 @@ fn refused_before_it_runs(row: &str, runs: &[Failed], refusal: &ExecuteRefusal) 
     }
 }
 
-/// Reads qubit 0, flips it if the readout parity of that read is odd,
-/// and reads it again, in [`ParityGates`], written as struct literals, as
-/// a part writes them on its hot path, in one checked batch, requiring
-/// one qubit and readout parities.
-fn flip_on_a_parity() -> Program {
-    let on_qubit_0 = |opcode, arguments| Instruction {
-        opcode,
-        blocks: smallvec![0],
-        arguments,
-        select: None,
-    };
-    let mz = on_qubit_0(ParityGates::MZ, smallvec![]);
-    let x_if = on_qubit_0(ParityGates::X_IF, smallvec![Argument::recent(1)]);
-    Program::sending(vec![mz.clone(), x_if, mz], ParityGates::set())
-        .with_resources(qubits(1))
-        .with_features(Features::unconstrained().with_readout_parity(true))
-        .with_checked_batches()
-}
-
 /// Each boundary refuses a checked batch its receiver does not take,
 /// typed and naming the batch's first shot, before the receiver runs any
 /// of it or of the other batches of its `execute`, whoever sends it: the
 /// driver, to the executor or to an adapter, or an adapter, in both
-/// bracketings. A row per sender, and one where an adapter's requirement
-/// differs from the driver's, as the requirement its batches are checked
-/// against; the faults a batch may hold are in
+/// bracketings. A row per sender; the faults a batch may hold are in
 /// `capabilities/boundary/batch_limits.rs`.
 #[test]
 fn a_batch_the_part_below_does_not_take_is_refused_before_it_runs() {
-    let beyond_the_required = |shot, at, block, required| ExecuteRefusal::Batch {
+    let beyond_the_set = |shot, at| ExecuteRefusal::Batch {
         shot: ShotId::new(shot),
         batch: 0,
         fault: BatchFault::Instruction {
             at,
-            fault: InstructionFault::BlockBeyondRequired {
-                mnemonic: "x".to_owned(),
-                block,
-                required,
-            },
+            fault: Box::new(UnknownGate { at: 99 }),
         },
     };
-    let parity_refused = ExecuteRefusal::Batch {
-        shot: ShotId::new(5),
-        batch: 0,
-        fault: BatchFault::Instruction {
-            at: 1,
-            fault: InstructionFault::ParityNotRequired {
-                mnemonic: "x_if".to_owned(),
-                parameter: "c".to_owned(),
-            },
-        },
-    };
-    let rows: [(&str, Vec<Failed>, ExecuteRefusal); 4] = [
-        // An instruction on a qubit beyond the program's qubits.
+    let rows: [(&str, Vec<Failed>, ExecuteRefusal); 3] = [
         (
-            "the driver's instruction beyond its qubits, to the executor",
+            "the driver's gate beyond its set, to the executor",
             failed_with_no_adapter(&ShotSet::ids([4, 2]), |log| {
                 (
-                    Program::new(&[("mz", 0), ("x", 5)])
-                        .with_resources(qubits(2))
+                    Program::new(&[("mz", 0)])
+                        .ending_beyond_its_set(0)
                         .with_checked_batches(),
                     Bits::new(log),
                 )
             })
             .into(),
-            beyond_the_required(4, 1, 5, 2),
+            beyond_the_set(4, 1),
         ),
-        // A driver flipping qubit 1 while requiring one qubit, through a
-        // profiler: refused at the driver's boundary, before the profiler
-        // counts any.
+        // Through a profiler: refused at the driver's boundary, before the
+        // profiler counts any.
         (
-            "the driver's instruction beyond its qubits, to an adapter",
+            "the driver's gate beyond its set, to an adapter",
             failed_in_both_brackets(&ShotSet::ids([5, 3]), |log, counted| {
                 (
-                    Program::new(&[("mz", 0), ("x", 1)])
-                        .with_resources(qubits(1))
+                    Program::new(&[("mz", 0)])
+                        .ending_beyond_its_set(0)
                         .with_checked_batches(),
                     Profiler::new(counted, log),
                     Bits::new(log),
                 )
             })
             .into(),
-            beyond_the_required(5, 1, 1, 1),
+            beyond_the_set(5, 1),
         ),
         // A driver flipping and measuring qubit 0, under an adapter that
-        // adds an `x` on qubit 99 while forwarding the driver's one qubit,
-        // which it does not state: the adapter's batch is refused, naming
-        // its third instruction.
+        // adds a gate beyond its set: the adapter's batch is refused,
+        // naming its third instruction.
         (
-            "an adapter's instruction beyond the qubits it forwards",
+            "an adapter's gate beyond its set",
             failed_in_both_brackets(&ShotSet::ids([4, 2]), |log, _| {
                 (
                     flip_and_measure(),
-                    Misbehaving::new(Misbehaviour::SendsBeyondItsQubits),
+                    Misbehaving::new(Misbehaviour::SendsBeyondItsSet),
                     Bits::new(log),
                 )
             })
             .into(),
-            beyond_the_required(4, 2, 99, 1),
-        ),
-        // A driver requiring readout parities, above an adapter that says
-        // it resolves them, so that it requires none below, but passes
-        // them down, over an executor that resolves none: the adapter's
-        // batch is refused.
-        (
-            "an adapter's readout parity it does not require",
-            failed_in_both_brackets(&ShotSet::ids([5, 3]), |log, _| {
-                (
-                    flip_on_a_parity(),
-                    ForwardsParity::on(ParityGates::set(), log),
-                    Bits::accepting(ParityGates::set(), log),
-                )
-            })
-            .into(),
-            parity_refused,
+            beyond_the_set(4, 2),
         ),
     ];
     for (row, runs, refusal) in &rows {
@@ -252,41 +203,80 @@ fn a_batch_the_part_below_does_not_take_is_refused_before_it_runs() {
     }
 }
 
-/// A driver requiring readout parities, through two profilers, over an
-/// executor that resolves them, in each of the five bracketings of four
-/// parts: every boundary passes the parity, and the executor runs it.
+/// A program on qubits 0 and 2, requiring 4 qubits, through an adapter
+/// that passes it on unmapped while requiring fewer qubits below, over a
+/// register of 8, in both bracketings: each boundary checks a checked
+/// batch against what its own sender requires, not what the driver does.
+/// Requiring 2 below, the adapter's batch is refused at the gate on qubit
+/// 2, with the set's fault, before the register runs it; requiring 3, it
+/// runs.
 #[test]
-fn a_required_readout_parity_crosses_every_boundary() {
-    in_each_bracketing!(
-        [d, a, b, e] from {
-            let log = Log::default();
-            let counted = Rc::new(Cell::new(0));
-            let d = flip_on_a_parity();
-            let a = Profiler::on(ParityGates::set(), &counted, &log);
-            let b = Profiler::on(ParityGates::set(), &counted, &log);
-            let e = Bits::accepting(ParityGates::set(), &log).resolving_parity();
-        },
-        |chain, brackets| {
-            runner(chain)
-                .run(&ShotSet::ids([5, 3]), SEED)
-                .unwrap_or_else(|error| panic!("{brackets}: {error:?}"));
-            assert_eq!(log.count("Bits execute"), 1, "{brackets}");
+fn a_checked_batch_is_checked_against_what_its_sender_requires() {
+    let refused = format!(
+        "{:?}",
+        ExecuteRefusal::Batch {
+            shot: ShotId::new(0),
+            batch: 0,
+            fault: BatchFault::Instruction {
+                at: 1,
+                fault: Box::new(QubitBeyond {
+                    qubit: 2,
+                    qubits: 2
+                }),
+            },
         }
     );
+    for (requires, refuses) in [(2, true), (3, false)] {
+        let log = Log::default();
+        let program = || QubitProgram::new(&[0, 2], 4);
+        let register = || QubitRegister::new(8, &log);
+        let runs = [
+            (
+                "the adapter with the driver",
+                runner(
+                    program()
+                        .through(QubitNarrowing::to(requires))
+                        .on(register()),
+                )
+                .run(&ShotSet::ids(0..2), SEED),
+            ),
+            (
+                "the adapter with the executor",
+                runner(program().on(QubitNarrowing::to(requires).on(register())))
+                    .run(&ShotSet::ids(0..2), SEED),
+            ),
+        ];
+        for (brackets, run) in runs {
+            if refuses {
+                let error = failed(run);
+                assert!(
+                    matches!(&error.failure, Failure::Refused(why) if format!("{why:?}") == refused),
+                    "{brackets}: {error:?}"
+                );
+            } else {
+                run.unwrap_or_else(|error| panic!("{brackets}, requiring 3: {error:?}"));
+            }
+        }
+        let executed = if refuses { 0 } else { 2 };
+        assert_eq!(
+            log.count("QubitRegister execute"),
+            executed,
+            "requiring {requires}: what the register ran"
+        );
+    }
 }
 
-/// A driver flipping and measuring qubit 0 in `CoinGates`, over bits
-/// whose `provides` answers [`ParityGates`] once ready, in which `x` is
-/// `x_if` and `mz` is past the set's end, in a checked batch, directly and
-/// through an adapter in both bracketings: each run checks the batch
-/// against the set the `on` that makes the runner read, so it runs and
-/// reads 1, and the adapter, reading the set of the part below, is told
-/// that set too.
+/// A driver flipping and measuring qubit 0 in [`coin_gates`], over bits
+/// that accept, once ready, a set without `mz`, in a checked batch,
+/// directly and through an adapter in both bracketings: each run checks
+/// the batch against the set the `on` that makes the runner read, so it
+/// runs and reads 1, and the adapter, reading the set of the part below,
+/// is told that set too.
 #[test]
 fn every_batch_is_checked_against_the_set_read_at_composition() {
     let log = Log::default();
     let names_below = || NamesBelow::new(&log);
-    let bits = || Bits::new(&log).accepting_once_ready(ParityGates::set());
+    let bits = || Bits::new(&log).accepting_once_ready(Measuring::new(&["h", "x"]));
     let shots = ShotSet::ids([5, 3]);
     let runs = [
         runner(flip_and_measure().on(bits())).run(&shots, SEED),
@@ -304,7 +294,7 @@ fn every_batch_is_checked_against_the_set_read_at_composition() {
         .into_iter()
         .filter(|entry| entry.starts_with("below accepts: "))
         .collect();
-    let read_at_composition = format!("below accepts: {}", coin_gates().name());
+    let read_at_composition = format!("below accepts: {:?}", coin_gates());
     assert_eq!(told, [read_at_composition.clone(), read_at_composition]);
 }
 
@@ -326,11 +316,11 @@ fn an_adapter_reads_the_name_of_the_part_below() {
             let log = Log::default();
             let d = Program::new(&[("mz", 0)]);
             let n = NamesBelow::new(&log);
-            let e = Renamed::new(Bits::new(&log), "qodec runtime");
+            let e = Renamed::new(Bits::new(&log), "device runtime");
         },
         |chain, brackets| {
             runner(chain).run(&shots, SEED).expect("a run");
-            assert_eq!(read(&log), ["below: qodec runtime"], "{brackets}");
+            assert_eq!(read(&log), ["below: device runtime"], "{brackets}");
         }
     );
     in_each_bracketing!(
@@ -340,7 +330,7 @@ fn an_adapter_reads_the_name_of_the_part_below() {
             let d = Program::new(&[("mz", 0)]);
             let n = NamesBelow::new(&log);
             let p = Renamed::new(Profiler::new(&counted, &log), "profiler");
-            let e = Renamed::new(Bits::new(&log), "qodec runtime");
+            let e = Renamed::new(Bits::new(&log), "device runtime");
         },
         |chain, brackets| {
             runner(chain).run(&shots, SEED).expect("a run");
@@ -349,37 +339,39 @@ fn an_adapter_reads_the_name_of_the_part_below() {
     );
 }
 
-/// An adapter of a chain whose one faulty part sends an instruction
-/// beyond the qubits required: a profiler, or, if it is that part, an
-/// adapter adding an `x` on qubit 99 beyond the one qubit it forwards.
+/// An adapter of a chain whose one faulty part sends a gate beyond its
+/// set: a profiler, or, if it is that part, an adapter adding one.
 enum Stage {
     Counts(Profiler),
     Faulty(Misbehaving),
 }
 
 impl Adapter for Stage {
-    fn accepts(&self) -> &InstructionSet {
+    type Accepts = Measuring;
+    type Sends = Measuring;
+
+    fn accepts(&self) -> &Measuring {
         match self {
             Self::Counts(profiler) => Adapter::accepts(profiler),
             Self::Faulty(faulty) => Adapter::accepts(faulty),
         }
     }
 
-    fn sends(&self) -> &InstructionSet {
+    fn sends(&self) -> &Measuring {
         match self {
             Self::Counts(profiler) => profiler.sends(),
             Self::Faulty(faulty) => faulty.sends(),
         }
     }
 
-    fn requires(&self, above: &Capabilities) -> Capabilities {
+    fn requires(&self, above: &Capabilities<Measuring>) -> Capabilities<Measuring> {
         match self {
             Self::Counts(profiler) => Adapter::requires(profiler, above),
             Self::Faulty(faulty) => Adapter::requires(faulty, above),
         }
     }
 
-    fn bind(&mut self, below: OpcodeMap) {
+    fn bind(&mut self, below: Vec<u32>) {
         match self {
             Self::Counts(profiler) => profiler.bind(below),
             Self::Faulty(faulty) => faulty.bind(below),
@@ -388,9 +380,9 @@ impl Adapter for Stage {
 
     async fn adapt(
         &mut self,
-        batches: &[Batch<'_>],
+        batches: &[Batch<'_, Measuring>],
         seed: Seed,
-        below: &mut impl Executor,
+        below: &mut impl Executor<Accepts = Measuring>,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         match self {
@@ -401,9 +393,8 @@ impl Adapter for Stage {
 }
 
 /// The parts of a chain of a driver, up to two adapters and bits, of
-/// which one sends an instruction beyond the qubits required: the driver,
-/// an `x` on qubit 99 while requiring two qubits, if `faulty` is 0, or the
-/// adapter at that position. The driver's batches are checked if
+/// which one sends a gate beyond its set: the driver, if `faulty` is 0, or
+/// the adapter at that position. The driver's batches are checked if
 /// `checked`, and each adapter's are if the batch it received is. Each
 /// other adapter counts the instructions it receives, the first into
 /// `counted[0]`.
@@ -426,7 +417,7 @@ impl Parts {
 
     fn d(&self) -> Program {
         let program = if self.faulty == 0 {
-            Program::new(&[("mz", 0), ("x", 99)]).with_resources(qubits(2))
+            Program::new(&[("mz", 0)]).ending_beyond_its_set(0)
         } else {
             Program::new(&[("x", 0), ("mz", 0)])
         };
@@ -440,7 +431,7 @@ impl Parts {
     /// The adapter at `position`, 1 or 2 from the top.
     fn p(&self, position: usize) -> Stage {
         if self.faulty == position {
-            Stage::Faulty(Misbehaving::new(Misbehaviour::SendsBeyondItsQubits))
+            Stage::Faulty(Misbehaving::new(Misbehaviour::SendsBeyondItsSet))
         } else {
             Stage::Counts(Profiler::new(&self.counted[position - 1], &self.log))
         }
@@ -466,7 +457,10 @@ impl Parts {
 /// checked, the faulty batch is refused, and the part below receives
 /// nothing; if not, as by default, it reaches the bits, which panic on
 /// it.
-fn each_boundary_checks_its_batch<D: Driver<Output: std::fmt::Debug>, E: Executor>(
+fn each_boundary_checks_its_batch<
+    D: Driver<Output: std::fmt::Debug>,
+    E: Executor<Accepts = D::Sends>,
+>(
     brackets: &str,
     adapters: usize,
     chain: impl Fn(&Parts) -> Result<Runner<D, E>, CompositionFaults>,
@@ -477,14 +471,11 @@ fn each_boundary_checks_its_batch<D: Driver<Output: std::fmt::Debug>, E: Executo
         let error = failed(runner(chain(&parts)).run(&shots, SEED));
         assert!(
             matches!(
-                error.failure,
+                &error.failure,
                 Failure::Refused(ExecuteRefusal::Batch {
-                    fault: BatchFault::Instruction {
-                        fault: InstructionFault::BlockBeyondRequired { .. },
-                        ..
-                    },
+                    fault: BatchFault::Instruction { fault, .. },
                     ..
-                })
+                }) if fault.is::<UnknownGate>()
             ),
             "{brackets}, part {faulty} faulty, checked: {error:?}"
         );
@@ -508,7 +499,7 @@ fn each_boundary_checks_its_batch<D: Driver<Output: std::fmt::Debug>, E: Executo
 }
 
 /// A driver, two adapters at most and bits, in every bracketing, with each
-/// part above a boundary sending an instruction beyond its qubits in turn:
+/// part above a boundary sending a gate beyond its set in turn:
 /// if the driver's batches are checked, the adapters' are too, and the
 /// faulty batch is refused at the boundary below that part, wherever the
 /// brackets go; batches are unchecked by default.
@@ -535,9 +526,8 @@ fn a_checked_batch_is_checked_at_every_boundary_wherever_the_brackets_go() {
 }
 
 /// Two batches of one `execute`, on shots 4 and 2 a measure of qubit 0,
-/// on shots 9 and 7 a flip of qubit 99 beyond the program's 2 qubits and
-/// the bits' 64, one
-/// checked and the other not: each batch is checked as its sender chose.
+/// on shots 9 and 7 a gate beyond the set, one checked and the other not:
+/// each batch is checked as its sender chose.
 /// Checked, the second batch is refused, naming batch 1 and its first
 /// shot, 9; unchecked, after a checked first batch, it reaches the bits,
 /// which panic on it.
@@ -547,8 +537,8 @@ fn each_batch_of_an_execute_is_checked_as_its_sender_chose() {
     let log = Log::default();
     let run = |first, second| {
         runner(
-            (Program::halves(&[("mz", 0)], &[("x", 99)])
-                .with_resources(qubits(2))
+            (Program::halves(&[("mz", 0)], &[])
+                .ending_beyond_its_set(1)
                 .with_checked_halves(first, second))
             .on(Bits::new(&log)),
         )
@@ -557,15 +547,12 @@ fn each_batch_of_an_execute_is_checked_as_its_sender_chose() {
     let error = failed(run(false, true));
     assert!(
         matches!(
-            error.failure,
+            &error.failure,
             Failure::Refused(ExecuteRefusal::Batch {
                 shot,
                 batch: 1,
-                fault: BatchFault::Instruction {
-                    at: 0,
-                    fault: InstructionFault::BlockBeyondRequired { .. },
-                },
-            }) if shot == ShotId::new(9)
+                fault: BatchFault::Instruction { at: 0, fault },
+            }) if *shot == ShotId::new(9) && fault.is::<UnknownGate>()
         ),
         "the checked second batch: {error:?}"
     );
@@ -581,11 +568,13 @@ fn each_batch_of_an_execute_is_checked_as_its_sender_chose() {
 struct SendsNothing;
 
 impl Driver for SendsNothing {
-    fn sends(&self) -> &InstructionSet {
+    type Sends = Measuring;
+
+    fn sends(&self) -> &Measuring {
         coin_gates()
     }
 
-    fn bind(&mut self, _below: OpcodeMap) {}
+    fn bind(&mut self, _below: Vec<u32>) {}
 
     type Output = ();
 
@@ -593,10 +582,12 @@ impl Driver for SendsNothing {
         &mut self,
         shots: &ShotSet,
         seed: Seed,
-        below: &mut impl Executor,
+        below: &mut impl Executor<Accepts = Measuring>,
     ) -> Result<Vec<()>, DriveError> {
         let mut kept = Readouts::new();
-        below.execute(&[], seed, kept.readouts_for(&[])).await?;
+        below
+            .execute(&[], seed, kept.readouts_for::<Measuring>(&[]))
+            .await?;
         Ok(vec![(); shots.len()])
     }
 }
@@ -633,11 +624,13 @@ struct MakesAnExecute {
 }
 
 impl Driver for MakesAnExecute {
-    fn sends(&self) -> &InstructionSet {
+    type Sends = Measuring;
+
+    fn sends(&self) -> &Measuring {
         coin_gates()
     }
 
-    fn bind(&mut self, _below: OpcodeMap) {}
+    fn bind(&mut self, _below: Vec<u32>) {}
 
     type Output = ();
 
@@ -645,7 +638,7 @@ impl Driver for MakesAnExecute {
         &mut self,
         shots: &ShotSet,
         seed: Seed,
-        below: &mut impl Executor,
+        below: &mut impl Executor<Accepts = Measuring>,
     ) -> Result<Vec<()>, DriveError> {
         let batches = [Batch::new(shots, &[], 0)];
         let mut kept = Readouts::new();
@@ -663,13 +656,15 @@ impl Driver for MakesAnExecute {
 struct AnswersWhenCalled(Rc<Cell<usize>>);
 
 impl Executor for AnswersWhenCalled {
-    fn accepts(&self) -> &InstructionSet {
+    type Accepts = Measuring;
+
+    fn accepts(&self) -> &Measuring {
         coin_gates()
     }
 
     fn execute(
         &mut self,
-        _batches: &[Batch<'_>],
+        _batches: &[Batch<'_, Measuring>],
         _seed: Seed,
         _readouts: &mut [BatchReadouts],
     ) -> impl Future<Output = Result<(), ExecuteError>> {
@@ -684,21 +679,24 @@ impl Executor for AnswersWhenCalled {
 struct ForwardsWhenCalled(Rc<Cell<usize>>);
 
 impl Adapter for ForwardsWhenCalled {
-    fn accepts(&self) -> &InstructionSet {
+    type Accepts = Measuring;
+    type Sends = Measuring;
+
+    fn accepts(&self) -> &Measuring {
         coin_gates()
     }
 
-    fn sends(&self) -> &InstructionSet {
+    fn sends(&self) -> &Measuring {
         coin_gates()
     }
 
-    fn bind(&mut self, _below: OpcodeMap) {}
+    fn bind(&mut self, _below: Vec<u32>) {}
 
     fn adapt(
         &mut self,
-        batches: &[Batch<'_>],
+        batches: &[Batch<'_, Measuring>],
         seed: Seed,
-        below: &mut impl Executor,
+        below: &mut impl Executor<Accepts = Measuring>,
         readouts: &mut [BatchReadouts],
     ) -> impl Future<Output = Result<(), ExecuteError>> {
         self.0.set(self.0.get() + 1);
@@ -749,7 +747,7 @@ fn a_boundary_calls_its_receiver_only_once_its_execute_is_polled() {
 /// of other shapes, smaller and larger, holding values and conditions. It
 /// records the readouts it reads.
 struct TwoBatches {
-    instructions: [Vec<Instruction>; 2],
+    instructions: [Vec<Gate>; 2],
     /// The readout slots it states for each batch.
     stated: [u32; 2],
     passes: Passes,
@@ -799,7 +797,7 @@ impl TwoBatches {
 fn readouts_of_other_shapes() -> Readouts {
     let mut readouts = Readouts::new();
     let shot = ShotSet::ids([0]);
-    let three = [0; 3].map(|_| Batch::new(&shot, &[], 0));
+    let three = [0; 3].map(|_| Batch::<Measuring>::new(&shot, &[], 0));
     for (index, batch_readouts) in readouts.readouts_for(&three).iter_mut().enumerate() {
         let (rows, slots) = if index == 0 { (1, 1) } else { (4, 3) };
         *batch_readouts = BatchReadouts::new(rows, slots);
@@ -812,13 +810,15 @@ fn readouts_of_other_shapes() -> Readouts {
 }
 
 impl Driver for TwoBatches {
-    fn sends(&self) -> &InstructionSet {
+    type Sends = Measuring;
+
+    fn sends(&self) -> &Measuring {
         coin_gates()
     }
 
-    fn bind(&mut self, below: OpcodeMap) {
-        for instruction in self.instructions.iter_mut().flatten() {
-            instruction.opcode = below.map(instruction.opcode);
+    fn bind(&mut self, below: Vec<u32>) {
+        for gate in self.instructions.iter_mut().flatten() {
+            *gate = Measuring::bound(&below, *gate);
         }
     }
 
@@ -828,7 +828,7 @@ impl Driver for TwoBatches {
         &mut self,
         shots: &ShotSet,
         seed: Seed,
-        below: &mut impl Executor,
+        below: &mut impl Executor<Accepts = Measuring>,
     ) -> Result<Vec<()>, DriveError> {
         let parts = [
             shots.select(&[0, 1]).expect("shots 0 and 1"),
@@ -840,7 +840,7 @@ impl Driver for TwoBatches {
         ];
         let mut kept = readouts_of_other_shapes();
         let readouts = kept.readouts_for(&batches);
-        let (sent, passed): (&[Batch<'_>], &mut [BatchReadouts]) = match self.passes {
+        let (sent, passed): (&[Batch<'_, Measuring>], &mut [BatchReadouts]) = match self.passes {
             Passes::OnePerBatch => (&batches, &mut readouts[..]),
             Passes::FewerThanBatches => (&batches, &mut readouts[..1]),
             Passes::WithoutBatches => (&[], &mut readouts[..1]),
@@ -852,7 +852,7 @@ impl Driver for TwoBatches {
 }
 
 /// What a [`TwoBatches`] read on the chain `below` composes it into.
-fn read_on<D: Driver, E: Executor>(
+fn read_on<D: Driver, E: Executor<Accepts = D::Sends>>(
     below: impl FnOnce(TwoBatches) -> Result<Runner<D, E>, CompositionFaults>,
 ) -> Vec<BatchReadouts> {
     read_stating([2, 0], below)
@@ -860,7 +860,7 @@ fn read_on<D: Driver, E: Executor>(
 
 /// What a [`TwoBatches`] stating `stated` readout slots read on the chain
 /// `below` composes it into.
-fn read_stating<D: Driver, E: Executor>(
+fn read_stating<D: Driver, E: Executor<Accepts = D::Sends>>(
     stated: [u32; 2],
     below: impl FnOnce(TwoBatches) -> Result<Runner<D, E>, CompositionFaults>,
 ) -> Vec<BatchReadouts> {
@@ -877,11 +877,13 @@ fn read_stating<D: Driver, E: Executor>(
 struct RecordsWhatItFinds(Option<Bits>, Rc<RefCell<Vec<BatchReadouts>>>);
 
 impl Executor for RecordsWhatItFinds {
-    fn accepts(&self) -> &InstructionSet {
+    type Accepts = Measuring;
+
+    fn accepts(&self) -> &Measuring {
         coin_gates()
     }
 
-    async fn ready(&mut self, above: &Capabilities) -> Result<(), NotReady> {
+    async fn ready(&mut self, above: &Capabilities<Measuring>) -> Result<(), NotReady> {
         match &mut self.0 {
             Some(bits) => bits.ready(above).await,
             None => Ok(()),
@@ -890,7 +892,7 @@ impl Executor for RecordsWhatItFinds {
 
     async fn execute(
         &mut self,
-        batches: &[Batch<'_>],
+        batches: &[Batch<'_, Measuring>],
         seed: Seed,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
@@ -983,21 +985,23 @@ fn each_batchs_readouts_come_shaped_as_the_batch_prefilled() {
 struct FailsFirst(Bits, bool);
 
 impl Executor for FailsFirst {
-    fn accepts(&self) -> &InstructionSet {
+    type Accepts = Measuring;
+
+    fn accepts(&self) -> &Measuring {
         Executor::accepts(&self.0)
     }
 
-    fn provides(&self) -> &Capabilities {
+    fn provides(&self) -> &Capabilities<Measuring> {
         Executor::provides(&self.0)
     }
 
-    async fn ready(&mut self, above: &Capabilities) -> Result<(), NotReady> {
+    async fn ready(&mut self, above: &Capabilities<Measuring>) -> Result<(), NotReady> {
         self.0.ready(above).await
     }
 
     async fn execute(
         &mut self,
-        batches: &[Batch<'_>],
+        batches: &[Batch<'_, Measuring>],
         seed: Seed,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
@@ -1026,31 +1030,34 @@ impl Executor for FailsFirst {
 struct RetriesAfterAFailure(Profiler);
 
 impl Adapter for RetriesAfterAFailure {
-    fn accepts(&self) -> &InstructionSet {
+    type Accepts = Measuring;
+    type Sends = Measuring;
+
+    fn accepts(&self) -> &Measuring {
         Adapter::accepts(&self.0)
     }
 
-    fn sends(&self) -> &InstructionSet {
+    fn sends(&self) -> &Measuring {
         self.0.sends()
     }
 
-    fn provides(&self) -> &Capabilities {
+    fn provides(&self) -> &Capabilities<Measuring> {
         Adapter::provides(&self.0)
     }
 
-    fn requires(&self, above: &Capabilities) -> Capabilities {
+    fn requires(&self, above: &Capabilities<Measuring>) -> Capabilities<Measuring> {
         Adapter::requires(&self.0, above)
     }
 
-    fn bind(&mut self, below: OpcodeMap) {
+    fn bind(&mut self, below: Vec<u32>) {
         self.0.bind(below);
     }
 
     async fn adapt(
         &mut self,
-        batches: &[Batch<'_>],
+        batches: &[Batch<'_, Measuring>],
         seed: Seed,
-        below: &mut impl Executor,
+        below: &mut impl Executor<Accepts = Measuring>,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         if self.0.adapt(batches, seed, below, readouts).await.is_ok() {
@@ -1085,31 +1092,34 @@ fn an_execute_sent_again_after_a_failure_gets_its_readouts_shaped_again() {
 struct PassesTooFewReadouts(Profiler);
 
 impl Adapter for PassesTooFewReadouts {
-    fn accepts(&self) -> &InstructionSet {
+    type Accepts = Measuring;
+    type Sends = Measuring;
+
+    fn accepts(&self) -> &Measuring {
         Adapter::accepts(&self.0)
     }
 
-    fn sends(&self) -> &InstructionSet {
+    fn sends(&self) -> &Measuring {
         self.0.sends()
     }
 
-    fn provides(&self) -> &Capabilities {
+    fn provides(&self) -> &Capabilities<Measuring> {
         Adapter::provides(&self.0)
     }
 
-    fn requires(&self, above: &Capabilities) -> Capabilities {
+    fn requires(&self, above: &Capabilities<Measuring>) -> Capabilities<Measuring> {
         Adapter::requires(&self.0, above)
     }
 
-    fn bind(&mut self, below: OpcodeMap) {
+    fn bind(&mut self, below: Vec<u32>) {
         self.0.bind(below);
     }
 
     async fn adapt(
         &mut self,
-        batches: &[Batch<'_>],
+        batches: &[Batch<'_, Measuring>],
         seed: Seed,
-        below: &mut impl Executor,
+        below: &mut impl Executor<Accepts = Measuring>,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         self.0.adapt(batches, seed, below, &mut readouts[1..]).await
@@ -1189,18 +1199,20 @@ fn readouts_not_one_per_batch_fail_the_run_naming_the_caller() {
 /// records as it polls it.
 struct RoundsIntoItsReadouts {
     /// One `mz`, of one readout slot.
-    instructions: Vec<Instruction>,
+    instructions: Vec<Gate>,
     allocated: Rc<Cell<Option<usize>>>,
 }
 
 impl Driver for RoundsIntoItsReadouts {
-    fn sends(&self) -> &InstructionSet {
+    type Sends = Measuring;
+
+    fn sends(&self) -> &Measuring {
         coin_gates()
     }
 
-    fn bind(&mut self, below: OpcodeMap) {
-        for instruction in &mut self.instructions {
-            instruction.opcode = below.map(instruction.opcode);
+    fn bind(&mut self, below: Vec<u32>) {
+        for gate in &mut self.instructions {
+            *gate = Measuring::bound(&below, *gate);
         }
     }
 
@@ -1210,7 +1222,7 @@ impl Driver for RoundsIntoItsReadouts {
         &mut self,
         shots: &ShotSet,
         seed: Seed,
-        below: &mut impl Executor,
+        below: &mut impl Executor<Accepts = Measuring>,
     ) -> Result<Vec<()>, DriveError> {
         let each = (0..shots.len())
             .map(|at| shots.select(&[at]).expect("a shot of the run"))
@@ -1239,18 +1251,20 @@ impl Driver for RoundsIntoItsReadouts {
     }
 }
 
-/// An executor of [`CoinGates`](crate::tests::fake_parts::CoinGates)
-/// writing `Zero` in every slot of every row, and allocating nothing.
+/// An executor of [`coin_gates`] writing `Zero` in every slot of every
+/// row, and allocating nothing.
 struct Zeros;
 
 impl Executor for Zeros {
-    fn accepts(&self) -> &InstructionSet {
+    type Accepts = Measuring;
+
+    fn accepts(&self) -> &Measuring {
         coin_gates()
     }
 
     async fn execute(
         &mut self,
-        _batches: &[Batch<'_>],
+        _batches: &[Batch<'_, Measuring>],
         _seed: Seed,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {

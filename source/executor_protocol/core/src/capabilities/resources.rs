@@ -1,101 +1,107 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Amounts a part requires of the part below, or provides the part above:
-//! [`Resources`], an amount per [`Resource`].
+//! The amounts every chain states, whatever its instruction set:
+//! [`Resources`], and each one provided short ([`ResourceMismatch`]).
 
 use std::fmt;
 
-use super::{StatementMismatch, Statements};
-use crate::BlockType;
-
-/// Amounts: the most blocks of each type a shot holds at once, the most
-/// shots a run holds, and the most instructions a batch holds.
+/// Amounts: the most shots a run holds, and the most instructions a batch
+/// holds.
 ///
-/// Required, each is the most the part's shots, runs or batches reach;
-/// provided, the most the part takes. A part that does not state one
-/// neither needs nor limits it. A checked batch, though, may use no block of a
-/// type the requirement arriving at its receiver does not state.
+/// Required, each is the most the part's runs or batches reach; provided,
+/// the most the part takes. A part that does not state one (`None`)
+/// neither needs nor limits it.
 ///
 /// Built from [`unconstrained`](Self::unconstrained), which states
-/// nothing, with the builders below.
-pub type Resources = Statements<Resource, u32>;
-
-/// An amount required above the one provided.
-pub type ResourceMismatch = StatementMismatch<Resource, u32>;
-
-/// What an amount counts, in the order mismatches are listed.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-#[non_exhaustive]
-pub enum Resource {
-    /// The blocks of a type a shot holds at once.
-    Blocks(BlockType),
+/// nothing, with the builders below, or by setting its fields.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Resources {
     /// The shots a run holds.
-    Shots,
+    pub shots: Option<u32>,
     /// The instructions a batch holds.
-    InstructionsPerBatch,
+    pub instructions_per_batch: Option<u32>,
 }
 
 impl Resources {
     /// No amount stated: required, no need of any; provided, no limit on
     /// any. What a part leaves unstated, composition cannot refuse a chain
-    /// on: a part that needs more blocks, shots or instructions a batch
-    /// than this one holds is joined with it all the same.
+    /// on: a part that needs more shots or instructions a batch than this
+    /// one holds is joined with it all the same.
     #[must_use]
     pub const fn unconstrained() -> Self {
-        Self::new()
-    }
-
-    /// These resources, with `n` qubits.
-    #[must_use]
-    pub fn with_qubits(self, n: u32) -> Self {
-        self.with_blocks(BlockType::qubit(), n)
-    }
-
-    /// These resources, with `n` blocks of `block_type`. A provider states
-    /// 0 for a type it does not take.
-    #[must_use]
-    pub fn with_blocks(self, block_type: BlockType, n: u32) -> Self {
-        self.with(Resource::Blocks(block_type), n)
+        Self {
+            shots: None,
+            instructions_per_batch: None,
+        }
     }
 
     /// These resources, with `n` shots per run.
     #[must_use]
-    pub fn with_shots(self, n: u32) -> Self {
-        self.with(Resource::Shots, n)
+    pub const fn with_shots(self, n: u32) -> Self {
+        Self {
+            shots: Some(n),
+            ..self
+        }
     }
 
     /// These resources, with `n` instructions per batch.
     #[must_use]
-    pub fn with_instructions_per_batch(self, n: u32) -> Self {
-        self.with(Resource::InstructionsPerBatch, n)
+    pub const fn with_instructions_per_batch(self, n: u32) -> Self {
+        Self {
+            instructions_per_batch: Some(n),
+            ..self
+        }
     }
 
-    /// The blocks of `block_type` stated, if any.
-    #[must_use]
-    pub fn blocks(&self, block_type: &BlockType) -> Option<u32> {
-        self.get(&Resource::Blocks(block_type.clone()))
+    /// Each amount `self` requires above what `provided` states, in the
+    /// fields' order.
+    pub(crate) fn mismatches(&self, provided: &Self) -> Vec<ResourceMismatch> {
+        let shots = short(self.shots, provided.shots)
+            .map(|(required, provided)| ResourceMismatch::Shots { required, provided });
+        let instructions = short(self.instructions_per_batch, provided.instructions_per_batch).map(
+            |(required, provided)| ResourceMismatch::InstructionsPerBatch { required, provided },
+        );
+        shots.into_iter().chain(instructions).collect()
     }
 }
 
-/// `` blocks of type `qubit`: 9 required, 8 provided ``.
+/// `required` and `provided`, when both are stated and `required` is the
+/// larger.
+fn short(required: Option<u32>, provided: Option<u32>) -> Option<(u32, u32)> {
+    let (required, provided) = (required?, provided?);
+    (required > provided).then_some((required, provided))
+}
+
+/// An amount required above the one provided.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ResourceMismatch {
+    /// More shots per run required than provided.
+    Shots {
+        /// The shots required.
+        required: u32,
+        /// The shots provided.
+        provided: u32,
+    },
+    /// More instructions per batch required than provided.
+    InstructionsPerBatch {
+        /// The instructions required.
+        required: u32,
+        /// The instructions provided.
+        provided: u32,
+    },
+}
+
+/// `shots per run: 9 required, 8 provided`.
 impl fmt::Display for ResourceMismatch {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self {
-            key,
-            required,
-            provided,
-        } = self;
-        write!(f, "{key}: {required} required, {provided} provided")
-    }
-}
-
-impl fmt::Display for Resource {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Resource::Blocks(block_type) => write!(f, "blocks of type `{block_type}`"),
-            Resource::Shots => f.write_str("shots per run"),
-            Resource::InstructionsPerBatch => f.write_str("instructions per batch"),
-        }
+        let (what, required, provided) = match *self {
+            ResourceMismatch::Shots { required, provided } => ("shots per run", required, provided),
+            ResourceMismatch::InstructionsPerBatch { required, provided } => {
+                ("instructions per batch", required, provided)
+            }
+        };
+        write!(f, "{what}: {required} required, {provided} provided")
     }
 }

@@ -5,10 +5,8 @@
 
 use super::coin_gates;
 use crate::prelude::*;
-use crate::{
-    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, InstructionSet, OpcodeMap, Seed,
-    ShotSet,
-};
+use crate::tests::example_sets::Measuring;
+use crate::{Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, Seed, ShotSet};
 
 /// When a [`Panics`] part panics.
 #[derive(Clone, Copy)]
@@ -29,17 +27,19 @@ fn broken<T>() -> T {
 }
 
 impl Driver for Panics {
-    fn sends(&self) -> &InstructionSet {
+    type Sends = Measuring;
+
+    fn sends(&self) -> &Measuring {
         coin_gates()
     }
 
-    /// The run's, on 1 qubit.
-    fn requires(&self, run: &Capabilities) -> Capabilities {
+    /// The run's, in batches of 1 instruction.
+    fn requires(&self, run: &Capabilities<Measuring>) -> Capabilities<Measuring> {
         run.clone()
-            .map_resources(|resources| resources.with_qubits(1))
+            .map_resources(|resources| resources.with_instructions_per_batch(1))
     }
 
-    fn bind(&mut self, _below: OpcodeMap) {}
+    fn bind(&mut self, _below: Vec<u32>) {}
 
     type Output = ();
 
@@ -47,7 +47,7 @@ impl Driver for Panics {
         &mut self,
         _shots: &ShotSet,
         _seed: Seed,
-        _below: &mut impl Executor,
+        _below: &mut impl Executor<Accepts = Measuring>,
     ) -> impl Future<Output = Result<Vec<()>, DriveError>> {
         assert!(
             matches!(self.0, PanicsWhen::Polled),
@@ -58,13 +58,15 @@ impl Driver for Panics {
 }
 
 impl Executor for Panics {
-    fn accepts(&self) -> &InstructionSet {
+    type Accepts = Measuring;
+
+    fn accepts(&self) -> &Measuring {
         coin_gates()
     }
 
     fn execute(
         &mut self,
-        _batches: &[Batch<'_>],
+        _batches: &[Batch<'_, Measuring>],
         _seed: Seed,
         _readouts: &mut [BatchReadouts],
     ) -> impl Future<Output = Result<(), ExecuteError>> {

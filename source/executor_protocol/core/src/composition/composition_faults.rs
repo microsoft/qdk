@@ -8,14 +8,14 @@
 use std::error::Error;
 use std::fmt;
 
-use crate::{CapabilitiesMismatch, InstructionMismatch, PartId};
+use crate::{CapabilitiesMismatch, PartId};
 
 /// Every fault of a chain, reported at once by the
 /// [`on`](crate::DriverJoins::on) that makes its runner, before any shot
 /// runs: each part whose instructions the part below does not accept, and
 /// each part whose requirement arrives at a part that does not provide it,
 /// top to bottom.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct CompositionFaults {
     /// At least one.
     pub(super) faults: Vec<CompositionFault>,
@@ -48,7 +48,7 @@ impl Error for CompositionFaults {}
 /// One part whose instructions the part directly below does not accept,
 /// or whose requirement, passed down unchanged by the parts between, a
 /// part below it does not provide.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub struct CompositionFault {
     /// The part whose instructions are not accepted, or whose requirement
@@ -63,7 +63,7 @@ pub struct CompositionFault {
 
 /// `` `d` (part 0) sends what `a` (part 1) does not accept: … ``, for
 /// instructions, `` `d` (part 0) requires what `e` (part 2) does not
-/// provide: … ``, for resources and features, or both, joined by `; and`.
+/// provide: … ``, for capabilities, or both, joined by `; and`.
 impl fmt::Display for CompositionFault {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let BoundaryMismatch {
@@ -71,12 +71,15 @@ impl fmt::Display for CompositionFault {
             capabilities,
         } = &self.mismatch;
         write!(f, "{}", self.requirer)?;
-        if !instructions.is_empty() {
-            write!(f, " sends what {} does not accept: ", self.provider)?;
-            write_joined(f, instructions)?;
+        if let Some(instructions) = instructions {
+            write!(
+                f,
+                " sends what {} does not accept: {instructions}",
+                self.provider
+            )?;
         }
         if !capabilities.is_empty() {
-            if !instructions.is_empty() {
+            if instructions.is_some() {
                 f.write_str("; and")?;
             }
             write!(
@@ -90,25 +93,28 @@ impl fmt::Display for CompositionFault {
 }
 
 /// Every way what one part sends or requires falls short at a part below
-/// it: the instructions the part below does not accept, and the resources
-/// and features it does not provide. In a mismatch a failed check
-/// returns, at least one list is not empty.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// it: how the set it sends does not fit the set the part below accepts,
+/// and the capabilities it does not provide. In a mismatch a failed check
+/// returns, at least one is there.
+#[derive(Debug, Default)]
 #[non_exhaustive]
 pub struct BoundaryMismatch {
-    /// Each instruction sent that does not fit, as
-    /// [`InstructionSet`](crate::InstructionSet)'s `fits` finds them.
-    pub instructions: Vec<InstructionMismatch>,
-    /// Each resource and feature not provided.
+    /// How the set sent does not fit the set accepted: the set's own
+    /// [`fits`](crate::BoundaryCompatible::fits) mismatch, which
+    /// `downcast_ref` reads as its type.
+    pub instructions: Option<Box<dyn Error + Send + Sync>>,
+    /// Each capability not provided.
     pub capabilities: CapabilitiesMismatch,
 }
 
-/// Each mismatch, the instructions first, joined by `; `.
+/// Each mismatch, the instruction set's first, joined by `; `.
 impl fmt::Display for BoundaryMismatch {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write_joined(f, &self.instructions)?;
+        if let Some(instructions) = &self.instructions {
+            write!(f, "{instructions}")?;
+        }
         if !self.capabilities.is_empty() {
-            if !self.instructions.is_empty() {
+            if self.instructions.is_some() {
                 f.write_str("; ")?;
             }
             write!(f, "{}", self.capabilities)?;
@@ -118,14 +124,3 @@ impl fmt::Display for BoundaryMismatch {
 }
 
 impl Error for BoundaryMismatch {}
-
-/// Each instruction mismatch of `instructions`, joined by `; `.
-fn write_joined(f: &mut fmt::Formatter<'_>, instructions: &[InstructionMismatch]) -> fmt::Result {
-    for (i, mismatch) in instructions.iter().enumerate() {
-        if i > 0 {
-            f.write_str("; ")?;
-        }
-        write!(f, "{mismatch}")?;
-    }
-    Ok(())
-}

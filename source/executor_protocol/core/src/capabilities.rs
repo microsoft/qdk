@@ -1,35 +1,30 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! What flows down a chain with the instructions: [`Capabilities`],
-//! amounts ([`Resources`]) and yes-or-no features ([`Features`]), which
+//! What flows down a chain with the instructions: [`Capabilities`], the
+//! amounts every chain states ([`Resources`]), its yes-or-no features
+//! ([`Features`]), and the instruction set's own, which
 //! [`fits`](BoundaryCompatible::fits) checks what arrives at a part
 //! against what the part provides, giving every [`CapabilitiesMismatch`].
-//!
-//! This file is the one place that lists those kinds: every other use of a
-//! kind goes through its own methods, so making a kind optional, or adding
-//! one, changes this file alone.
 
 mod boundary;
 mod features;
 mod resources;
-mod statements;
 
 pub use boundary::BatchFault;
 pub(crate) use boundary::Boundary;
-pub use features::{Feature, FeatureMismatch, Features};
-pub use resources::{Resource, ResourceMismatch, Resources};
-pub use statements::{StatementMismatch, Statements};
+pub use features::{FeatureMismatch, Features};
+pub use resources::{ResourceMismatch, Resources};
 
-use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 
-use crate::BoundaryCompatible;
+use crate::{BoundaryCompatible, InstructionSet};
 
 /// What a run, or a part, requires of the parts below it, or a part's
-/// fixed limits on what arrives at it: amounts, such as a shot's qubits,
-/// and yes-or-no features, such as seeded runs.
+/// fixed limits on what arrives at it: amounts, such as a run's shots;
+/// yes-or-no features, such as seeded runs; and the capabilities of the
+/// instruction set `S`, such as the qubits a shot holds.
 ///
 /// A requirement flows down the chain: the runner states a run's
 /// ([`Driver::requires`](crate::Driver::requires) gets it), and each part
@@ -41,42 +36,37 @@ use crate::BoundaryCompatible;
 /// What arrives at a part must [`fit`](BoundaryCompatible::fits) what it
 /// provides, as the crate's `docs/capabilities.md` says.
 ///
-/// One requirement *requires no more than* another when, for each field
-/// it states, the other's value needs at least as much: an amount no
-/// smaller, a feature used where it is used; a field left unstated
-/// requires nothing, and so does a feature stated `false`. It compares
-/// two requirements, unlike [`fits`](BoundaryCompatible::fits), which
-/// compares a requirement with limits, and reads a field left unstated
-/// in the limits as no limit.
+/// One requirement *requires no more than* another when each of its parts
+/// does: for each resource and feature it states, the other's value needs
+/// at least as much (an amount no smaller, a feature used where it is
+/// used; a field left unstated requires nothing, and so does a feature
+/// stated `false`), and its set's capabilities fit the other's. It
+/// compares two requirements, unlike [`fits`](BoundaryCompatible::fits),
+/// which compares a requirement with limits, and reads a field left
+/// unstated in the limits as no limit.
 ///
-/// Built by [`new`](Self::new), or from
-/// [`UNCONSTRAINED`](Self::UNCONSTRAINED), which states nothing, with
-/// [`map_resources`](Self::map_resources) and
+/// Built by [`new`](Self::new), or from the set's
+/// [`unconstrained`](InstructionSet::unconstrained), which states nothing,
+/// with [`map_resources`](Self::map_resources) and
 /// [`map_features`](Self::map_features).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Capabilities {
+pub struct Capabilities<S: InstructionSet> {
     resources: Resources,
     features: Features,
+    instructions: S::Capabilities,
 }
 
-/// No limits: [`Capabilities::UNCONSTRAINED`] as a `'static` place, which
-/// the roles' default `provides` lends, as a constant holding a map is not
-/// promoted to one (a map has drop glue).
-pub(crate) static NO_LIMITS: Capabilities = Capabilities::UNCONSTRAINED;
-
-impl Capabilities {
-    /// No resource and no feature stated: required, no need; provided, no
-    /// limit. What it leaves unstated, composition cannot refuse a chain
-    /// on.
-    pub const UNCONSTRAINED: Self =
-        Self::new(Resources::unconstrained(), Features::unconstrained());
-
-    /// `resources` and `features`.
+impl<S: InstructionSet> Capabilities<S> {
+    /// `resources`, `features`, and `instructions`, the set's own.
     #[must_use]
-    pub const fn new(resources: Resources, features: Features) -> Self {
+    pub const fn new(
+        resources: Resources,
+        features: Features,
+        instructions: S::Capabilities,
+    ) -> Self {
         Self {
             resources,
             features,
+            instructions,
         }
     }
 
@@ -90,6 +80,12 @@ impl Capabilities {
     #[must_use]
     pub fn features(&self) -> &Features {
         &self.features
+    }
+
+    /// The instruction set's own capabilities stated.
+    #[must_use]
+    pub fn instructions(&self) -> &S::Capabilities {
+        &self.instructions
     }
 
     /// These capabilities, with what `change` makes of their resources,
@@ -112,66 +108,77 @@ impl Capabilities {
     }
 }
 
-impl BoundaryCompatible for Capabilities {
+impl<S: InstructionSet> Clone for Capabilities<S> {
+    fn clone(&self) -> Self {
+        Self::new(self.resources, self.features, self.instructions.clone())
+    }
+}
+
+impl<S: InstructionSet> PartialEq for Capabilities<S> {
+    fn eq(&self, other: &Self) -> bool {
+        self.resources == other.resources
+            && self.features == other.features
+            && self.instructions == other.instructions
+    }
+}
+
+impl<S: InstructionSet> fmt::Debug for Capabilities<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Capabilities")
+            .field("resources", &self.resources)
+            .field("features", &self.features)
+            .field("instructions", &self.instructions)
+            .finish()
+    }
+}
+
+impl<S: InstructionSet> BoundaryCompatible for Capabilities<S> {
     type Fit = ();
     type Mismatch = CapabilitiesMismatch;
 
     /// Whether `self`, what arrives at a part, fits `provided`, the part's
     /// limits: every resource and feature `self` states above what
-    /// `provided` states, at once.
+    /// `provided` states, and the set's capabilities' mismatch, at once.
     fn fits(&self, provided: &Self) -> Result<(), CapabilitiesMismatch> {
         let short = CapabilitiesMismatch {
             resources: self.resources.mismatches(&provided.resources),
-            features: self.features.mismatches(&provided.features),
+            features: self.features.mismatches(provided.features),
+            instructions: (self.instructions.fits(&provided.instructions).err())
+                .map(|mismatch| Box::new(mismatch) as Box<dyn Error + Send + Sync>),
         };
         if short.is_empty() { Ok(()) } else { Err(short) }
     }
 }
 
 /// Every way a provision falls short of what arrives: each resource
-/// provided short, and each feature required and not provided. In the
-/// mismatch a failed fit returns, at least one list is not empty.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// provided short, each feature required and not provided, and the
+/// instruction set's capabilities' mismatch. In the mismatch a failed fit
+/// returns, at least one is there.
+#[derive(Debug, Default)]
 #[non_exhaustive]
 pub struct CapabilitiesMismatch {
     /// Each resource provided short.
     pub resources: Vec<ResourceMismatch>,
     /// Each feature required and not provided.
     pub features: Vec<FeatureMismatch>,
+    /// How the set's capabilities fall short: the set's own mismatch,
+    /// which `downcast_ref` reads as its type.
+    pub instructions: Option<Box<dyn Error + Send + Sync>>,
 }
 
 impl CapabilitiesMismatch {
     pub(crate) fn is_empty(&self) -> bool {
-        self.resources.is_empty() && self.features.is_empty()
-    }
-
-    /// Each mismatch, grouped by `origin`, which is given, for one
-    /// mismatch, whether two capabilities state its key alike.
-    pub(crate) fn split_by<O: Ord>(
-        self,
-        mut origin: impl FnMut(&dyn Fn(&Capabilities, &Capabilities) -> bool) -> O,
-    ) -> BTreeMap<O, Self> {
-        let mut split: BTreeMap<O, Self> = BTreeMap::new();
-        for mismatch in self.resources {
-            let key = &mismatch.key;
-            let at = origin(&|a, b| a.resources.get(key) == b.resources.get(key));
-            split.entry(at).or_default().resources.push(mismatch);
-        }
-        for mismatch in self.features {
-            let key = &mismatch.key;
-            let at = origin(&|a, b| a.features.get(key) == b.features.get(key));
-            split.entry(at).or_default().features.push(mismatch);
-        }
-        split
+        self.resources.is_empty() && self.features.is_empty() && self.instructions.is_none()
     }
 }
 
-/// Each mismatch, joined by `; `.
+/// Each mismatch, the set's last, joined by `; `.
 impl fmt::Display for CapabilitiesMismatch {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let resources = self.resources.iter().map(|m| m as &dyn fmt::Display);
         let features = self.features.iter().map(|m| m as &dyn fmt::Display);
-        for (i, mismatch) in resources.chain(features).enumerate() {
+        let instructions = self.instructions.iter().map(|m| m as &dyn fmt::Display);
+        for (i, mismatch) in resources.chain(features).chain(instructions).enumerate() {
             if i > 0 {
                 f.write_str("; ")?;
             }

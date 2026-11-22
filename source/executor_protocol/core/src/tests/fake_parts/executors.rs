@@ -10,48 +10,45 @@ use std::task::{Poll, Waker};
 use std::thread;
 use std::time::Duration;
 
-use super::{CoinGates, Log, Stream, YieldNow, qubits};
+use super::{Log, Stream, YieldNow, batches_of, capabilities, coin_gates, ready_for};
 use crate::prelude::*;
+use crate::tests::example_sets::Measuring;
 use crate::{
-    Batch, BatchReadouts, BlockType, Capabilities, ExecuteError, Features, InstructionSet,
-    NotReady, Opcode, ReadoutFailure, ReadoutValue, Resources, Seed, ShotConditions, ShotId,
-    ShotSet,
+    Batch, BatchReadouts, Capabilities, ExecuteError, Features, NotReady, ReadoutFailure,
+    ReadoutValue, Resources, Seed, ShotConditions, ShotId, ShotSet,
 };
 
-/// A toy executor on classical bits: `h` tosses a bit from the shot's
-/// stream, `x` flips it, and `mz` reads it; any other instruction of its
-/// set does nothing.
+/// A toy executor on classical bits, as many as its instructions name:
+/// `h` tosses a bit from the shot's stream, `x` flips it, and `mz` reads
+/// it; any other instruction of its set does nothing, and one beyond its
+/// set panics, as an executor running what it cannot decode would fail.
 pub(crate) struct Bits {
-    opcodes: [Option<Opcode>; 3],
-    accepts: InstructionSet,
-    provides: Capabilities,
-    qubits: usize,
+    /// The set it decodes its instructions in.
+    runs: Measuring,
+    accepts: Measuring,
+    provides: Capabilities<Measuring>,
     shots: BTreeMap<ShotId, (Vec<bool>, Stream)>,
     busy: Option<&'static str>,
     loses: bool,
     panics_ending: bool,
     /// The set `accepts` answers once ready, if it changes then.
-    set_once_ready: Option<InstructionSet>,
+    set_once_ready: Option<Measuring>,
     log: Log,
 }
 
 impl Bits {
-    /// Bits accepting [`CoinGates`], providing 64 qubits, and resolving
-    /// no readout parity, logging to `log`.
+    /// Bits accepting [`coin_gates`], providing batches of 64
+    /// instructions, logging to `log`.
     pub(crate) fn new(log: &Log) -> Self {
-        Self::accepting(CoinGates::set(), log)
+        Self::accepting(*coin_gates(), log)
     }
 
     /// Bits accepting `set`, which may lack some of `h`, `x` and `mz`.
-    pub(crate) fn accepting(set: InstructionSet, log: &Log) -> Self {
+    pub(crate) fn accepting(set: Measuring, log: &Log) -> Self {
         Self {
-            opcodes: ["h", "x", "mz"].map(|mnemonic| set.opcode(mnemonic)),
+            runs: set,
             accepts: set,
-            provides: Capabilities::new(
-                qubits(64),
-                Features::unconstrained().with_readout_parity(false),
-            ),
-            qubits: 0,
+            provides: capabilities(batches_of(64), Features::unconstrained()),
             shots: BTreeMap::new(),
             busy: None,
             loses: false,
@@ -61,7 +58,7 @@ impl Bits {
         }
     }
 
-    /// These bits, providing `resources` in place of their 64 qubits.
+    /// These bits, providing `resources` in place of their batches of 64.
     pub(crate) fn with_resources(mut self, resources: Resources) -> Self {
         self.provides = self.provides.map_resources(|_| resources);
         self
@@ -73,11 +70,6 @@ impl Bits {
         self
     }
 
-    /// These bits, resolving readout parities.
-    pub(crate) fn resolving_parity(self) -> Self {
-        self.with_features(Features::unconstrained().with_readout_parity(true))
-    }
-
     /// These bits, refusing every run in `ready`, for `why`.
     pub(crate) fn busy(mut self, why: &'static str) -> Self {
         self.busy = Some(why);
@@ -87,7 +79,7 @@ impl Bits {
     /// These bits, accepting `set` once ready, while still running their
     /// own `h`, `x` and `mz`: a part that breaks the rule that what it
     /// accepts does not change once composed.
-    pub(crate) fn accepting_once_ready(mut self, set: InstructionSet) -> Self {
+    pub(crate) fn accepting_once_ready(mut self, set: Measuring) -> Self {
         self.set_once_ready = Some(set);
         self
     }
@@ -108,22 +100,18 @@ impl Bits {
 }
 
 impl Executor for Bits {
-    fn accepts(&self) -> &InstructionSet {
+    type Accepts = Measuring;
+
+    fn accepts(&self) -> &Measuring {
         &self.accepts
     }
 
-    fn provides(&self) -> &Capabilities {
+    fn provides(&self) -> &Capabilities<Measuring> {
         &self.provides
     }
 
-    async fn ready(&mut self, above: &Capabilities) -> Result<(), NotReady> {
-        let qubits = above.resources().blocks(&BlockType::qubit()).unwrap_or(0);
-        self.log.push(format!("Bits ready for {qubits} qubits"));
-        // Each shot holds every qubit the bits provide, as a device's
-        // register does, so that an encoding that does not state the
-        // qubits it uses still finds them.
-        let provided = self.provides.resources().blocks(&BlockType::qubit());
-        self.qubits = qubits.max(provided.unwrap_or(0)) as usize;
+    async fn ready(&mut self, above: &Capabilities<Measuring>) -> Result<(), NotReady> {
+        self.log.push(ready_for("Bits", above));
         if let Some(set) = self.set_once_ready.take() {
             self.accepts = set;
         }
@@ -135,35 +123,37 @@ impl Executor for Bits {
 
     async fn execute(
         &mut self,
-        batches: &[Batch<'_>],
+        batches: &[Batch<'_, Measuring>],
         seed: Seed,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         self.log.push("Bits execute");
-        let [h, x, mz] = self.opcodes;
         for (batch, batch_readouts) in batches.iter().zip(readouts) {
             for (position, id) in batch.shots.iter().enumerate() {
-                let qubits = self.qubits;
                 let (bits, stream) = self
                     .shots
                     .entry(id)
-                    .or_insert_with(|| (vec![false; qubits], Stream(seed.shot(id))));
+                    .or_insert_with(|| (Vec::new(), Stream(seed.shot(id))));
                 let mut row = batch_readouts.row_mut(position).iter_mut();
-                for instruction in batch.instructions {
-                    let q = instruction.blocks[0] as usize;
-                    let opcode = Some(instruction.opcode);
-                    if opcode == h {
-                        bits[q] = stream.chance(0.5);
-                    } else if opcode == x {
-                        bits[q] = !bits[q];
-                    } else if opcode == mz {
-                        *row.next().expect("a slot per `mz`") = if self.loses {
-                            ReadoutValue::Missing(ReadoutFailure::Loss)
-                        } else if bits[q] {
-                            ReadoutValue::One
-                        } else {
-                            ReadoutValue::Zero
-                        };
+                for &gate in batch.instructions {
+                    let q = gate.qubit as usize;
+                    if q >= bits.len() {
+                        bits.resize(q + 1, false);
+                    }
+                    match self.runs.name(gate) {
+                        Some("h") => bits[q] = stream.chance(0.5),
+                        Some("x") => bits[q] = !bits[q],
+                        Some("mz") => {
+                            *row.next().expect("a slot per `mz`") = if self.loses {
+                                ReadoutValue::Missing(ReadoutFailure::Loss)
+                            } else if bits[q] {
+                                ReadoutValue::One
+                            } else {
+                                ReadoutValue::Zero
+                            };
+                        }
+                        Some(_) => {}
+                        None => panic!("the bits run no gate at position {}", gate.at),
                     }
                 }
                 if self.loses {
@@ -189,21 +179,23 @@ impl Executor for Bits {
 pub(crate) struct Later<E>(pub(crate) E);
 
 impl<E: Executor> Executor for Later<E> {
-    fn accepts(&self) -> &InstructionSet {
+    type Accepts = E::Accepts;
+
+    fn accepts(&self) -> &E::Accepts {
         self.0.accepts()
     }
 
-    fn provides(&self) -> &Capabilities {
+    fn provides(&self) -> &Capabilities<E::Accepts> {
         self.0.provides()
     }
 
-    async fn ready(&mut self, above: &Capabilities) -> Result<(), NotReady> {
+    async fn ready(&mut self, above: &Capabilities<E::Accepts>) -> Result<(), NotReady> {
         self.0.ready(above).await
     }
 
     async fn execute(
         &mut self,
-        batches: &[Batch<'_>],
+        batches: &[Batch<'_, E::Accepts>],
         seed: Seed,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
@@ -221,17 +213,19 @@ impl<E: Executor> Executor for Later<E> {
 pub(crate) struct StatesNoLimits<E>(pub(crate) E);
 
 impl<E: Executor> Executor for StatesNoLimits<E> {
-    fn accepts(&self) -> &InstructionSet {
+    type Accepts = E::Accepts;
+
+    fn accepts(&self) -> &E::Accepts {
         self.0.accepts()
     }
 
-    async fn ready(&mut self, above: &Capabilities) -> Result<(), NotReady> {
+    async fn ready(&mut self, above: &Capabilities<E::Accepts>) -> Result<(), NotReady> {
         self.0.ready(above).await
     }
 
     async fn execute(
         &mut self,
-        batches: &[Batch<'_>],
+        batches: &[Batch<'_, E::Accepts>],
         seed: Seed,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
@@ -276,21 +270,23 @@ struct Handover {
 }
 
 impl<E: Executor> Executor for FromThread<E> {
-    fn accepts(&self) -> &InstructionSet {
+    type Accepts = E::Accepts;
+
+    fn accepts(&self) -> &E::Accepts {
         self.inner.accepts()
     }
 
-    fn provides(&self) -> &Capabilities {
+    fn provides(&self) -> &Capabilities<E::Accepts> {
         self.inner.provides()
     }
 
-    async fn ready(&mut self, above: &Capabilities) -> Result<(), NotReady> {
+    async fn ready(&mut self, above: &Capabilities<E::Accepts>) -> Result<(), NotReady> {
         self.inner.ready(above).await
     }
 
     async fn execute(
         &mut self,
-        batches: &[Batch<'_>],
+        batches: &[Batch<'_, E::Accepts>],
         seed: Seed,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {

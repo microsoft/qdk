@@ -17,7 +17,7 @@ two groups: its declarations, which the joins read when they join the
 parts (the first phase below); and its run methods, which the runner and
 the part above call on each run (the last three). What a part sends,
 accepts and provides must not change once it is joined: the fits and
-`bind`'s map are made once, from them, and each batch sent to a part is
+`bind`'s binding are made once, from them, and each batch sent to a part is
 checked against what the join read, its count of instructions always,
 its instructions when the batch is marked checked; each run's start reads
 what each part provides again, to check what arrives at it. What a part
@@ -28,7 +28,7 @@ Each method is called at the phases whose rows name it:
 
 | Phase                                       | [`Driver`](../src/roles/driver.rs)                                                                                                | [`Adapter`](../src/roles/adapter.rs)                                                                                                                        | [`Executor`](../src/roles/executor.rs)                                                                  |
 | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Each join, and the `on` that makes a runner | `sends`, `requires(run)` (by default the run), and `bind`, which takes the receiver's opcodes                                     | `accepts`, `sends`, `provides` (by default nothing), `requires(above)` (by default what arrives), and `bind`                                                | `accepts`, `provides` (by default nothing)                                                              |
+| Each join, and the `on` that makes a runner | `sends`, `requires(run)` (by default the run), and `bind`, which takes the binding of its set into the receiver's                 | `accepts`, `sends`, `provides` (by default nothing), `requires(above)` (by default what arrives), and `bind`                                                | `accepts`, `provides` (by default nothing)                                                              |
 | Each run, before any shot                   | `requires(run)` again, given the run's shots, and seeded runs if its seed is fixed; then `ready(run)`, asked last, given the same | `provides` and `requires(above)` again, for what arrives on the run; then `ready(above)`, for what arrives at it from above, asked after the parts below it | `provides` again, for what arrives on the run; then `ready(above)`, for what arrives at it, asked first |
 | The run                                     | `drive(shots, seed, below)`: calls `below.execute` until each shot ends, and gives each shot's output                             | `adapt(batches, seed, below, readouts)`: answers each `execute` by calling `below.execute` as often as it needs, and maps the readouts back                 | `execute(batches, seed, readouts)`: runs each batch on its shots' states, and fills their readouts      |
 | Once the run ends                           | nothing: the protocol ends the shots below, and a driver may end a shot earlier                                                   | `end_shots`, called top to bottom, which frees the shots' state, and never passes the end below                                                             | `end_shots`, called last, which frees the shots' state                                                  |
@@ -41,38 +41,33 @@ its type's.
 The executor of
 [`examples/compose_and_run.rs`](../examples/compose_and_run.rs), `Bits`,
 implements [`Executor`](../src/roles/executor.rs). `CoinGates` is the
-example's instruction set, and `Stream` a shot's random stream, both in
-the file; `Bits::new` builds what it accepts, its set, and what it
-provides, 64 qubits, at most 1000 shots a run, and no readout parity: it
-cannot resolve an argument that is the parity of the shot's earlier
-readouts, which the coin never sends; and only the example's test reads
-its counts of checked and unchecked batches, as an executor need not
-count them:
+example's instruction set, whose own capability is the qubits a shot
+holds, and `Stream` a shot's random stream, both in the file; `Bits::new`
+builds what it provides, 64 qubits and at most 1000 shots a run; and only
+the example's test reads its counts of checked and unchecked batches, as
+an executor need not count them:
 
 ```rust
 impl Executor for Bits {
-    fn accepts(&self) -> &InstructionSet {
-        &self.accepts
+    type Accepts = CoinGates;
+
+    fn accepts(&self) -> &CoinGates {
+        &CoinGates
     }
 
-    fn provides(&self) -> &Capabilities {
+    fn provides(&self) -> &Capabilities<CoinGates> {
         &self.provides
     }
 
-    /// Holds the qubits the parts above require, or, if none states them,
-    /// every qubit it provides.
-    async fn ready(&mut self, above: &Capabilities) -> Result<(), NotReady> {
-        let qubit = BlockType::qubit();
-        let stated = above.resources().blocks(&qubit);
-        self.qubits = stated
-            .or(self.provides.resources().blocks(&qubit))
-            .unwrap_or(0) as usize;
+    /// Holds the qubits the parts above require.
+    async fn ready(&mut self, above: &Capabilities<CoinGates>) -> Result<(), NotReady> {
+        self.qubits = above.instructions().0 as usize;
         Ok(())
     }
 
     async fn execute(
         &mut self,
-        batches: &[Batch<'_>],
+        batches: &[Batch<'_, CoinGates>],
         seed: Seed,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
@@ -91,17 +86,16 @@ impl Executor for Bits {
                     .entry(id)
                     .or_insert_with(|| (vec![false; qubits], Stream(seed.shot(id))));
                 let mut row = batch_readouts.row_mut(position).iter_mut();
-                for instruction in batch.instructions {
+                for &gate in batch.instructions {
                     // Below the shot's qubits, as the parts above send them;
                     // a checked batch's checks refuse any other.
-                    let qubit = instruction.blocks[0] as usize;
-                    match instruction.opcode {
-                        CoinGates::H => bits[qubit] = stream.chance(0.5),
-                        CoinGates::X => bits[qubit] = !bits[qubit],
-                        CoinGates::MZ => {
+                    let qubit = gate.qubit() as usize;
+                    match gate {
+                        Gate::H(_) => bits[qubit] = stream.chance(0.5),
+                        Gate::X(_) => bits[qubit] = !bits[qubit],
+                        Gate::Mz(_) => {
                             *row.next().expect("a readout slot per `mz`") = bits[qubit].into();
                         }
-                        _ => unreachable!("the parts above send only instructions of the set"),
                     }
                 }
             }
@@ -121,8 +115,7 @@ impl Executor for Bits {
 when the future is polled ([the rules](#the-rules-a-part-keeps)).
 
 The example's adapter, `BitFlip`, in the same file, shows an adapter's
-rules in code: it draws from `seed.derive("bit_flip")`, maps each
-instruction's opcode with the `OpcodeMap` of its `bind`, sends each shot
+rules in code: it draws from `seed.derive("bit_flip")`, sends each shot
 below in a batch of its own, checked if the batch it came from was
 (`checked_if`), reuses its `Readouts` with `readouts_for`, and copies each
 row and its conditions back.

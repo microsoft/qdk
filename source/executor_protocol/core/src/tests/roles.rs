@@ -9,20 +9,21 @@ mod adapter;
 mod driver;
 mod executor;
 
-use crate::{BlockType, Capabilities, Features, Resources};
+use crate::tests::example_sets::{QubitLimited, Qubits};
+use crate::{Capabilities, Features, Resources};
 
-/// A requirement stating every kind of field, a feature `false` among
-/// them, so that a default dropping or changing any field differs from
-/// it.
-fn every_field_stated() -> Capabilities {
+/// A requirement stating every field, a feature `false` and one `true`
+/// among them, and the set's qubits, so that a default dropping or
+/// changing any field differs from it.
+fn every_field_stated() -> Capabilities<QubitLimited> {
     Capabilities::new(
         Resources::unconstrained()
-            .with_qubits(4)
-            .with_blocks(BlockType::new("carbon"), 2)
             .with_shots(100)
             .with_instructions_per_batch(50),
-        Features::unconstrained()
-            .with_seeded_runs(false)
-            .with_readout_parity(true),
+        Features {
+            replay: Some(true),
+            seeded_runs: Some(false),
+        },
+        Qubits(4),
     )
 }

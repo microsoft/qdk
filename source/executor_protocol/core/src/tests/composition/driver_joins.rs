@@ -2,10 +2,10 @@
 // Licensed under the MIT License.
 
 //! The check of a chain by the `on` that makes its runner, wherever the
-//! brackets go: the instructions each part sends against those the part
-//! below accepts; what arrives at each part, what the part above requires
-//! of what arrives there, against what it provides; and what a joined
-//! part requires and provides.
+//! brackets go: the set each part sends against the set the part below
+//! accepts; what arrives at each part, what the part above requires of
+//! what arrives there, against what it provides; and what a joined part
+//! requires and provides.
 
 use std::any::type_name;
 use std::cell::Cell;
@@ -13,43 +13,25 @@ use std::rc::Rc;
 
 use crate::prelude::*;
 use crate::tests::composition::faults;
+use crate::tests::example_sets::{Measuring, UnacceptedNames};
 use crate::tests::fake_parts::{
-    Bits, CoinCopy, CoinGates, Log, Profiler, Program, Renamed, Spread, Stating,
-    in_each_bracketing, qubits,
+    Bits, CoinCopy, Log, Profiler, Program, Renamed, Spread, Stating, batches_of, coin_gates,
+    in_each_bracketing, unconstrained,
 };
 use crate::{
-    Batch, BatchReadouts, BlockType, BoundaryMismatch, Capabilities, CapabilitiesMismatch,
-    CompositionFault, CompositionFaults, ExecuteError, Feature, FeatureMismatch, Features,
-    InstructionDef, InstructionSet, OpcodeMap, PartId, Resource, ResourceMismatch, Resources, Seed,
+    Batch, BatchReadouts, BoundaryCompatible, BoundaryMismatch, Capabilities, CapabilitiesMismatch,
+    CompositionFault, CompositionFaults, ExecuteError, FeatureMismatch, Features, PartId,
+    ResourceMismatch, Resources, Seed,
 };
 
-/// The instructions of [`CoinGates`] but `missing`, as the set `name`.
-fn coin_gates_without(name: &str, missing: &str) -> InstructionSet {
-    let defs = [("h", 0), ("x", 0), ("mz", 1)]
-        .into_iter()
-        .filter(|&(mnemonic, _)| mnemonic != missing)
-        .map(|(mnemonic, outcomes)| {
-            InstructionDef::new(mnemonic)
-                .acts_on([BlockType::qubit()])
-                .outcomes(outcomes)
-        });
-    InstructionSet::new(name, [(BlockType::qubit(), 1)], defs).expect("a valid set")
-}
+/// `h`, `x` and `mz` without `x`.
+pub(super) const NO_X: Measuring = Measuring::new(&["h", "mz"]);
 
-/// [`CoinGates`] without `x`.
-pub(super) fn no_x() -> InstructionSet {
-    coin_gates_without("NoX", "x")
-}
+/// `h`, `x` and `mz` without `mz`.
+const NO_MZ: Measuring = Measuring::new(&["h", "x"]);
 
-/// [`CoinGates`] without `mz`.
-fn no_mz() -> InstructionSet {
-    coin_gates_without("NoMz", "mz")
-}
-
-/// [`CoinGates`] without `h`.
-fn no_h() -> InstructionSet {
-    coin_gates_without("NoH", "h")
-}
+/// `h`, `x` and `mz` without `h`.
+const NO_H: Measuring = Measuring::new(&["x", "mz"]);
 
 /// The part of type `P` at `position`, named by its type.
 pub(super) fn part<P>(position: usize) -> PartId {
@@ -70,10 +52,18 @@ pub(super) fn fault(
     }
 }
 
-/// The mismatch of the instructions `sent` against `accepted`.
-fn instructions(sent: &InstructionSet, accepted: &InstructionSet) -> BoundaryMismatch {
+/// `faults` as their `Debug` reads, which compares faults holding a set's
+/// boxed mismatch.
+pub(super) fn listed(faults: &[CompositionFault]) -> String {
+    format!("{faults:#?}")
+}
+
+/// The mismatch of the set `sent` against `accepted`.
+fn instructions(sent: &Measuring, accepted: &Measuring) -> BoundaryMismatch {
     BoundaryMismatch {
-        instructions: sent.fits(accepted).expect_err("sets that do not fit"),
+        instructions: Some(Box::new(
+            sent.fits(accepted).expect_err("sets that do not fit"),
+        )),
         ..BoundaryMismatch::default()
     }
 }
@@ -86,50 +76,48 @@ fn capabilities(capabilities: CapabilitiesMismatch) -> BoundaryMismatch {
     }
 }
 
-/// The mismatch of `required` of `key` against `provided`.
-pub(super) fn short(key: Resource, required: u32, provided: u32) -> BoundaryMismatch {
+/// The mismatch of `resource` alone.
+fn short(resource: ResourceMismatch) -> BoundaryMismatch {
     capabilities(CapabilitiesMismatch {
-        resources: vec![ResourceMismatch {
-            key,
-            required,
-            provided,
-        }],
+        resources: vec![resource],
         ..CapabilitiesMismatch::default()
     })
 }
 
-/// The mismatch of `required` qubits against `provided`.
-fn short_qubits(required: u32, provided: u32) -> BoundaryMismatch {
-    short(Resource::Blocks(BlockType::qubit()), required, provided)
+/// The mismatch of batches of `required` instructions against `provided`.
+fn short_batches(required: u32, provided: u32) -> BoundaryMismatch {
+    short(ResourceMismatch::InstructionsPerBatch { required, provided })
+}
+
+/// The mismatch of runs of `required` shots against `provided`.
+pub(super) fn short_shots(required: u32, provided: u32) -> BoundaryMismatch {
+    short(ResourceMismatch::Shots { required, provided })
 }
 
 /// The mismatch of `feature`, required and not provided.
-fn missing(feature: Feature) -> BoundaryMismatch {
+fn missing(feature: FeatureMismatch) -> BoundaryMismatch {
     capabilities(CapabilitiesMismatch {
-        features: vec![FeatureMismatch {
-            key: feature,
-            required: true,
-            provided: false,
-        }],
+        features: vec![feature],
         ..CapabilitiesMismatch::default()
     })
 }
 
-/// The program measuring qubit 0, requiring `n` qubits and `features`.
+/// The program measuring qubit 0, requiring batches of `n` instructions
+/// and `features`.
 fn program(n: u32, features: Features) -> Program {
     Program::new(&[("mz", 0)])
-        .with_resources(qubits(n))
+        .with_resources(batches_of(n))
         .with_features(features)
 }
 
-/// Readout parities, required or provided.
-fn parity() -> Features {
-    Features::unconstrained().with_readout_parity(true)
+/// Replay, required or provided, and the seeded runs it states.
+fn replay() -> Features {
+    Features::unconstrained().with_replay(true)
 }
 
-/// Bits providing `n` qubits and resolving readout parities.
+/// Bits taking batches of `n` instructions.
 fn bits_over(n: u32, log: &Log) -> Bits {
-    Bits::new(log).with_resources(qubits(n)).resolving_parity()
+    Bits::new(log).with_resources(batches_of(n))
 }
 
 /// Checks, in each bracketing of the parts `$setup` binds, that the
@@ -137,11 +125,12 @@ fn bits_over(n: u32, log: &Log) -> Bits {
 macro_rules! faults_in_each_bracketing {
     ($row:expr, [$($part:ident),+] from $setup:tt, $expected:expr $(,)?) => {
         let expected: Vec<CompositionFault> = $expected;
+        let expected = listed(&expected);
         in_each_bracketing!(
             [$($part),+] from $setup,
             |chain, brackets| assert_eq!(
-                chain.err().as_ref().map_or(&[][..], CompositionFaults::faults),
-                expected.as_slice(),
+                listed(chain.err().as_ref().map_or(&[][..], CompositionFaults::faults)),
+                expected,
                 "{}, {brackets}",
                 $row
             ),
@@ -157,67 +146,70 @@ macro_rules! faults_in_each_bracketing {
 /// and with its joined lower parts lent by `&mut` to the `on` of two
 /// chains, as an executor or as an adapter: the runner is never made, and
 /// the chain's faults hold each boundary, top to bottom, naming both
-/// parts.
+/// parts, with the set's own mismatch.
 #[test]
 fn every_boundary_that_does_not_fit_is_a_fault_of_the_chain() {
     let counted = Rc::new(Cell::new(0));
-    let expected = || {
-        vec![
-            fault(
-                part::<CoinCopy>(0),
-                part::<Profiler>(1),
-                instructions(&CoinGates::set(), &no_x()),
-            ),
-            fault(
-                part::<Profiler>(1),
-                part::<Profiler>(2),
-                instructions(&no_x(), &no_mz()),
-            ),
-            fault(
-                part::<Profiler>(2),
-                part::<Bits>(3),
-                instructions(&no_mz(), &no_h()),
-            ),
-        ]
-    };
-    faults_in_each_bracketing!(
-        "sets",
+    let expected = listed(&[
+        fault(
+            part::<CoinCopy>(0),
+            part::<Profiler>(1),
+            instructions(coin_gates(), &NO_X),
+        ),
+        fault(
+            part::<Profiler>(1),
+            part::<Profiler>(2),
+            instructions(&NO_X, &NO_MZ),
+        ),
+        fault(
+            part::<Profiler>(2),
+            part::<Bits>(3),
+            instructions(&NO_MZ, &NO_H),
+        ),
+    ]);
+    in_each_bracketing!(
         [d, a, b, e] from {
             let log = Log::default();
             let d = CoinCopy::new();
-            let a = Profiler::on(no_x(), &counted, &log);
-            let b = Profiler::on(no_mz(), &counted, &log);
-            let e = Bits::accepting(no_h(), &log);
+            let a = Profiler::on(NO_X, &counted, &log);
+            let b = Profiler::on(NO_MZ, &counted, &log);
+            let e = Bits::accepting(NO_H, &log);
         },
-        expected(),
+        |chain, brackets| assert_eq!(
+            listed(chain.err().as_ref().map_or(&[][..], CompositionFaults::faults)),
+            expected,
+            "sets, {brackets}"
+        ),
     );
     let log = Log::default();
     let profiler = |set| Profiler::on(set, &counted, &log);
-    let mut lent_executor = profiler(no_x())
-        .through(profiler(no_mz()))
-        .on(Bits::accepting(no_h(), &log));
-    let mut lent_adapter = profiler(no_x()).through(profiler(no_mz()));
+    let mut lent_executor = profiler(NO_X)
+        .through(profiler(NO_MZ))
+        .on(Bits::accepting(NO_H, &log));
+    let mut lent_adapter = profiler(NO_X).through(profiler(NO_MZ));
     for chain in ["first", "second"] {
         assert_eq!(
-            faults(CoinCopy::new().on(&mut lent_executor)).faults(),
-            expected(),
+            listed(faults(CoinCopy::new().on(&mut lent_executor)).faults()),
+            expected,
             "a lent executor, {chain} chain"
         );
         assert_eq!(
-            faults(
-                CoinCopy::new()
-                    .through(&mut lent_adapter)
-                    .on(Bits::accepting(no_h(), &log))
-            )
-            .faults(),
-            expected(),
+            listed(
+                faults(
+                    CoinCopy::new()
+                        .through(&mut lent_adapter)
+                        .on(Bits::accepting(NO_H, &log))
+                )
+                .faults()
+            ),
+            expected,
             "a lent adapter, {chain} chain"
         );
     }
 }
 
-/// A part is checked below for the instructions it sends, not for those
-/// it accepts: a decomposer accepting [`CoinGates`] and sending them
+/// A part is checked below for the set it sends, not for the set it
+/// accepts: a decomposer accepting `h`, `x` and `mz` and sending them
 /// without `x`, as it writes each `x` in other gates, composes over bits
 /// that accept no `x`, and is named, not the driver, over bits that accept
 /// no `mz`, in each bracketing.
@@ -228,8 +220,8 @@ fn a_part_is_checked_below_for_the_instructions_it_sends() {
         [d, a, e] from {
             let log = Log::default();
             let d = CoinCopy::new();
-            let a = Decomposer(no_x());
-            let e = Bits::accepting(no_x(), &log);
+            let a = Decomposer(NO_X);
+            let e = Bits::accepting(NO_X, &log);
         },
         vec![],
     );
@@ -238,37 +230,40 @@ fn a_part_is_checked_below_for_the_instructions_it_sends() {
         [d, a, e] from {
             let log = Log::default();
             let d = CoinCopy::new();
-            let a = Decomposer(no_x());
-            let e = Bits::accepting(no_mz(), &log);
+            let a = Decomposer(NO_X);
+            let e = Bits::accepting(NO_MZ, &log);
         },
         vec![fault(
             part::<Decomposer>(1),
             part::<Bits>(2),
-            instructions(&no_x(), &no_mz()),
+            instructions(&NO_X, &NO_MZ),
         )],
     );
 }
 
-/// A declaration fake of a decomposer: it accepts [`CoinGates`] and sends
-/// the set it holds. It is never run.
-struct Decomposer(InstructionSet);
+/// A declaration fake of a decomposer: it accepts `h`, `x` and `mz`, and
+/// sends the set it holds. It is never run.
+struct Decomposer(Measuring);
 
 impl Adapter for Decomposer {
-    fn accepts(&self) -> &InstructionSet {
-        crate::tests::fake_parts::coin_gates()
+    type Accepts = Measuring;
+    type Sends = Measuring;
+
+    fn accepts(&self) -> &Measuring {
+        coin_gates()
     }
 
-    fn sends(&self) -> &InstructionSet {
+    fn sends(&self) -> &Measuring {
         &self.0
     }
 
-    fn bind(&mut self, _below: OpcodeMap) {}
+    fn bind(&mut self, _below: Vec<u32>) {}
 
     async fn adapt(
         &mut self,
-        _batches: &[Batch<'_>],
+        _batches: &[Batch<'_, Measuring>],
         _seed: Seed,
-        _below: &mut impl Executor,
+        _below: &mut impl Executor<Accepts = Measuring>,
         _readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         unreachable!("a declaration fake is never run")
@@ -282,57 +277,57 @@ impl Adapter for Decomposer {
 /// each bracketing, a fault naming the part that first required it. A row
 /// per way a part passes it: stating nothing, as a logger does; requiring
 /// otherwise only below its least, as an interleaver under a larger
-/// program does; limiting it, as a decoder's limit on qubits does, short
-/// itself or over a smaller limit, and with an interleaver above it; a job
-/// queue's limit on shots, where the value falls short at both the queue
-/// and below it; and a replayer, which passes the seeded runs replay
-/// states. Qubits and shots stand for any value: which values fit is
-/// `Statements`' rule, pinned once.
+/// program does; limiting it, as a decoder's limit on instructions a batch
+/// does, short itself or over a smaller limit, and with an interleaver
+/// above it; a job queue's limit on shots, where the value falls short at
+/// both the queue and below it; and a replayer, which passes the seeded
+/// runs replay states. Instructions a batch and shots stand for any value:
+/// which values fit is each kind's rule, pinned once.
 #[test]
 fn a_requirement_passed_unchanged_is_checked_at_each_part_below_naming_its_requirer() {
     let counted = Rc::new(Cell::new(0));
     faults_in_each_bracketing!(
-        "qubits through a logger",
+        "batches through a logger",
         [d, a, e] from {
             let log = Log::default();
             let d = program(5, Features::unconstrained());
             let a = Profiler::new(&counted, &log);
             let e = bits_over(4, &log);
         },
-        vec![fault(part::<Program>(0), part::<Bits>(2), short_qubits(5, 4))],
+        vec![fault(part::<Program>(0), part::<Bits>(2), short_batches(5, 4))],
     );
     faults_in_each_bracketing!(
-        "qubits through an interleaver, more than its least",
+        "batches through an interleaver, more than its least",
         [d, a, e] from {
             let log = Log::default();
             let d = program(5, Features::unconstrained());
             let a = Stating::interleaving(3, &log);
             let e = bits_over(4, &log);
         },
-        vec![fault(part::<Program>(0), part::<Bits>(2), short_qubits(5, 4))],
+        vec![fault(part::<Program>(0), part::<Bits>(2), short_batches(5, 4))],
     );
     faults_in_each_bracketing!(
-        "qubits over a decoder's limit",
+        "batches over a decoder's limit",
         [d, a, e] from {
             let log = Log::default();
             let d = program(5, Features::unconstrained());
             let a = Stating::capping(4, &log);
             let e = bits_over(10, &log);
         },
-        vec![fault(part::<Program>(0), part::<Stating>(1), short_qubits(5, 4))],
+        vec![fault(part::<Program>(0), part::<Stating>(1), short_batches(5, 4))],
     );
     faults_in_each_bracketing!(
-        "qubits through a decoder's larger limit",
+        "batches through a decoder's larger limit",
         [d, a, e] from {
             let log = Log::default();
             let d = program(9, Features::unconstrained());
             let a = Stating::capping(64, &log);
             let e = bits_over(8, &log);
         },
-        vec![fault(part::<Program>(0), part::<Bits>(2), short_qubits(9, 8))],
+        vec![fault(part::<Program>(0), part::<Bits>(2), short_batches(9, 8))],
     );
     faults_in_each_bracketing!(
-        "qubits through an interleaver and a decoder's larger limit",
+        "batches through an interleaver and a decoder's larger limit",
         [d, i, c, e] from {
             let log = Log::default();
             let d = program(5, Features::unconstrained());
@@ -340,10 +335,11 @@ fn a_requirement_passed_unchanged_is_checked_at_each_part_below_naming_its_requi
             let c = Stating::capping(10, &log);
             let e = bits_over(4, &log);
         },
-        vec![fault(part::<Program>(0), part::<Bits>(3), short_qubits(5, 4))],
+        vec![fault(part::<Program>(0), part::<Bits>(3), short_batches(5, 4))],
     );
-    let shots = |n| program(1, Features::unconstrained()).with_resources(qubits(1).with_shots(n));
-    let bits_of_3_shots = |log: &Log| Bits::new(log).with_resources(qubits(64).with_shots(3));
+    let shots =
+        |n| program(1, Features::unconstrained()).with_resources(batches_of(1).with_shots(n));
+    let bits_of_3_shots = |log: &Log| Bits::new(log).with_resources(batches_of(64).with_shots(3));
     faults_in_each_bracketing!(
         "shots short at a queue and below it",
         [d, a, e] from {
@@ -353,11 +349,10 @@ fn a_requirement_passed_unchanged_is_checked_at_each_part_below_naming_its_requi
             let e = bits_of_3_shots(&log);
         },
         vec![
-            fault(part::<Program>(0), part::<Stating>(1), short(Resource::Shots, 12, 10)),
-            fault(part::<Program>(0), part::<Bits>(2), short(Resource::Shots, 12, 3)),
+            fault(part::<Program>(0), part::<Stating>(1), short_shots(12, 10)),
+            fault(part::<Program>(0), part::<Bits>(2), short_shots(12, 3)),
         ],
     );
-    let replay = || Features::unconstrained().with_replay(true);
     let not_replayable = || Features::unconstrained().with_replay(false);
     faults_in_each_bracketing!(
         "seeded runs through a replayer",
@@ -370,7 +365,7 @@ fn a_requirement_passed_unchanged_is_checked_at_each_part_below_naming_its_requi
         vec![fault(
             part::<Program>(0),
             part::<Bits>(2),
-            missing(Feature::SeededRuns),
+            missing(FeatureMismatch::SeededRuns),
         )],
     );
 }
@@ -385,29 +380,26 @@ fn a_requirement_passed_unchanged_is_checked_at_each_part_below_naming_its_requi
 /// where each part falls short of its own.
 #[test]
 fn what_a_part_requires_of_what_arrives_is_checked_below_naming_it() {
-    for (bits, expected) in [
-        (
-            2,
-            vec![fault(
-                part::<Stating>(1),
-                part::<Bits>(2),
-                short_qubits(3, 2),
-            )],
-        ),
-        (4, vec![]),
-    ] {
+    for (bits, short) in [(2, true), (4, false)] {
         faults_in_each_bracketing!(
-            format!("an interleaver of 3 over {bits} qubits, under 2"),
+            format!("an interleaver of 3 over bits taking {bits}, under 2"),
             [d, a, e] from {
                 let log = Log::default();
                 let d = program(2, Features::unconstrained());
                 let a = Stating::interleaving(3, &log);
                 let e = bits_over(bits, &log);
             },
-            expected.clone(),
+            if short {
+                vec![fault(
+                    part::<Stating>(1),
+                    part::<Bits>(2),
+                    short_batches(3, 2),
+                )]
+            } else {
+                vec![]
+            },
         );
     }
-    let replay = || Features::unconstrained().with_replay(true);
     let not_replayable = || Features::unconstrained().with_replay(false);
     faults_in_each_bracketing!(
         "a replayer over shots not replayable",
@@ -429,108 +421,103 @@ fn what_a_part_requires_of_what_arrives_is_checked_below_naming_it() {
             let e = bits_over(5, &log);
         },
         vec![
-            fault(part::<Program>(0), part::<Stating>(1), short_qubits(6, 4)),
-            fault(part::<Stating>(2), part::<Bits>(3), short_qubits(7, 5)),
+            fault(part::<Program>(0), part::<Stating>(1), short_batches(6, 4)),
+            fault(part::<Stating>(2), part::<Bits>(3), short_batches(7, 5)),
         ],
     );
 }
 
 /// A chain whose parts fall short in several places: every fault, by its
 /// requirer top to bottom, then by its provider, each mismatch named by
-/// the part its own value comes from. 9 qubits and readout parities,
-/// through a lowering without parities, over bits of 8 qubits: the
-/// parities at the lowering and the qubits at the bits, both the
-/// program's. Then 8 qubits and 12 shots, through an ancilla's reservation
-/// raising the qubits to 9 and a decoder's limit of 8 qubits, over bits of
-/// 8 qubits and 10 shots: the program's shots at the bits, then the
-/// ancilla's qubits at the decoder and at the bits. A walk naming one
-/// requirer for all a part falls short of lists the bits' two mismatches
-/// under one part; one ordering by provider first lists the decoder's
-/// fault first. Last, an ancilla's reservation of 9 qubits, sending `x`,
-/// over bits of 8 qubits accepting no `x`: one fault for the pair,
-/// holding both the instruction's and the qubits' mismatches. And a
-/// program of 9 qubits, through a profiler, over bits of 8 qubits
-/// accepting no `x`: the qubits are the program's, the instructions the
-/// profiler's, so the bits fall short of each in its own fault; one walk
-/// filing the bits' qubits under the part sending them instructions lists
-/// one fault.
+/// the part its own value comes from. Batches of 9 instructions and
+/// replay, through a sampler seeding itself, which takes no replay, over
+/// bits taking 8: the replay at the sampler and the batches at the bits,
+/// both the program's. Then batches of 8 and 12 shots, through an
+/// ancilla's reservation raising the batches to 9 and a decoder's limit of
+/// 8, over bits taking 8 and 10 shots: the program's shots at the bits,
+/// then the ancilla's batches at the decoder and at the bits. A walk
+/// naming one requirer for all a part falls short of lists the bits' two
+/// mismatches under one part; one ordering by provider first lists the
+/// decoder's fault first. Last, an ancilla's reservation of 9, sending
+/// `x`, over bits taking 8 and accepting no `x`: one fault for the pair,
+/// holding both the set's and the batches' mismatches. And a program of
+/// batches of 9, through a profiler, over bits taking 8 and accepting no
+/// `x`: the batches are the program's, the set the profiler's, so the bits
+/// fall short of each in its own fault; one walk filing the bits' batches
+/// under the part sending them instructions lists one fault.
 #[test]
 fn every_fault_is_listed_by_requirer_then_by_provider() {
     faults_in_each_bracketing!(
         "shortages of different kinds",
         [d, a, e] from {
             let log = Log::default();
-            let d = program(9, parity());
-            let a = Stating::lowering_without_parity(&log);
+            let d = program(9, replay());
+            let a = Stating::seeding_itself(&log);
             let e = bits_over(8, &log);
         },
         vec![
             fault(
                 part::<Program>(0),
                 part::<Stating>(1),
-                missing(Feature::ReadoutParity),
+                missing(FeatureMismatch::Replay),
             ),
-            fault(part::<Program>(0), part::<Bits>(2), short_qubits(9, 8)),
+            fault(part::<Program>(0), part::<Bits>(2), short_batches(9, 8)),
         ],
     );
     faults_in_each_bracketing!(
         "each value by its own requirer",
         [d, a, c, e] from {
             let log = Log::default();
-            let d = Program::new(&[("mz", 0)]).with_resources(qubits(8).with_shots(12));
+            let d = Program::new(&[("mz", 0)]).with_resources(batches_of(8).with_shots(12));
             let a = Stating::reserving_ancillas(1, &log);
             let c = Stating::capping(8, &log);
-            let e = Bits::new(&log).with_resources(qubits(8).with_shots(10));
+            let e = Bits::new(&log).with_resources(batches_of(8).with_shots(10));
         },
         vec![
-            fault(
-                part::<Program>(0),
-                part::<Bits>(3),
-                short(Resource::Shots, 12, 10),
-            ),
-            fault(part::<Stating>(1), part::<Stating>(2), short_qubits(9, 8)),
-            fault(part::<Stating>(1), part::<Bits>(3), short_qubits(9, 8)),
+            fault(part::<Program>(0), part::<Bits>(3), short_shots(12, 10)),
+            fault(part::<Stating>(1), part::<Stating>(2), short_batches(9, 8)),
+            fault(part::<Stating>(1), part::<Bits>(3), short_batches(9, 8)),
         ],
     );
     faults_in_each_bracketing!(
-        "an instruction and qubits at one pair",
+        "a set and batches at one pair",
         [d, a, e] from {
             let log = Log::default();
             let d = program(8, Features::unconstrained());
             let a = Stating::reserving_ancillas(1, &log);
-            let e = Bits::accepting(no_x(), &log).with_resources(qubits(8));
+            let e = Bits::accepting(NO_X, &log).with_resources(batches_of(8));
         },
         vec![fault(
             part::<Stating>(1),
             part::<Bits>(2),
             BoundaryMismatch {
-                capabilities: short_qubits(9, 8).capabilities,
-                ..instructions(&CoinGates::set(), &no_x())
+                capabilities: short_batches(9, 8).capabilities,
+                ..instructions(coin_gates(), &NO_X)
             },
         )],
     );
     faults_in_each_bracketing!(
-        "instructions and qubits from different parts at one provider",
+        "a set and batches from different parts at one provider",
         [d, p, e] from {
             let log = Log::default();
             let counted = Rc::new(Cell::new(0));
             let d = program(9, Features::unconstrained());
             let p = Profiler::new(&counted, &log);
-            let e = Bits::accepting(no_x(), &log).with_resources(qubits(8));
+            let e = Bits::accepting(NO_X, &log).with_resources(batches_of(8));
         },
         vec![
-            fault(part::<Program>(0), part::<Bits>(2), short_qubits(9, 8)),
+            fault(part::<Program>(0), part::<Bits>(2), short_batches(9, 8)),
             fault(
                 part::<Profiler>(1),
                 part::<Bits>(2),
-                instructions(&CoinGates::set(), &no_x()),
+                instructions(coin_gates(), &NO_X),
             ),
         ],
     );
 }
 
-/// The reservation of an ancilla over too few qubits, then the same with
-/// a profiler above and below it: the same parts named, with the same
+/// The reservation of an ancilla over too small batches, then the same
+/// with a profiler above and below it: the same parts named, with the same
 /// mismatch, at the positions the profilers shift.
 #[test]
 fn inserting_a_profiler_changes_only_the_positions_of_the_faults() {
@@ -551,20 +538,20 @@ fn inserting_a_profiler_changes_only_the_positions_of_the_faults() {
             .on(bits_over(9, &log)),
     );
     assert_eq!(
-        without.faults(),
-        [fault(
+        listed(without.faults()),
+        listed(&[fault(
             part::<Stating>(1),
             part::<Bits>(2),
-            short_qubits(10, 9)
-        )]
+            short_batches(10, 9)
+        )])
     );
     assert_eq!(
-        with.faults(),
-        [fault(
+        listed(with.faults()),
+        listed(&[fault(
             part::<Stating>(2),
             part::<Bits>(4),
-            short_qubits(10, 9)
-        )]
+            short_batches(10, 9)
+        )])
     );
 }
 
@@ -581,23 +568,20 @@ fn inserting_a_profiler_changes_only_the_positions_of_the_faults() {
 fn a_joined_part_requires_its_parts_requirements_in_turn_and_provides_its_top_parts_limits() {
     let log = Log::default();
     let counted = Rc::new(Cell::new(0));
-    let read = |capabilities: &Capabilities| {
-        (
-            capabilities.resources().clone(),
-            capabilities.features().clone(),
-        )
+    let read = |capabilities: &Capabilities<Measuring>| {
+        (*capabilities.resources(), *capabilities.features())
     };
-    let two_qubits = Capabilities::UNCONSTRAINED.map_resources(|_| qubits(2));
+    let batches_of_two = unconstrained().map_resources(|_| batches_of(2));
     let rows = [
-        // The encoding's 14 qubits for the program's 2, and the program's
-        // readout parities.
+        // The encoding's batches of 14 for the program's 2, and the
+        // program's replay.
         (
             "a driver through an encoding",
             read(&Driver::requires(
-                &program(2, parity()).through(Spread::new(7, &log).built_for(2)),
-                &Capabilities::UNCONSTRAINED,
+                &program(2, replay()).through(Spread::new(7, &log).built_for(2)),
+                &unconstrained(),
             )),
-            (qubits(14), parity()),
+            (batches_of(14), replay()),
         ),
         (
             "an encoding through a profiler, requiring",
@@ -605,9 +589,9 @@ fn a_joined_part_requires_its_parts_requirements_in_turn_and_provides_its_top_pa
                 &Spread::new(7, &log)
                     .built_for(2)
                     .through(Profiler::new(&counted, &log)),
-                &two_qubits,
+                &batches_of_two,
             )),
-            (qubits(14), Features::unconstrained()),
+            (batches_of(14), Features::unconstrained()),
         ),
         (
             "a profiler through an encoding, providing",
@@ -621,29 +605,28 @@ fn a_joined_part_requires_its_parts_requirements_in_turn_and_provides_its_top_pa
             "a driver through an interleaver",
             read(&Driver::requires(
                 &program(2, Features::unconstrained()).through(Stating::interleaving(3, &log)),
-                &Capabilities::UNCONSTRAINED,
+                &unconstrained(),
             )),
-            (qubits(3), Features::unconstrained()),
+            (batches_of(3), Features::unconstrained()),
         ),
-        // The queue's 4 shots, not the bits' 8 qubits.
+        // The queue's 4 shots, not the bits' batches of 8.
         (
             "a queue on bits",
-            read(Executor::provides(
-                &Stating::queue(4, &log)
-                    .on(Bits::new(&log).with_resources(qubits(8).with_shots(8))),
-            )),
+            read(Executor::provides(&Stating::queue(4, &log).on(
+                Bits::new(&log).with_resources(batches_of(8).with_shots(8)),
+            ))),
             (
                 Resources::unconstrained().with_shots(4),
                 Features::unconstrained(),
             ),
         ),
-        // The decoder's 64 qubits, not the queue's 4 shots.
+        // The decoder's batches of 64, not the queue's 4 shots.
         (
             "a decoder through a queue",
             read(Adapter::provides(
                 &Stating::capping(64, &log).through(Stating::queue(4, &log)),
             )),
-            (qubits(64), Features::unconstrained()),
+            (batches_of(64), Features::unconstrained()),
         ),
     ];
     for (row, read, (resources, features)) in rows {
@@ -651,14 +634,14 @@ fn a_joined_part_requires_its_parts_requirements_in_turn_and_provides_its_top_pa
     }
 }
 
-/// An interleaver of 3 joined with a decoder limiting qubits to 10,
+/// An interleaver of 3 joined with a decoder limiting batches to 10,
 /// wrapped by a part of a user's that forwards only its role's public
-/// methods, between a program on 2 qubits and bits of 2: the wrapper
-/// requires what its parts require in turn, the interleaver's 3 qubits,
-/// so the chain's check meets them at the bits, the fault naming the
-/// wrapper, which required them. A joined `requires` passing what arrives
-/// unchanged, as the default does, or reading its lower part alone,
-/// composes instead.
+/// methods, between a program of batches of 2 and bits taking 2: the
+/// wrapper requires what its parts require in turn, the interleaver's
+/// batches of 3, so the chain's check meets them at the bits, the fault
+/// naming the wrapper, which required them. A joined `requires` passing
+/// what arrives unchanged, as the default does, or reading its lower part
+/// alone, composes instead.
 #[test]
 fn a_wrapped_joined_part_requires_what_its_parts_require() {
     let log = Log::default();
@@ -667,36 +650,44 @@ fn a_wrapped_joined_part_requires_what_its_parts_require() {
         "user's adapter",
     );
     assert_eq!(
-        faults(
-            program(2, Features::unconstrained())
-                .through(wrapped)
-                .on(bits_over(2, &log))
-        )
-        .faults(),
-        [fault(
+        listed(
+            faults(
+                program(2, Features::unconstrained())
+                    .through(wrapped)
+                    .on(bits_over(2, &log))
+            )
+            .faults()
+        ),
+        listed(&[fault(
             PartId::new(1, "user's adapter"),
             part::<Bits>(2),
-            short_qubits(3, 2)
-        )]
+            short_batches(3, 2)
+        )])
     );
 }
 
 // ----------------------------------------------------------- the message
 
-/// Faults of each kind, an instruction's and a resource's at one pair
-/// included, with parts named by their types, or, as a part built at run
-/// time is, by what it was built from: each fault names its parts by
-/// those names, in its fields and in its message, beside each mismatch's
-/// own message, whose wording is pinned by its own type's tests. A
-/// boundary's mismatch alone, as a joined part's `ready` refuses with it,
-/// says each of its mismatches, an instruction's and a resource's both.
+/// Faults of each kind, a set's and a resource's at one pair included,
+/// with parts named by their types, or, as a part built at run time is, by
+/// what it was built from: each fault names its parts by those names, in
+/// its fields and in its message, beside each mismatch's own message,
+/// whose wording is pinned by its own type's tests. A boundary's mismatch
+/// alone, as a joined part's `ready` refuses with it, says each of its
+/// mismatches, a set's and a resource's both.
 #[test]
 fn a_composition_fault_names_its_parts_and_every_mismatch() {
     let log = Log::default();
     let named = |position, name| PartId::new(position, name);
-    let x = instructions(&CoinGates::set(), &no_x()).instructions[0].to_string();
-    let nine_qubits = short_qubits(9, 8).capabilities.resources[0].to_string();
-    let nine_over_four = short_qubits(9, 4).capabilities.resources[0].to_string();
+    let x = UnacceptedNames(vec!["x"]).to_string();
+    let batches_of_nine = |provided| {
+        ResourceMismatch::InstructionsPerBatch {
+            required: 9,
+            provided,
+        }
+        .to_string()
+    };
+    let (nine_over_eight, nine_over_four) = (batches_of_nine(8), batches_of_nine(4));
     let said = |faults: CompositionFaults| {
         let named: Vec<_> = (faults.faults().iter())
             .map(|fault| (fault.requirer.clone(), fault.provider.clone()))
@@ -705,53 +696,52 @@ fn a_composition_fault_names_its_parts_and_every_mismatch() {
     };
     let rows = [
         (
-            "an instruction",
-            said(faults(CoinCopy::new().on(Bits::accepting(no_x(), &log)))),
+            "a set",
+            said(faults(CoinCopy::new().on(Bits::accepting(NO_X, &log)))),
             vec![(part::<CoinCopy>(0), part::<Bits>(1))],
             vec![&x],
         ),
         (
-            "qubits",
+            "batches",
             said(faults(
                 program(9, Features::unconstrained()).on(bits_over(8, &log)),
             )),
             vec![(part::<Program>(0), part::<Bits>(1))],
-            vec![&nine_qubits],
+            vec![&nine_over_eight],
         ),
         (
-            "an instruction and qubits at one pair",
-            said(faults(
-                program(9, Features::unconstrained())
-                    .on(Bits::accepting(no_x(), &log).with_resources(qubits(8))),
-            )),
+            "a set and batches at one pair",
+            said(faults(program(9, Features::unconstrained()).on(
+                Bits::accepting(NO_X, &log).with_resources(batches_of(8)),
+            ))),
             vec![(part::<Program>(0), part::<Bits>(1))],
-            vec![&x, &nine_qubits],
+            vec![&x, &nine_over_eight],
         ),
         (
             "parts built at run time",
             said(faults(
                 Renamed::new(program(9, Features::unconstrained()), "h2 program")
                     .through(Renamed::new(Stating::capping(4, &log), "decoder"))
-                    .on(Renamed::new(bits_over(8, &log), "qodec runtime")),
+                    .on(Renamed::new(bits_over(8, &log), "device runtime")),
             )),
             vec![
                 (named(0, "h2 program"), named(1, "decoder")),
-                (named(0, "h2 program"), named(2, "qodec runtime")),
+                (named(0, "h2 program"), named(2, "device runtime")),
             ],
-            vec![&nine_over_four, &nine_qubits],
+            vec![&nine_over_four, &nine_over_eight],
         ),
         (
-            "a boundary's instruction and qubits, alone",
+            "a boundary's set and batches, alone",
             (
                 vec![],
                 BoundaryMismatch {
-                    capabilities: short_qubits(9, 8).capabilities,
-                    ..instructions(&CoinGates::set(), &no_x())
+                    capabilities: short_batches(9, 8).capabilities,
+                    ..instructions(coin_gates(), &NO_X)
                 }
                 .to_string(),
             ),
             vec![],
-            vec![&x, &nine_qubits],
+            vec![&x, &nine_over_eight],
         ),
     ];
     for (row, (named, message), parts, mismatches) in rows {
@@ -768,9 +758,9 @@ fn a_composition_fault_names_its_parts_and_every_mismatch() {
     }
 }
 
-/// A program through two encodings of one type, the upper requiring more
-/// qubits than the lower provides: the fault tells them apart by their
-/// positions, in its fields and its message.
+/// A program through two encodings of one type, the upper requiring
+/// larger batches than the lower provides: the fault tells them apart by
+/// their positions, in its fields and its message.
 #[test]
 fn two_parts_of_one_type_are_told_apart_by_position() {
     let log = Log::default();
@@ -780,12 +770,12 @@ fn two_parts_of_one_type_are_told_apart_by_position() {
         .on(bits_over(64, &log));
     let faults = faults(composed);
     assert_eq!(
-        faults.faults(),
-        [fault(
+        listed(faults.faults()),
+        listed(&[fault(
             part::<Spread>(1),
             part::<Spread>(2),
-            short_qubits(2, 1)
-        )]
+            short_batches(2, 1)
+        )])
     );
     let message = faults.to_string();
     let name = type_name::<Spread>();

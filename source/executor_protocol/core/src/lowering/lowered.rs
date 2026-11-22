@@ -1,0 +1,198 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+//! [`Lowered`]: any [`Lowering`] as an adapter.
+//!
+//! Each `adapt` lowers its batches, instruction by instruction, into
+//! batches of the set below, sends them below in one `execute`, and reads
+//! each instruction's readouts back from those of its lowering. So that a
+//! lowering's readouts are found without reading its instructions again,
+//! it notes, as it lowers, where each instruction's readout slots lie in
+//! the batch's rows above and below, summing the slots of its lowering
+//! ([`InstructionSet::readout_slots`]) for the slots it states below.
+
+use std::ops::Range;
+
+use super::Lowering;
+use crate::{
+    Adapter, Batch, BatchReadouts, Binding, Capabilities, ExecuteError, Executor, InstructionSet,
+    Readouts, Seed,
+};
+
+/// The adapter that runs the lowering `L`: it accepts `L::From`, sends
+/// `L::To`, requires below what `L` requires, and runs each batch as
+/// `L` lowers it, each sent checked if the batch it lowers arrived
+/// checked, as [`Adapter::adapt`]'s rule asks.
+///
+/// It keeps its lowered batches and their readouts from one `adapt` to the
+/// next, so that, once it has lowered batches as large, an `adapt`
+/// allocates only the list of the batches it sends.
+pub struct Lowered<L: Lowering> {
+    lowering: L,
+    /// One per batch of the last `adapt`, then any kept, with their
+    /// memory, from an earlier `adapt` of more batches.
+    batches: Vec<LoweredBatch<L::To>>,
+    /// The readouts of the batches sent below.
+    readouts: Readouts,
+}
+
+impl<L: Lowering> Lowered<L> {
+    /// The adapter of `lowering`, with no memory yet.
+    #[must_use]
+    pub fn new(lowering: L) -> Self {
+        Self {
+            lowering,
+            batches: Vec::new(),
+            readouts: Readouts::new(),
+        }
+    }
+}
+
+impl<L: Lowering> Adapter for Lowered<L> {
+    type Accepts = L::From;
+    type Sends = L::To;
+
+    fn accepts(&self) -> &L::From {
+        self.lowering.accepts()
+    }
+
+    fn sends(&self) -> &L::To {
+        self.lowering.sends()
+    }
+
+    fn requires(&self, above: &Capabilities<L::From>) -> Capabilities<L::To> {
+        self.lowering.requires(above)
+    }
+
+    fn bind(&mut self, below: Binding<L::To>) {
+        self.lowering.bind(below);
+    }
+
+    async fn adapt(
+        &mut self,
+        batches: &[Batch<'_, L::From>],
+        seed: Seed,
+        below: &mut impl Executor<Accepts = L::To>,
+        readouts: &mut [BatchReadouts],
+    ) -> Result<(), ExecuteError> {
+        let Self {
+            lowering,
+            batches: lowered,
+            readouts: lowered_readouts,
+        } = self;
+        if lowered.len() < batches.len() {
+            lowered.resize_with(batches.len(), LoweredBatch::default);
+        }
+        for (batch, lowered) in batches.iter().zip(lowered.iter_mut()) {
+            lowered.lower(lowering, batch.instructions);
+        }
+        let sent: Vec<Batch<'_, L::To>> = batches
+            .iter()
+            .zip(lowered.iter())
+            .map(|(batch, lowered)| {
+                Batch::new(batch.shots, &lowered.instructions, lowered.readout_slots)
+                    .checked_if(batch.is_checked())
+            })
+            .collect();
+        let sent_readouts = lowered_readouts.readouts_for(&sent);
+        below.execute(&sent, seed, sent_readouts).await?;
+        for (((batch, lowered), below), above) in batches
+            .iter()
+            .zip(lowered.iter())
+            .zip(sent_readouts.iter())
+            .zip(readouts)
+        {
+            lowered.read(lowering, batch.instructions, below, above);
+        }
+        Ok(())
+    }
+}
+
+/// A batch as lowered: its instructions below, and where each instruction
+/// with readout slots finds its readouts.
+struct LoweredBatch<S: InstructionSet> {
+    instructions: Vec<S::Instruction>,
+    /// One per instruction above with a readout slot, in their order.
+    reads: Vec<InstructionReadouts>,
+    /// The readout slots of `instructions`, summed.
+    readout_slots: u32,
+}
+
+/// Where an instruction above finds its readouts: its slots in a row above,
+/// and those of its lowering in a row below.
+struct InstructionReadouts {
+    /// The instruction's position in its batch.
+    at: usize,
+    above: Range<usize>,
+    below: Range<usize>,
+}
+
+impl<S: InstructionSet> Default for LoweredBatch<S> {
+    fn default() -> Self {
+        Self {
+            instructions: Vec::new(),
+            reads: Vec::new(),
+            readout_slots: 0,
+        }
+    }
+}
+
+impl<S: InstructionSet> LoweredBatch<S> {
+    /// Lowers `instructions` with `lowering`, in place of what it held.
+    fn lower<L: Lowering<To = S>>(
+        &mut self,
+        lowering: &L,
+        instructions: &[<L::From as InstructionSet>::Instruction],
+    ) {
+        let (above_set, below_set) = (lowering.accepts(), lowering.sends());
+        self.instructions.clear();
+        self.reads.clear();
+        let mut above = 0;
+        let mut below: u32 = 0;
+        for (at, instruction) in instructions.iter().enumerate() {
+            let start = self.instructions.len();
+            lowering.lower(instruction, &mut self.instructions);
+            // Saturating: a sum beyond a `u32` is stated as `u32::MAX`, which
+            // the boundary below refuses in a checked batch, as it refuses a
+            // batch of that many slots sent unlowered.
+            let below_slots = self.instructions[start..]
+                .iter()
+                .map(|lowered| below_set.readout_slots(lowered))
+                .fold(0, u32::saturating_add);
+            let above_slots = above_set.readout_slots(instruction) as usize;
+            if above_slots > 0 {
+                self.reads.push(InstructionReadouts {
+                    at,
+                    above: above..above + above_slots,
+                    below: below as usize..below as usize + below_slots as usize,
+                });
+            }
+            above += above_slots;
+            below = below.saturating_add(below_slots);
+        }
+        self.readout_slots = below;
+    }
+
+    /// Writes the readouts above, `above`, of `instructions`, which it
+    /// lowered, from those below, `below`, row by row, each row with its
+    /// shot's conditions.
+    fn read<L: Lowering<To = S>>(
+        &self,
+        lowering: &L,
+        instructions: &[<L::From as InstructionSet>::Instruction],
+        below: &BatchReadouts,
+        above: &mut BatchReadouts,
+    ) {
+        for shot in 0..below.shots() {
+            let (row_below, row_above) = (below.row(shot), above.row_mut(shot));
+            for read in &self.reads {
+                lowering.read(
+                    &instructions[read.at],
+                    &row_below[read.below.clone()],
+                    &mut row_above[read.above.clone()],
+                );
+            }
+            above.set_conditions(shot, below.conditions(shot));
+        }
+    }
+}

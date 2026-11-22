@@ -5,7 +5,7 @@
 
 use super::every_field_stated;
 use crate::Driver;
-use crate::tests::fake_parts::{CoinCopy, PassesTheRun};
+use crate::tests::fake_parts::{PassesTheRun, QubitProgram};
 
 /// A driver whose shots need nothing of their own keeps the default
 /// `requires`: it requires of the parts below what the run requires, every
@@ -13,7 +13,7 @@ use crate::tests::fake_parts::{CoinCopy, PassesTheRun};
 /// or changing a value fails.
 #[test]
 fn by_default_requires_passes_the_run_unchanged() {
-    let driver = PassesTheRun(CoinCopy::new());
+    let driver = PassesTheRun(QubitProgram::new(&[0], 1));
     let run = every_field_stated();
     assert_eq!(Driver::requires(&driver, &run), run);
 }

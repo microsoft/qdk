@@ -10,11 +10,15 @@ use std::pin::pin;
 use std::rc::Rc;
 use std::task::Poll;
 
-use super::{CoinGates, Log, Stream, bound, coin_gate, coin_gates, forward, mapped};
+use super::{
+    BEYOND_THE_SET, Log, Stream, batches_of, bound, capabilities, coin_gates, forward, mapped,
+    ready_for, unconstrained,
+};
 use crate::prelude::*;
+use crate::tests::example_sets::{Gate, Measuring};
 use crate::{
-    Batch, BatchReadouts, BlockType, Capabilities, ExecuteError, Failure, Features, Instruction,
-    InstructionSet, NotReady, OpcodeMap, Readouts, Resource, Resources, Seed, ShotId, ShotSet,
+    Batch, BatchReadouts, Capabilities, ExecuteError, Failure, Features, NotReady, Readouts,
+    Resources, Seed, ShotId, ShotSet,
 };
 
 /// A toy bit-flip noise: after each `x`, another `x` with probability
@@ -22,7 +26,7 @@ use crate::{
 /// below as a batch of its own, since each may flip differently.
 pub(crate) struct BitFlip {
     probability: f64,
-    below: Option<OpcodeMap>,
+    below: Option<Vec<u32>>,
     streams: BTreeMap<ShotId, Stream>,
     log: Log,
 }
@@ -39,28 +43,31 @@ impl BitFlip {
 }
 
 impl Adapter for BitFlip {
-    fn accepts(&self) -> &InstructionSet {
+    type Accepts = Measuring;
+    type Sends = Measuring;
+
+    fn accepts(&self) -> &Measuring {
         coin_gates()
     }
 
-    fn sends(&self) -> &InstructionSet {
+    fn sends(&self) -> &Measuring {
         coin_gates()
     }
 
-    fn bind(&mut self, below: OpcodeMap) {
+    fn bind(&mut self, below: Vec<u32>) {
         self.below = Some(below);
     }
 
     async fn adapt(
         &mut self,
-        batches: &[Batch<'_>],
+        batches: &[Batch<'_, Measuring>],
         seed: Seed,
-        below: &mut impl Executor,
+        below: &mut impl Executor<Accepts = Measuring>,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         let map = bound(self.below.as_ref());
         let own = seed.derive("bit_flip");
-        let mut sent: Vec<(ShotSet, Vec<Instruction>, u32, bool)> = Vec::new();
+        let mut sent: Vec<(ShotSet, Vec<Gate>, u32, bool)> = Vec::new();
         for batch in batches {
             for (j, id) in batch.shots.iter().enumerate() {
                 let stream = self
@@ -68,12 +75,11 @@ impl Adapter for BitFlip {
                     .entry(id)
                     .or_insert_with(|| Stream(own.shot(id)));
                 let mut instructions = Vec::with_capacity(batch.instructions.len() + 1);
-                for instruction in batch.instructions {
+                for &gate in batch.instructions {
                     let flips =
-                        instruction.opcode == CoinGates::X && stream.chance(self.probability);
-                    let mut mapped = instruction.clone();
-                    mapped.opcode = map.map(instruction.opcode);
-                    instructions.push(mapped.clone());
+                        coin_gates().name(gate) == Some("x") && stream.chance(self.probability);
+                    let mapped = Measuring::bound(map, gate);
+                    instructions.push(mapped);
                     if flips {
                         instructions.push(mapped);
                     }
@@ -86,7 +92,7 @@ impl Adapter for BitFlip {
                 ));
             }
         }
-        let one_each: Vec<Batch<'_>> = sent
+        let one_each: Vec<Batch<'_, Measuring>> = sent
             .iter()
             .map(|(shots, instructions, slots, checked)| {
                 Batch::new(shots, instructions, *slots).checked_if(*checked)
@@ -118,22 +124,22 @@ impl Adapter for BitFlip {
 /// An adapter that counts the instructions passing through it and changes
 /// nothing: it draws nothing, and sends each batch as it came.
 pub(crate) struct Profiler {
-    set: InstructionSet,
-    below: Option<OpcodeMap>,
+    set: Measuring,
+    below: Option<Vec<u32>>,
     instructions: Rc<Cell<usize>>,
     busy: Option<&'static str>,
     log: Log,
 }
 
 impl Profiler {
-    /// A profiler of [`CoinGates`], counting into `instructions`.
+    /// A profiler of [`coin_gates`], counting into `instructions`.
     pub(crate) fn new(instructions: &Rc<Cell<usize>>, log: &Log) -> Self {
-        Self::on(CoinGates::set(), instructions, log)
+        Self::on(*coin_gates(), instructions, log)
     }
 
     /// A profiler accepting and sending `set`, not stating any resource
     /// or feature: it passes what arrives below.
-    pub(crate) fn on(set: InstructionSet, instructions: &Rc<Cell<usize>>, log: &Log) -> Self {
+    pub(crate) fn on(set: Measuring, instructions: &Rc<Cell<usize>>, log: &Log) -> Self {
         Self {
             set,
             below: None,
@@ -151,19 +157,22 @@ impl Profiler {
 }
 
 impl Adapter for Profiler {
-    fn accepts(&self) -> &InstructionSet {
+    type Accepts = Measuring;
+    type Sends = Measuring;
+
+    fn accepts(&self) -> &Measuring {
         &self.set
     }
 
-    fn sends(&self) -> &InstructionSet {
+    fn sends(&self) -> &Measuring {
         &self.set
     }
 
-    fn bind(&mut self, below: OpcodeMap) {
+    fn bind(&mut self, below: Vec<u32>) {
         self.below = Some(below);
     }
 
-    async fn ready(&mut self, _above: &Capabilities) -> Result<(), NotReady> {
+    async fn ready(&mut self, _above: &Capabilities<Measuring>) -> Result<(), NotReady> {
         self.log.push("Profiler ready");
         match self.busy {
             Some(why) => Err(NotReady::new(why)),
@@ -173,9 +182,9 @@ impl Adapter for Profiler {
 
     async fn adapt(
         &mut self,
-        batches: &[Batch<'_>],
+        batches: &[Batch<'_, Measuring>],
         seed: Seed,
-        below: &mut impl Executor,
+        below: &mut impl Executor<Accepts = Measuring>,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         let count: usize = batches.iter().map(|batch| batch.instructions.len()).sum();
@@ -190,13 +199,12 @@ impl Adapter for Profiler {
 
 /// An adapter that passes each batch down unchanged, logging first the
 /// name of the part below as `below: <name>`, as an adapter naming the
-/// part below in its own errors would read it, then the name of the set
-/// the part below accepts as `below accepts: <set>`, and the most
-/// instructions a batch it provides for as `below takes <most> a batch`
-/// (`None` when it does not state one). It does not state any resource
-/// or feature.
+/// part below in its own errors would read it, then the set the part
+/// below accepts as `below accepts: <set>`, and the most instructions a
+/// batch it provides for as `below takes <most> a batch` (`None` when it
+/// does not state one). It does not state any resource or feature.
 pub(crate) struct NamesBelow {
-    below: Option<OpcodeMap>,
+    below: Option<Vec<u32>>,
     log: Log,
 }
 
@@ -210,29 +218,32 @@ impl NamesBelow {
 }
 
 impl Adapter for NamesBelow {
-    fn accepts(&self) -> &InstructionSet {
+    type Accepts = Measuring;
+    type Sends = Measuring;
+
+    fn accepts(&self) -> &Measuring {
         coin_gates()
     }
 
-    fn sends(&self) -> &InstructionSet {
+    fn sends(&self) -> &Measuring {
         coin_gates()
     }
 
-    fn bind(&mut self, below: OpcodeMap) {
+    fn bind(&mut self, below: Vec<u32>) {
         self.below = Some(below);
     }
 
     async fn adapt(
         &mut self,
-        batches: &[Batch<'_>],
+        batches: &[Batch<'_, Measuring>],
         seed: Seed,
-        below: &mut impl Executor,
+        below: &mut impl Executor<Accepts = Measuring>,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         self.log.push(format!("below: {}", below.name()));
         self.log
-            .push(format!("below accepts: {}", below.accepts().name()));
-        let most = (below.provides().resources()).get(&Resource::InstructionsPerBatch);
+            .push(format!("below accepts: {:?}", below.accepts()));
+        let most = below.provides().resources().instructions_per_batch;
         self.log.push(format!("below takes {most:?} a batch"));
         let map = bound(self.below.as_ref());
         forward(batches, seed, below, readouts, |batch| {
@@ -248,32 +259,35 @@ impl Adapter for NamesBelow {
 /// instruction below, whatever count arrives.
 #[derive(Default)]
 pub(crate) struct Splitter {
-    below: Option<OpcodeMap>,
+    below: Option<Vec<u32>>,
 }
 
 impl Adapter for Splitter {
-    fn accepts(&self) -> &InstructionSet {
+    type Accepts = Measuring;
+    type Sends = Measuring;
+
+    fn accepts(&self) -> &Measuring {
         coin_gates()
     }
 
-    fn sends(&self) -> &InstructionSet {
+    fn sends(&self) -> &Measuring {
         coin_gates()
     }
 
     /// What arrives, in batches of one instruction.
-    fn requires(&self, above: &Capabilities) -> Capabilities {
+    fn requires(&self, above: &Capabilities<Measuring>) -> Capabilities<Measuring> {
         (above.clone()).map_resources(|resources| resources.with_instructions_per_batch(1))
     }
 
-    fn bind(&mut self, below: OpcodeMap) {
+    fn bind(&mut self, below: Vec<u32>) {
         self.below = Some(below);
     }
 
     async fn adapt(
         &mut self,
-        batches: &[Batch<'_>],
+        batches: &[Batch<'_, Measuring>],
         seed: Seed,
-        below: &mut impl Executor,
+        below: &mut impl Executor<Accepts = Measuring>,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         let map = bound(self.below.as_ref());
@@ -281,10 +295,8 @@ impl Adapter for Splitter {
         for (batch, batch_readouts) in batches.iter().zip(readouts) {
             let instructions = mapped(map, batch.instructions);
             parts.clear();
-            for (instruction, sent) in batch.instructions.iter().zip(&instructions) {
-                let slots = coin_gates()
-                    .readout_slots(instruction.opcode)
-                    .expect("an instruction of the set it provides");
+            for (gate, sent) in batch.instructions.iter().zip(&instructions) {
+                let slots = coin_gates().readout_slots(gate);
                 let step = [Batch::new(batch.shots, std::slice::from_ref(sent), slots)
                     .checked_if(batch.is_checked())];
                 parts.push(BatchReadouts::new(0, 0));
@@ -299,28 +311,28 @@ impl Adapter for Splitter {
     }
 }
 
-/// The qubits `capabilities` state, or 0.
-fn qubits_of(capabilities: &Capabilities) -> u32 {
-    (capabilities.resources())
-        .blocks(&BlockType::qubit())
-        .unwrap_or(0)
+/// The instructions a batch `capabilities` state may hold, or 0.
+fn instructions_of(capabilities: &Capabilities<Measuring>) -> u32 {
+    capabilities.resources().instructions_per_batch.unwrap_or(0)
 }
 
-/// What arrives, on `qubits` qubits.
-fn on_qubits(above: &Capabilities, qubits: u32) -> Capabilities {
-    (above.clone()).map_resources(|resources| resources.with_qubits(qubits))
+/// What arrives, in batches of `n` instructions.
+fn in_batches_of(above: &Capabilities<Measuring>, n: u32) -> Capabilities<Measuring> {
+    (above.clone()).map_resources(|resources| resources.with_instructions_per_batch(n))
 }
 
 /// A toy encoding: each qubit above is `k` qubits below, of which it uses
 /// the first. Made by [`new`](Self::new), it states nothing;
-/// [`built_for`](Self::built_for) states the qubits it takes, and that it
-/// requires `k` qubits below for each qubit that arrives.
+/// [`built_for`](Self::built_for) states the instructions a batch it takes
+/// may hold, and that it requires `k` instructions below for each that
+/// arrives: an upper bound, as an encoding writing each gate in up to `k`
+/// would state, though this toy writes each in one.
 pub(crate) struct Spread {
     k: u32,
-    provides: Capabilities,
-    /// Whether it states its qubits, once built.
+    provides: Capabilities<Measuring>,
+    /// Whether it states its batches, once built.
     built: bool,
-    below: Option<OpcodeMap>,
+    below: Option<Vec<u32>>,
     log: Log,
 }
 
@@ -328,18 +340,19 @@ impl Spread {
     pub(crate) fn new(k: u32, log: &Log) -> Self {
         Self {
             k,
-            provides: Capabilities::UNCONSTRAINED,
+            provides: unconstrained(),
             built: false,
             below: None,
             log: log.clone(),
         }
     }
 
-    /// This encoding, built for `n` qubits above: it takes at most `n`,
-    /// and requires `k` qubits below for each that arrives.
+    /// This encoding, built for batches of `n` instructions above: it
+    /// takes at most `n`, and requires `k` instructions below for each
+    /// that arrives.
     pub(crate) fn built_for(self, n: u32) -> Self {
         Self {
-            provides: Capabilities::UNCONSTRAINED.map_resources(|_| super::qubits(n)),
+            provides: capabilities(batches_of(n), Features::unconstrained()),
             built: true,
             ..self
         }
@@ -347,49 +360,52 @@ impl Spread {
 }
 
 impl Adapter for Spread {
-    fn accepts(&self) -> &InstructionSet {
+    type Accepts = Measuring;
+    type Sends = Measuring;
+
+    fn accepts(&self) -> &Measuring {
         coin_gates()
     }
 
-    fn sends(&self) -> &InstructionSet {
+    fn sends(&self) -> &Measuring {
         coin_gates()
     }
 
-    fn provides(&self) -> &Capabilities {
+    fn provides(&self) -> &Capabilities<Measuring> {
         &self.provides
     }
 
-    /// What arrives, on `k` qubits for each that arrives, once built.
-    fn requires(&self, above: &Capabilities) -> Capabilities {
+    /// What arrives, with `k` instructions a batch for each that arrives,
+    /// once built.
+    fn requires(&self, above: &Capabilities<Measuring>) -> Capabilities<Measuring> {
         if self.built {
-            on_qubits(above, self.k * qubits_of(above))
+            in_batches_of(above, self.k * instructions_of(above))
         } else {
             above.clone()
         }
     }
 
-    fn bind(&mut self, below: OpcodeMap) {
+    fn bind(&mut self, below: Vec<u32>) {
         self.below = Some(below);
     }
 
-    async fn ready(&mut self, above: &Capabilities) -> Result<(), NotReady> {
-        let qubits = qubits_of(above);
-        self.log.push(format!("Spread ready for {qubits} qubits"));
+    async fn ready(&mut self, above: &Capabilities<Measuring>) -> Result<(), NotReady> {
+        self.log.push(ready_for("Spread", above));
         Ok(())
     }
 
     async fn adapt(
         &mut self,
-        batches: &[Batch<'_>],
+        batches: &[Batch<'_, Measuring>],
         seed: Seed,
-        below: &mut impl Executor,
+        below: &mut impl Executor<Accepts = Measuring>,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         let map = bound(self.below.as_ref());
         forward(batches, seed, below, readouts, |batch| {
             let mut instructions = mapped(map, batch.instructions);
-            for instruction in &mut instructions {
-                instruction.blocks[0] *= self.k;
+            for gate in &mut instructions {
+                gate.qubit *= self.k;
             }
             instructions
         })
@@ -398,7 +414,7 @@ impl Adapter for Spread {
 }
 
 /// What a [`Stating`] toy requires below, given what arrives.
-type Requiring = Box<dyn Fn(&Capabilities) -> Capabilities>;
+type Requiring = Box<dyn Fn(&Capabilities<Measuring>) -> Capabilities<Measuring>>;
 
 /// An adapter that states capabilities of its own, one toy per
 /// constructor: the limits it takes ([`Adapter::provides`]), and what it
@@ -406,7 +422,7 @@ type Requiring = Box<dyn Fn(&Capabilities) -> Capabilities>;
 /// it passes instructions through, as a [`Spread`] of 1.
 pub(crate) struct Stating {
     spread: Spread,
-    provides: Capabilities,
+    provides: Capabilities<Measuring>,
     requires: Requiring,
 }
 
@@ -415,8 +431,8 @@ impl Stating {
     /// of what arrives.
     fn new(
         log: &Log,
-        provides: Capabilities,
-        requires: impl Fn(&Capabilities) -> Capabilities + 'static,
+        provides: Capabilities<Measuring>,
+        requires: impl Fn(&Capabilities<Measuring>) -> Capabilities<Measuring> + 'static,
     ) -> Self {
         Self {
             spread: Spread::new(1, log),
@@ -428,22 +444,23 @@ impl Stating {
     /// A toy taking `resources` and `features`, and passing what arrives
     /// below.
     fn providing(log: &Log, resources: Resources, features: Features) -> Self {
-        Self::new(log, Capabilities::new(resources, features), Clone::clone)
+        Self::new(log, capabilities(resources, features), Clone::clone)
     }
 
-    /// A toy interleaver, running each shot on `least` qubits at least: it
-    /// requires the qubits that arrive, or `least` if fewer arrive.
+    /// A toy interleaver, sending batches of `least` instructions at
+    /// least: it requires the instructions a batch that arrive, or
+    /// `least` if fewer arrive.
     pub(crate) fn interleaving(least: u32, log: &Log) -> Self {
-        Self::new(log, Capabilities::UNCONSTRAINED, move |above| {
-            on_qubits(above, qubits_of(above).max(least))
+        Self::new(log, unconstrained(), move |above| {
+            in_batches_of(above, instructions_of(above).max(least))
         })
     }
 
-    /// A toy part reserving `k` qubits below as ancillas: it requires `k`
-    /// qubits more than arrive.
+    /// A toy part adding `k` ancilla resets to each batch: it requires `k`
+    /// instructions a batch more than arrive.
     pub(crate) fn reserving_ancillas(k: u32, log: &Log) -> Self {
-        Self::new(log, Capabilities::UNCONSTRAINED, move |above| {
-            on_qubits(above, qubits_of(above) + k)
+        Self::new(log, unconstrained(), move |above| {
+            in_batches_of(above, instructions_of(above) + k)
         })
     }
 
@@ -451,7 +468,7 @@ impl Stating {
     /// requires runs of `shots` below, whatever arrives. A declaration
     /// fake: it passes each run below whole, splitting none.
     pub(crate) fn splitting_runs(shots: u32, log: &Log) -> Self {
-        Self::new(log, Capabilities::UNCONSTRAINED, move |above| {
+        Self::new(log, unconstrained(), move |above| {
             (above.clone()).map_resources(|resources| resources.with_shots(shots))
         })
     }
@@ -461,8 +478,8 @@ impl Stating {
     /// shots if none arrive. A declaration fake: it passes each run below
     /// as it is.
     pub(crate) fn repeating_shots(times: u32, log: &Log) -> Self {
-        Self::new(log, Capabilities::UNCONSTRAINED, move |above| {
-            match above.resources().get(&Resource::Shots) {
+        Self::new(log, unconstrained(), move |above| {
+            match above.resources().shots {
                 Some(shots) => (above.clone())
                     .map_resources(|resources| resources.with_shots(shots.saturating_mul(times))),
                 None => above.clone(),
@@ -479,25 +496,16 @@ impl Stating {
         )
     }
 
-    /// A toy cap that takes at most `qubits` qubits, as a decoder built
-    /// for that many does.
-    pub(crate) fn capping(qubits: u32, log: &Log) -> Self {
-        Self::providing(log, super::qubits(qubits), Features::unconstrained())
-    }
-
-    /// A toy lowering that cannot carry readout parities.
-    pub(crate) fn lowering_without_parity(log: &Log) -> Self {
-        Self::providing(
-            log,
-            Resources::unconstrained(),
-            Features::unconstrained().with_readout_parity(false),
-        )
+    /// A toy cap that takes batches of at most `n` instructions, as a
+    /// decoder built for that many does.
+    pub(crate) fn capping(n: u32, log: &Log) -> Self {
+        Self::providing(log, batches_of(n), Features::unconstrained())
     }
 
     /// A toy replayer that keeps each shot's readouts and gives them back
     /// on replay: it requires no replay below, and passes seeded runs.
     pub(crate) fn replaying(log: &Log) -> Self {
-        Self::new(log, Capabilities::UNCONSTRAINED, |above| {
+        Self::new(log, unconstrained(), |above| {
             (above.clone()).map_features(|features| features.with_replay(false))
         })
     }
@@ -508,7 +516,7 @@ impl Stating {
     pub(crate) fn seeding_itself(log: &Log) -> Self {
         Self::new(
             log,
-            Capabilities::new(
+            capabilities(
                 Resources::unconstrained(),
                 Features::unconstrained().with_replay(false),
             ),
@@ -518,35 +526,38 @@ impl Stating {
 }
 
 impl Adapter for Stating {
-    fn accepts(&self) -> &InstructionSet {
+    type Accepts = Measuring;
+    type Sends = Measuring;
+
+    fn accepts(&self) -> &Measuring {
         coin_gates()
     }
 
-    fn sends(&self) -> &InstructionSet {
+    fn sends(&self) -> &Measuring {
         coin_gates()
     }
 
-    fn provides(&self) -> &Capabilities {
+    fn provides(&self) -> &Capabilities<Measuring> {
         &self.provides
     }
 
-    fn requires(&self, above: &Capabilities) -> Capabilities {
+    fn requires(&self, above: &Capabilities<Measuring>) -> Capabilities<Measuring> {
         (self.requires)(above)
     }
 
-    fn bind(&mut self, below: OpcodeMap) {
+    fn bind(&mut self, below: Vec<u32>) {
         self.spread.bind(below);
     }
 
-    async fn ready(&mut self, above: &Capabilities) -> Result<(), NotReady> {
+    async fn ready(&mut self, above: &Capabilities<Measuring>) -> Result<(), NotReady> {
         self.spread.ready(above).await
     }
 
     async fn adapt(
         &mut self,
-        batches: &[Batch<'_>],
+        batches: &[Batch<'_, Measuring>],
         seed: Seed,
-        below: &mut impl Executor,
+        below: &mut impl Executor<Accepts = Measuring>,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         self.spread.adapt(batches, seed, below, readouts).await
@@ -566,23 +577,26 @@ impl Impatient {
 }
 
 impl Adapter for Impatient {
-    fn accepts(&self) -> &InstructionSet {
+    type Accepts = Measuring;
+    type Sends = Measuring;
+
+    fn accepts(&self) -> &Measuring {
         coin_gates()
     }
 
-    fn sends(&self) -> &InstructionSet {
+    fn sends(&self) -> &Measuring {
         coin_gates()
     }
 
-    fn bind(&mut self, below: OpcodeMap) {
+    fn bind(&mut self, below: Vec<u32>) {
         self.0.bind(below);
     }
 
     async fn adapt(
         &mut self,
-        batches: &[Batch<'_>],
+        batches: &[Batch<'_, Measuring>],
         seed: Seed,
-        below: &mut impl Executor,
+        below: &mut impl Executor<Accepts = Measuring>,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         {
@@ -601,7 +615,7 @@ impl Adapter for Impatient {
 /// passes the others through; logging, when told to, that it ends shots.
 pub(crate) struct Trap {
     shot: ShotId,
-    below: Option<OpcodeMap>,
+    below: Option<Vec<u32>>,
     log: Option<Log>,
 }
 
@@ -625,23 +639,26 @@ impl Trap {
 }
 
 impl Adapter for Trap {
-    fn accepts(&self) -> &InstructionSet {
+    type Accepts = Measuring;
+    type Sends = Measuring;
+
+    fn accepts(&self) -> &Measuring {
         coin_gates()
     }
 
-    fn sends(&self) -> &InstructionSet {
+    fn sends(&self) -> &Measuring {
         coin_gates()
     }
 
-    fn bind(&mut self, below: OpcodeMap) {
+    fn bind(&mut self, below: Vec<u32>) {
         self.below = Some(below);
     }
 
     async fn adapt(
         &mut self,
-        batches: &[Batch<'_>],
+        batches: &[Batch<'_, Measuring>],
         seed: Seed,
-        below: &mut impl Executor,
+        below: &mut impl Executor<Accepts = Measuring>,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         if batches
@@ -673,7 +690,7 @@ impl Adapter for Trap {
 pub(crate) struct FailsOnce {
     adapts: u32,
     panics: bool,
-    below: Option<OpcodeMap>,
+    below: Option<Vec<u32>>,
 }
 
 impl FailsOnce {
@@ -695,23 +712,26 @@ impl FailsOnce {
 }
 
 impl Adapter for FailsOnce {
-    fn accepts(&self) -> &InstructionSet {
+    type Accepts = Measuring;
+    type Sends = Measuring;
+
+    fn accepts(&self) -> &Measuring {
         coin_gates()
     }
 
-    fn sends(&self) -> &InstructionSet {
+    fn sends(&self) -> &Measuring {
         coin_gates()
     }
 
-    fn bind(&mut self, below: OpcodeMap) {
+    fn bind(&mut self, below: Vec<u32>) {
         self.below = Some(below);
     }
 
     async fn adapt(
         &mut self,
-        batches: &[Batch<'_>],
+        batches: &[Batch<'_, Measuring>],
         seed: Seed,
-        below: &mut impl Executor,
+        below: &mut impl Executor<Accepts = Measuring>,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         self.adapts += 1;
@@ -733,20 +753,19 @@ impl Adapter for FailsOnce {
 /// How a [`Misbehaving`] adapter breaks the protocol's rules.
 #[derive(Clone, Copy)]
 pub(crate) enum Misbehaviour {
-    /// Adds an `x` on qubit 99 to each batch, beyond the qubits it
-    /// passes through unchanged.
-    SendsBeyondItsQubits,
+    /// Adds [`BEYOND_THE_SET`] to each batch.
+    SendsBeyondItsSet,
     /// Panics with a formatted message, a `String`.
     PanicsWithAString,
     /// Panics with a number, a payload that is not text.
     PanicsWithANumber,
 }
 
-/// An adapter of [`CoinGates`] that breaks a rule of the protocol, as
+/// An adapter of [`coin_gates`] that breaks a rule of the protocol, as
 /// `Misbehaviour` says; it passes the batches through otherwise.
 pub(crate) struct Misbehaving {
     misbehaviour: Misbehaviour,
-    below: Option<OpcodeMap>,
+    below: Option<Vec<u32>>,
 }
 
 impl Misbehaving {
@@ -759,23 +778,26 @@ impl Misbehaving {
 }
 
 impl Adapter for Misbehaving {
-    fn accepts(&self) -> &InstructionSet {
+    type Accepts = Measuring;
+    type Sends = Measuring;
+
+    fn accepts(&self) -> &Measuring {
         coin_gates()
     }
 
-    fn sends(&self) -> &InstructionSet {
+    fn sends(&self) -> &Measuring {
         coin_gates()
     }
 
-    fn bind(&mut self, below: OpcodeMap) {
+    fn bind(&mut self, below: Vec<u32>) {
         self.below = Some(below);
     }
 
     async fn adapt(
         &mut self,
-        batches: &[Batch<'_>],
+        batches: &[Batch<'_, Measuring>],
         seed: Seed,
-        below: &mut impl Executor,
+        below: &mut impl Executor<Accepts = Measuring>,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         match self.misbehaviour {
@@ -783,57 +805,17 @@ impl Adapter for Misbehaving {
                 panic!("the adapter broke on {} batches", batches.len())
             }
             Misbehaviour::PanicsWithANumber => std::panic::panic_any(42_u32),
-            Misbehaviour::SendsBeyondItsQubits => {}
+            Misbehaviour::SendsBeyondItsSet => {}
         }
         let map = bound(self.below.as_ref());
         forward(batches, seed, below, readouts, |batch| {
-            let mut instructions = batch.instructions.to_vec();
-            if let Misbehaviour::SendsBeyondItsQubits = self.misbehaviour {
-                instructions.push(coin_gate("x", 99));
+            let mut instructions = mapped(map, batch.instructions);
+            if let Misbehaviour::SendsBeyondItsSet = self.misbehaviour {
+                instructions.push(BEYOND_THE_SET);
             }
-            mapped(map, &instructions)
+            instructions
         })
         .await
-    }
-}
-
-/// An adapter that says it resolves readout parities itself, as a decoder
-/// would, so that it requires none below, but passes every batch down as
-/// it came, readout parities included: a [`Profiler`] of `set` otherwise.
-pub(crate) struct ForwardsParity(Profiler);
-
-impl ForwardsParity {
-    pub(crate) fn on(set: InstructionSet, log: &Log) -> Self {
-        Self(Profiler::on(set, &Rc::new(Cell::new(0)), log))
-    }
-}
-
-impl Adapter for ForwardsParity {
-    fn accepts(&self) -> &InstructionSet {
-        self.0.accepts()
-    }
-
-    fn sends(&self) -> &InstructionSet {
-        self.0.sends()
-    }
-
-    /// What arrives, with no readout parities.
-    fn requires(&self, above: &Capabilities) -> Capabilities {
-        (above.clone()).map_features(|features| features.with_readout_parity(false))
-    }
-
-    fn bind(&mut self, below: OpcodeMap) {
-        self.0.bind(below);
-    }
-
-    async fn adapt(
-        &mut self,
-        batches: &[Batch<'_>],
-        seed: Seed,
-        below: &mut impl Executor,
-        readouts: &mut [BatchReadouts],
-    ) -> Result<(), ExecuteError> {
-        self.0.adapt(batches, seed, below, readouts).await
     }
 }
 
@@ -875,23 +857,26 @@ impl PanicsEnding {
 }
 
 impl Adapter for PanicsEnding {
-    fn accepts(&self) -> &InstructionSet {
+    type Accepts = Measuring;
+    type Sends = Measuring;
+
+    fn accepts(&self) -> &Measuring {
         coin_gates()
     }
 
-    fn sends(&self) -> &InstructionSet {
+    fn sends(&self) -> &Measuring {
         coin_gates()
     }
 
-    fn bind(&mut self, below: OpcodeMap) {
+    fn bind(&mut self, below: Vec<u32>) {
         self.pass_through.bind(below);
     }
 
     async fn adapt(
         &mut self,
-        batches: &[Batch<'_>],
+        batches: &[Batch<'_, Measuring>],
         seed: Seed,
-        below: &mut impl Executor,
+        below: &mut impl Executor<Accepts = Measuring>,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         self.pass_through
@@ -920,23 +905,26 @@ impl EndsBelow {
 }
 
 impl Adapter for EndsBelow {
-    fn accepts(&self) -> &InstructionSet {
+    type Accepts = Measuring;
+    type Sends = Measuring;
+
+    fn accepts(&self) -> &Measuring {
         coin_gates()
     }
 
-    fn sends(&self) -> &InstructionSet {
+    fn sends(&self) -> &Measuring {
         coin_gates()
     }
 
-    fn bind(&mut self, below: OpcodeMap) {
+    fn bind(&mut self, below: Vec<u32>) {
         self.0.bind(below);
     }
 
     async fn adapt(
         &mut self,
-        batches: &[Batch<'_>],
+        batches: &[Batch<'_, Measuring>],
         seed: Seed,
-        below: &mut impl Executor,
+        below: &mut impl Executor<Accepts = Measuring>,
         readouts: &mut [BatchReadouts],
     ) -> Result<(), ExecuteError> {
         self.0.adapt(batches, seed, below, readouts).await?;

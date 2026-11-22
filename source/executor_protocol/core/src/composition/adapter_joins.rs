@@ -12,8 +12,10 @@ use crate::{Adapter, Executor};
 /// [`on`](Self::on) an executor, which gives an executor. Every adapter
 /// has them.
 ///
-/// Each join checks that the instructions the adapter sends fit those the
-/// part below accepts, and binds them where they fit ([`Adapter::bind`]);
+/// Each join joins only a part below that accepts the instruction set type
+/// the adapter sends ([`Adapter::Sends`]), checked at compile time, and
+/// checks that the set the adapter sends fits the one the part below
+/// accepts, and binds the adapter where it fits ([`Adapter::bind`]);
 /// a boundary that does not fit is reported, with every other fault of
 /// the chain, by the [`on`](crate::DriverJoins::on) that makes the runner.
 pub trait AdapterJoins: Adapter + Sized {
@@ -23,7 +25,10 @@ pub trait AdapterJoins: Adapter + Sized {
     /// requires. What arrives at `below` is checked against what it
     /// provides when the joined adapter gets ready, or, seen from the
     /// chain, by the walk of [`on`](crate::DriverJoins::on).
-    fn through<L: Adapter>(self, below: L) -> Composed<Self, L> {
+    fn through<L: Adapter<Accepts = Self::Sends>>(
+        self,
+        below: L,
+    ) -> Composed<Self, L, Self::Sends> {
         Composed::adapter_through(self, below)
     }
 
@@ -32,7 +37,7 @@ pub trait AdapterJoins: Adapter + Sized {
     /// `executor` is checked against what it provides when the joined
     /// executor gets ready, or, seen from the chain, by the walk of
     /// [`on`](crate::DriverJoins::on).
-    fn on<E: Executor>(self, executor: E) -> Composed<Self, E> {
+    fn on<E: Executor<Accepts = Self::Sends>>(self, executor: E) -> Composed<Self, E, Self::Sends> {
         Composed::adapter_on(self, executor)
     }
 }

@@ -13,10 +13,13 @@ pub use batch_readouts::{
 };
 pub use shot_set::{ShotId, ShotSet, ShotSetFault};
 
-use crate::Instruction;
+use std::fmt;
 
-/// A request: run `instructions`, in order, on each of `shots`, checked
-/// before it runs if its sender marked it [`checked`](Self::checked).
+use crate::InstructionSet;
+
+/// A request: run `instructions`, of the set `S`, in order, on each of
+/// `shots`, checked before it runs if its sender marked it
+/// [`checked`](Self::checked).
 ///
 /// An `execute` holds any number of batches, so that a part sends at once
 /// the work of shots at different points of their programs; it answers
@@ -31,13 +34,12 @@ use crate::Instruction;
 /// read, its readout slots are read by
 /// [`readout_slots`](Self::readout_slots), and its checks by
 /// [`is_checked`](Self::is_checked).
-#[derive(Clone, Copy, Debug)]
-pub struct Batch<'a> {
+pub struct Batch<'a, S: InstructionSet> {
     /// The shots the instructions run on, in the order of its readouts'
     /// rows.
     pub shots: &'a ShotSet,
     /// The instructions, run in order on each shot.
-    pub instructions: &'a [Instruction],
+    pub instructions: &'a [S::Instruction],
     /// The readout slots of `instructions`, summed, as the sender states
     /// them: the readout slots of each row of its readouts.
     readout_slots: u32,
@@ -46,7 +48,7 @@ pub struct Batch<'a> {
     checked: bool,
 }
 
-impl<'a> Batch<'a> {
+impl<'a, S: InstructionSet> Batch<'a, S> {
     /// `instructions`, run in order on each of `shots`, whose readout
     /// slots sum to `readout_slots`, unchecked: the receiver runs them as
     /// sent, if they are no more than it takes, and the protocol shapes
@@ -55,18 +57,14 @@ impl<'a> Batch<'a> {
     ///
     /// The sender states the slots because it knows them where it writes
     /// the instructions, once, while each boundary below would count them
-    /// again: [`InstructionSet::readout_slots_of`] sums them, or the sender
-    /// adds each instruction's ([`InstructionSet::readout_slots`]) as it
-    /// writes it. An adapter that passes a batch's instructions on, or
-    /// rewrites only their opcodes into the receiver's set
-    /// ([`OpcodeMap`](crate::OpcodeMap)), passes its slots on as they are.
-    ///
-    /// [`InstructionSet::readout_slots_of`]: crate::InstructionSet::readout_slots_of
-    /// [`InstructionSet::readout_slots`]: crate::InstructionSet::readout_slots
+    /// again: it adds each instruction's
+    /// ([`InstructionSet::readout_slots`]) as it writes it. An adapter
+    /// that passes a batch's instructions on, or rewrites them one for
+    /// one with the same readouts, passes its slots on as they are.
     #[must_use]
     pub const fn new(
         shots: &'a ShotSet,
-        instructions: &'a [Instruction],
+        instructions: &'a [S::Instruction],
         readout_slots: u32,
     ) -> Self {
         Self {
@@ -81,20 +79,18 @@ impl<'a> Batch<'a> {
     /// before anything of it runs, as an
     /// [`ExecuteRefusal`](crate::ExecuteRefusal) naming the batch, the
     /// batch's first shot and, for a fault at an instruction, its position,
-    /// when it holds an instruction the receiver does not accept (an opcode
-    /// beyond its set, or blocks, arguments or a flag `select` that do not
-    /// match its instruction), a block beyond the shots' blocks of its type,
-    /// or given twice by one instruction, a readout parity its sender does
-    /// not require, more readout slots than a `u32` counts, or readout slots
-    /// other than [`readout_slots`](Self::readout_slots) states.
+    /// when it holds an instruction the receiver's set refuses
+    /// ([`InstructionSet::check`]), given what arrives at the receiver,
+    /// more readout slots than a `u32` counts, or readout slots other than
+    /// [`readout_slots`](Self::readout_slots) states.
     ///
     /// An unchecked batch of no more instructions than the receiver takes
     /// runs as sent. A faulty one is then not reported as its sender's
     /// fault:
     /// - the receiver may panic on it, failing the run naming the receiver
     ///   ([`Failure::Panicked`](crate::Failure::Panicked));
-    /// - an opcode of another set may run as another of the receiver's
-    ///   instructions, unreported;
+    /// - an instruction the receiver does not accept may run as another of
+    ///   its instructions, unreported;
     /// - readout slots misstated shape its readouts wrong. Too few, and the
     ///   receiver may panic writing past its rows. Too many, and the last
     ///   values of each row stay `Missing(ReadoutFailure::Other)`, at the
@@ -130,9 +126,11 @@ impl<'a> Batch<'a> {
     /// [`Adapter::adapt`](crate::Adapter::adapt)'s rule asks, so that the
     /// checks its sender chose reach every boundary below.
     #[must_use]
-    pub const fn checked_if(mut self, on: bool) -> Self {
-        self.checked = on;
-        self
+    pub const fn checked_if(self, on: bool) -> Self {
+        Self {
+            checked: on,
+            ..self
+        }
     }
 
     /// The readout slots of its instructions, summed, as its sender
@@ -148,5 +146,31 @@ impl<'a> Batch<'a> {
     #[must_use]
     pub const fn is_checked(&self) -> bool {
         self.checked
+    }
+}
+
+#[expect(
+    clippy::expl_impl_clone_on_copy,
+    reason = "a derive would bound `S: Copy`"
+)]
+impl<S: InstructionSet> Clone for Batch<'_, S> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<S: InstructionSet> Copy for Batch<'_, S> {}
+
+impl<S: InstructionSet> fmt::Debug for Batch<'_, S>
+where
+    S::Instruction: fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Batch")
+            .field("shots", &self.shots)
+            .field("instructions", &self.instructions)
+            .field("readout_slots", &self.readout_slots)
+            .field("checked", &self.checked)
+            .finish()
     }
 }

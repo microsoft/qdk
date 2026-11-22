@@ -7,6 +7,7 @@
 //! by union.
 
 use crate::tests::allocations;
+use crate::tests::example_sets::Measuring;
 use crate::{
     Batch, BatchReadouts, ReadoutFailure, ReadoutSlot, ReadoutValue, Readouts, ShotConditions,
     ShotSet,
@@ -204,7 +205,7 @@ fn a_batchs_readouts_take_at_most_one_allocation_and_one_more_for_conditions() {
 #[test]
 fn readouts_kept_from_a_larger_round_take_a_later_one_without_allocating() {
     let shots = ShotSet::ids(0..100);
-    let batches = [Batch::new(&shots, &[], 3); 5];
+    let batches = [Batch::<Measuring>::new(&shots, &[], 3); 5];
     let mut kept = Readouts::new();
     // Shapes and fills the readouts of a round of `count` batches of
     // `shots` shots and `slots` readout slots, as the boundary and an

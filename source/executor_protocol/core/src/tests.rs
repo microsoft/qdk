@@ -5,16 +5,17 @@
 //!
 //! This module also installs a counting `#[global_allocator]` for the whole
 //! test binary, so that the promises on allocations (`ShotSet`'s,
-//! `BatchReadouts`' and `Readouts`', a built readout parity's, a copied
-//! `Instruction`'s, and an `execute` of unchecked batches') are tested:
+//! `BatchReadouts`' and `Readouts`', and an `execute` of unchecked
+//! batches') are tested:
 //! [`allocations`] counts those made on its own thread, so tests running
 //! in parallel do not disturb its count.
 
 mod batch;
 mod capabilities;
 mod composition;
+mod example_sets;
 mod fake_parts;
-mod instruction_set;
+mod lowering;
 mod roles;
 mod seed;
 

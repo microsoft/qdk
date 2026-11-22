@@ -10,11 +10,12 @@ use std::fmt;
 use crate::composition::DeclaredParts;
 use crate::part_id::ChainPosition;
 use crate::{
-    Capabilities, ExecuteError, Executor, Failure, InstructionSet, NotReady, OpcodeMap, Seed,
-    ShotId, ShotSet,
+    Binding, Capabilities, ExecuteError, Executor, Failure, InstructionSet, NotReady, Seed, ShotId,
+    ShotSet,
 };
 
-/// Calls the part below with batches of the instructions it sends, each
+/// Calls the part below with batches of the instructions it sends, of its
+/// set [`Sends`](Self::Sends), each
 /// with its shots, and the seed, and makes each shot's output from the
 /// readouts the part below fills, which the driver keeps in a
 /// [`Readouts`](crate::Readouts) to reuse from one call to the next.
@@ -31,12 +32,12 @@ use crate::{
 /// The joins ([`DriverJoins`](crate::DriverJoins)) read them before any
 /// run: [`name`](Self::name), [`sends`](Self::sends) and
 /// [`requires`](Self::requires). The join to the part below hands back
-/// what it made of them: [`bind`](Self::bind) gets the fit's opcode map.
+/// what it made of them: [`bind`](Self::bind) gets the fit's binding.
 /// A join only decides, from what the parts declare; what prepares a part
 /// to run belongs to each run.
 ///
 /// What it sends must not change once it is joined: the fit and `bind`'s
-/// map are made once, from it. What it requires is asked again at each
+/// binding are made once, from it. What it requires is asked again at each
 /// run's start, of that run, and checked down the chain.
 ///
 /// # Run
@@ -49,13 +50,18 @@ pub trait Driver {
     /// What a run gives for each shot.
     type Output;
 
+    /// The instruction set it sends: the part below must accept the same,
+    /// checked at compile time, where a
+    /// [`Lowered`](crate::Lowered) adapter joins two sets.
+    type Sends: InstructionSet;
+
     /// As [`Executor::name`].
     fn name(&self) -> &str {
         std::any::type_name::<Self>()
     }
 
     /// The instructions it sends: the part below must accept them.
-    fn sends(&self) -> &InstructionSet;
+    fn sends(&self) -> &Self::Sends;
 
     /// What it requires of the parts below on a run that requires `run`:
     /// the run's shots, and seeded runs when its seed is fixed, which the
@@ -64,12 +70,13 @@ pub trait Driver {
     /// given what arrives, as [`Capabilities`] says.
     ///
     /// By default `run` itself: the driver passes the run below and states
-    /// nothing of its own. Stating what its shots use, such as their
-    /// qubits, is the writer's job: a driver that does not lets `on`
-    /// accept a chain whose executor cannot hold its shots, which then
-    /// fails as it runs. A driver that handles part of a run itself, such
-    /// as one that splits each run into runs of the shots the parts below
-    /// take, states what it passes below instead.
+    /// nothing of its own. Stating what its shots use, in its set's
+    /// capabilities ([`Capabilities::instructions`]), is the writer's job:
+    /// a driver that does not lets `on` accept a chain whose executor
+    /// cannot hold its shots, which then fails as it runs. A driver that
+    /// handles part of a run itself, such as one that splits each run into
+    /// runs of the shots the parts below take, states what it passes below
+    /// instead.
     ///
     /// It is deterministic, and monotone: given a `run` that requires no
     /// more than another, as [`Capabilities`] defines it, it requires no
@@ -78,24 +85,25 @@ pub trait Driver {
     /// top, so a part short then is short on every run; and a joined part
     /// calls `requires` again at `ready`, for what its run's start checked
     /// (`docs/capabilities.md`, The rule).
-    fn requires(&self, run: &Capabilities) -> Capabilities {
+    fn requires(&self, run: &Capabilities<Self::Sends>) -> Capabilities<Self::Sends> {
         run.clone()
     }
 
-    /// Receives, once, the translation of its opcodes into the part
-    /// below's. An opcode is an instruction's place in its set, and the
-    /// part below may number the same instructions differently, so every
-    /// instruction it sends must carry the receiver's opcode,
-    /// `below.map(opcode)`: an untranslated one names whatever instruction
-    /// the receiver has at that place. The join to the part below calls it
-    /// once, after the fit and before any run; a driver rewrites its
-    /// prebuilt instructions then, or keeps the map to translate each one
-    /// it sends.
-    fn bind(&mut self, below: OpcodeMap);
+    /// Receives, once, the fit's binding: what its set's
+    /// [`fits`](crate::BoundaryCompatible::fits) gave against the part
+    /// below's, such as the receiver's encoding of each instruction it
+    /// sends, which every instruction it sends must then carry. The join to
+    /// the part below calls it once, after the fit and before any run; a
+    /// driver rewrites its prebuilt instructions then, or keeps the binding
+    /// to encode each one it sends.
+    fn bind(&mut self, below: Binding<Self::Sends>);
 
     /// As [`Executor::ready`], asked last, for `run`, what the run
     /// requires, as [`requires`](Self::requires) gets it.
-    fn ready(&mut self, run: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
+    fn ready(
+        &mut self,
+        run: &Capabilities<Self::Sends>,
+    ) -> impl Future<Output = Result<(), NotReady>> {
         let _ = run;
         async { Ok(()) }
     }
@@ -109,7 +117,7 @@ pub trait Driver {
     /// Each batch it sends below holds only shots of `shots`: a rule the driver
     /// keeps, which the protocol does not check. A shot outside them is not
     /// counted against the most shots a run may have
-    /// ([`Resources::with_shots`](crate::Resources::with_shots)), and the
+    /// ([`Resources::shots`](crate::Resources::shots)), and the
     /// runner does not end it, so a part may carry its state into a later run,
     /// which then does not repeat with its seed.
     ///
@@ -136,7 +144,7 @@ pub trait Driver {
         &mut self,
         shots: &ShotSet,
         seed: Seed,
-        below: &mut impl Executor,
+        below: &mut impl Executor<Accepts = Self::Sends>,
     ) -> impl Future<Output = Result<Vec<Self::Output>, DriveError>>;
 
     // Protocol hooks: sealed and hidden. Their parameter types, `DeclaredParts`
@@ -159,7 +167,11 @@ pub trait Driver {
     /// [`on`](crate::DriverJoins::on) that makes a runner calls it, and
     /// the runner on each run.
     #[doc(hidden)]
-    fn declare<'a>(&'a self, run: &Capabilities, parts: &mut DeclaredParts<'a>) -> Capabilities {
+    fn declare<'a>(
+        &'a self,
+        run: &Capabilities<Self::Sends>,
+        parts: &mut DeclaredParts<'a>,
+    ) -> Capabilities<Self::Sends> {
         parts.push(Driver::name(self));
         let required = self.requires(run);
         parts.send(self.sends(), &required);
@@ -172,7 +184,7 @@ pub trait Driver {
     #[doc(hidden)]
     fn ready_at(
         &mut self,
-        run: &Capabilities,
+        run: &Capabilities<Self::Sends>,
         at: ChainPosition<'_>,
     ) -> impl Future<Output = Result<(), NotReady>> {
         let _ = at;

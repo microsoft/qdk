@@ -12,24 +12,25 @@ writers write only the instructions their part accepts and sends
 (`accepts`, `sends`, as [Instruction sets](instruction-sets.md) says). The
 three defaults:
 
-| Method                                        | By default                    | So the part                         |
-| --------------------------------------------- | ----------------------------- | ----------------------------------- |
-| `Driver::requires(run)`                       | `run`                         | passes the run below, needs nothing |
-| `Adapter::requires(above)`                    | `above`                       | passes below what arrives           |
-| `Adapter::provides()`, `Executor::provides()` | `Capabilities::UNCONSTRAINED` | limits nothing                      |
+| Method                                        | By default                                        | So the part                         |
+| --------------------------------------------- | ------------------------------------------------- | ----------------------------------- |
+| `Driver::requires(run)`                       | `run`                                             | passes the run below, needs nothing |
+| `Adapter::requires(above)`                    | `above`                                           | passes below what arrives           |
+| `Adapter::provides()`, `Executor::provides()` | the set's `unconstrained()`, which states nothing | limits nothing                      |
 
 What a part leaves unstated, composition cannot refuse a chain on: a
-driver that does not state its qubits composes over an executor too small
-for them, and fails as it runs. Its checked batches that use a block are
-refused, though, as a checked batch may use only the blocks stated in
-what arrives at its receiver ([The rule](#the-rule)).
+driver that does not state the batches it sends composes over an
+executor that takes smaller ones, and its batches are refused as it runs.
 
 ## Terms
 
 - **Capabilities** ([`Capabilities`](../src/capabilities.rs)): amounts
   ([`Resources`](../src/capabilities/resources.rs)) and yes-or-no features
-  ([`Features`](../src/capabilities/features.rs)), each built from its
-  `unconstrained()`, which states nothing. `Capabilities::new` takes both.
+  ([`Features`](../src/capabilities/features.rs)), which every chain
+  states, each built from its `unconstrained()`, which states nothing; and
+  the instruction set's own capabilities, such as the qubits a shot holds,
+  as [Instruction sets](instruction-sets.md) says. `Capabilities::new`
+  takes all three.
 - **Requirement**: what a part requires of the part below it, given what
   arrives at it (`Adapter::requires(above)`); the driver's, given the run
   (`Driver::requires(run)`): the run's shots, and seeded runs when its seed
@@ -85,43 +86,45 @@ either, and the checks rely on both:
   that half ready for it, which must be, where the start sees that half,
   what the start checked.
 
-For instance, the example's driver requires the run on 2 qubits, and its
-executor provides 64 qubits, at most 1000 shots a run, and no readout
-parity (from
+For instance, the example's driver requires the run on 2 qubits, its
+set's own capability, and its executor provides 64 qubits and at most
+1000 shots a run (from
 [`examples/compose_and_run.rs`](../examples/compose_and_run.rs)); the
 noise between them states nothing:
 
 ```rust
-fn requires(&self, run: &Capabilities) -> Capabilities {
-    run.clone()
-        .map_resources(|resources| resources.with_qubits(2))
+fn requires(&self, run: &Capabilities<CoinGates>) -> Capabilities<CoinGates> {
+    Capabilities::new(*run.resources(), *run.features(), Qubits(2))
 }
 ```
 
 ```rust
-let resources = Resources::unconstrained().with_qubits(64).with_shots(1000);
-let features = Features::unconstrained().with_readout_parity(false);
+provides: Capabilities::new(
+    Resources::unconstrained().with_shots(1000),
+    Features::unconstrained(),
+    Qubits(64),
+),
 ```
 
-| Kind      | Each field                                                                     | Fits when                                                                     | A mismatch                                                                |
-| --------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| Resources | blocks of each type (qubits among them), shots per run, instructions per batch | the amount that arrives is at most the amount provided, or either is unstated | [`ResourceMismatch`](../src/capabilities/resources.rs), with both amounts |
-| Features  | readout parity, replay, seeded runs                                            | the feature is not required, or the provider does not say it lacks it         | [`FeatureMismatch`](../src/capabilities/features.rs)                      |
+| Kind          | Each field                            | Fits when                                                                     | A mismatch                                                                        |
+| ------------- | ------------------------------------- | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Resources     | shots per run, instructions per batch | the amount that arrives is at most the amount provided, or either is unstated | [`ResourceMismatch`](../src/capabilities/resources.rs), with both amounts         |
+| Features      | replay, seeded runs                   | the feature is not required, or the provider does not say it lacks it         | [`FeatureMismatch`](../src/capabilities/features.rs)                              |
+| The set's own | as the set defines them               | as the set's `fits` says                                                      | the set's own mismatch, boxed in [`CapabilitiesMismatch`](../src/capabilities.rs) |
 
 A replayed shot runs again with its run's seed, so stating replay `true`
 states seeded runs `true` too, and stating seeded runs `false` states
 replay `false` (`Features::with_replay`, `Features::with_seeded_runs`).
 
-An executor that cannot host a type of block states 0 of it: an amount a
-provider does not state is not checked. A checked batch, though, may use
-only the blocks of the types stated in what arrives at its receiver: a
-type it does not state, the batch uses none of.
+The set's own capabilities that arrive at a part are also what its
+checked batches are checked against on each run, as the set's `check`
+says ([Instruction sets](instruction-sets.md#a-checked-batchs-instructions)).
 
 ## The cases
 
-An interleaver that runs each shot on 3 qubits at least, under a program
-on 2, requires 3 below: over bits of 2 the interleaver falls short, and
-over bits of 4 the chain composes (from
+An interleaver that sends batches of 3 instructions at least, under a
+program of batches of 2, requires 3 below: over bits taking 2 the
+interleaver falls short, and over bits taking 4 the chain composes (from
 [`src/tests/composition/driver_joins.rs`](../src/tests/composition/driver_joins.rs)):
 
 ```rust
@@ -131,24 +134,24 @@ let e = bits_over(bits, &log);
 ```
 
 ```rust
-(
-    2,
+if short {
     vec![fault(
         part::<Stating>(1),
         part::<Bits>(2),
-        short_qubits(3, 2),
-    )],
-),
-(4, vec![]),
+        short_batches(3, 2),
+    )]
+} else {
+    vec![]
+},
 ```
 
 Other cases, each in the same tests:
 
 | Chain                                                                                | Verdict                                                  |
 | ------------------------------------------------------------------------------------ | -------------------------------------------------------- |
-| a program on 5 qubits, through a logger, over bits of 4                              | refused, naming the program and the bits                 |
-| a program on 5 qubits, through the interleaver, over bits of 4                       | refused, naming the program and the bits                 |
-| a program on 5 qubits, through a decoder taking 4, over bits of 10                   | refused, naming the program and the decoder              |
+| a program of batches of 5, through a logger, over bits taking 4                      | refused, naming the program and the bits                 |
+| a program of batches of 5, through the interleaver, over bits taking 4               | refused, naming the program and the bits                 |
+| a program of batches of 5, through a decoder taking 4, over bits taking 10           | refused, naming the program and the decoder              |
 | a program of runs of 12 shots, through a queue taking 10, over bits taking 3         | refused twice: the program at the queue, and at the bits |
 | a debugger requiring replay, through a replayer, over bits that do not replay        | composes                                                 |
 | a decomposer accepting the program's set and sending another, over bits accepting it | composes: a part is checked below for what it sends      |
@@ -185,8 +188,9 @@ its role's public methods has the joined part's top limits checked by the
 joined part refuses the run, naming the user's part, with the mismatch of
 the first boundary inside it found not to fit, the one between its halves
 checked first. For instance an
-interleaver joined with a decoder taking 4 qubits, so wrapped, under a
-program on 5 qubits, composes over bits of 10, and refuses every run
+interleaver joined with a decoder taking batches of 4, so wrapped, under
+a program of batches of 5, composes over bits taking 10, and refuses every
+run
 (from
 [`src/tests/composition/runner.rs`](../src/tests/composition/runner.rs)):
 
@@ -205,4 +209,4 @@ let held = Renamed::new(
 | a joined part's halves, and what arrives at its lower part, inside a part of the user's the `on` cannot see into | each run, by the joined part's `ready` | [`RunRefusal::PartNotReady`](../src/composition/runner/run_error.rs), with the mismatch                                                  |
 | what a run's shots, and seeded runs if its seed is fixed, make arrive at each part, against its provision        | each run, before any part is asked     | [`RunRefusal::NotProvided`](../src/composition/runner/run_error.rs), with every fault                                                    |
 | a batch's count of instructions against the instructions per batch its receiver provides                         | each batch, at every boundary          | [`BatchFault::TooManyInstructions`](../src/capabilities/boundary/batch_limits.rs)                                                        |
-| a checked batch's blocks and readout parities against what arrives at its receiver                               | each checked batch, at every boundary  | [`BatchFault::Instruction`](../src/capabilities/boundary/batch_limits.rs)                                                                |
+| a checked batch's instructions against the receiver's set, and the set's own capabilities that arrive at it      | each checked batch, at every boundary  | [`BatchFault::Instruction`](../src/capabilities/boundary/batch_limits.rs), with the set's fault                                          |

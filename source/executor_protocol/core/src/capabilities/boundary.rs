@@ -9,31 +9,26 @@ mod batch_limits;
 pub use batch_limits::BatchFault;
 pub(crate) use batch_limits::BatchLimits;
 
-use crate::{
-    BoundaryCompatible, Capabilities, InstructionMismatch, InstructionSet, OpcodeMap, PartId,
-};
+use crate::{Binding, Capabilities, InstructionSet, PartId};
 
-/// Where two parts meet, as the join found it: the opcode map of the
-/// instructions sent across, which the part above binds; the set the part
-/// below accepts and what it provides, which each batch sent across is
-/// checked against; and, on each run, what arrives at the part below,
-/// which it gets ready for.
+/// Where two parts meet, as the join found it: the set the part below
+/// accepts and what it provides, which each batch sent across is checked
+/// against; and, on each run, what arrives at the part below, which it
+/// gets ready for.
 ///
 /// The protocol keeps one for each boundary of a chain, through which
 /// every call across it goes.
-#[derive(Clone, Debug)]
-pub(crate) struct Boundary {
-    opcode_map: OpcodeMap,
+pub(crate) struct Boundary<S: InstructionSet> {
     /// The instructions the part below accepts, as the join read them.
-    pub(crate) accepted: InstructionSet,
+    pub(crate) accepted: S,
     /// What arrives at the part below on this run: what it gets ready for.
-    pub(crate) required: Capabilities,
+    pub(crate) required: Capabilities<S>,
     /// What the part below provides, as the join read it: what the part
     /// above is answered when it asks the part below.
-    pub(crate) provided: Capabilities,
+    pub(crate) provided: Capabilities<S>,
     /// The limits of each batch sent across, from `required`, `provided`
-    /// and `accepted`: compiled once per run, compared per batch.
-    pub(crate) batch_limits: BatchLimits,
+    /// and `accepted`: prepared once per run, compared per batch.
+    pub(crate) batch_limits: BatchLimits<S>,
     /// The top part below the boundary, the one that receives its calls,
     /// at its position in the chain, when the run's `ready` gave it one:
     /// what a panic below the boundary names. `None` for a joined part
@@ -43,34 +38,30 @@ pub(crate) struct Boundary {
     pub(crate) part: Option<PartId>,
 }
 
-impl Boundary {
+impl<S: InstructionSet> Boundary<S> {
     /// Where a part that sends `sends` meets one that accepts `accepted`
     /// and provides `provided`, before any run, if the instructions fit:
-    /// the one check between neighbours.
+    /// the one check between neighbours. Gives the boundary, and the
+    /// fit's binding, which the part above is given.
     ///
     /// # Errors
     ///
-    /// Every instruction of `sends` that does not fit `accepted`.
+    /// The set's mismatch, when `sends` does not fit `accepted`.
     pub(crate) fn fit(
-        sends: &InstructionSet,
-        accepted: &InstructionSet,
-        provided: &Capabilities,
-    ) -> Result<Self, Vec<InstructionMismatch>> {
-        let opcode_map = sends.fits(accepted)?;
-        let required = Capabilities::UNCONSTRAINED;
-        Ok(Self {
-            opcode_map,
+        sends: &S,
+        accepted: &S,
+        provided: &Capabilities<S>,
+    ) -> Result<(Self, Binding<S>), S::Mismatch> {
+        let binding = sends.fits(accepted)?;
+        let required = S::unconstrained().clone();
+        let boundary = Self {
             batch_limits: BatchLimits::new(&required, provided, accepted),
             accepted: accepted.clone(),
             required,
             provided: provided.clone(),
             part: None,
-        })
-    }
-
-    /// The receiver's opcode for each instruction sent across.
-    pub(crate) fn opcode_map(&self) -> &OpcodeMap {
-        &self.opcode_map
+        };
+        Ok((boundary, binding))
     }
 
     /// This boundary on a run, as it starts: with `required`, what arrives
@@ -78,7 +69,7 @@ impl Boundary {
     // Once per run: kept out of line, so that it does not grow the
     // per-call code of the run it would be inlined into.
     #[inline(never)]
-    pub(crate) fn require(&mut self, required: Capabilities) {
+    pub(crate) fn require(&mut self, required: Capabilities<S>) {
         self.batch_limits = BatchLimits::new(&required, &self.provided, &self.accepted);
         self.required = required;
     }

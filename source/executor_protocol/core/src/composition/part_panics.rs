@@ -26,9 +26,7 @@
 //! directly, with no generator's state of its own. The gain is the
 //! shape's, not inlining's: it holds with their polls out of line. Measured
 //! on a batch of one instruction, it more than halves the cost of a call
-//! through three boundaries (about 125 ns to 56). The bench's section D
-//! (`examples/bench/main.rs`) times the boundary's cost per call against a
-//! direct one.
+//! through three boundaries (about 125 ns to 56).
 //!
 //! A future written by hand that holds another one must poll it where it
 //! lies: a part's future, made by an `async fn` for instance, may point
