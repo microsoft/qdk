@@ -125,15 +125,15 @@ impl BlockInstructionSet {
             arguments: ordered.into_iter().map_while(|argument| argument).collect(),
             select: None,
         };
-        self.check(&instruction, None)?;
+        self.check_against(&instruction, None)?;
         Ok(instruction)
     }
 
     /// Checks `instruction` against this set, and, given what its shots
-    /// require, `required`, its blocks and readout parities against it:
-    /// its readout slots (its outcomes, then its flags), or the first
-    /// fault.
-    pub(crate) fn check(
+    /// require, `required`, its blocks and readout parities against it
+    /// (`None` when built, before any shot requires anything): its readout
+    /// slots (its outcomes, then its flags), or the first fault.
+    pub(crate) fn check_against(
         &self,
         instruction: &BlockInstruction,
         required: Option<&BlockRequirement>,

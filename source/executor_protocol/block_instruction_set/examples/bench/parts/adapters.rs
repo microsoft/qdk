@@ -6,7 +6,7 @@
 
 use block_instruction_set::{
     Arguments, BlockCapabilities, BlockInstruction, BlockInstructionSet, BlockType, Opcode,
-    OpcodeMap, ReadoutValue, ShotConditions,
+    OpcodeMap, ReadoutFailure, ReadoutValue, ShotConditions,
 };
 use executor_protocol_core::prelude::*;
 use executor_protocol_core::{
@@ -177,22 +177,33 @@ fn lower(
     }
 }
 
-/// The majority of three readout values.
+/// The value at least two of three readouts gave. A lost readout
+/// (`Missing`) is no vote, so where no value has two, the logical readout
+/// is lost too, with the first lost one's reason, rather than a bit made
+/// up for it.
 pub(crate) fn majority(three: &[ReadoutValue]) -> ReadoutValue {
-    let ones = three.iter().filter(|&&v| v == ReadoutValue::One).count();
-    if 2 * ones > three.len() {
-        ReadoutValue::One
-    } else {
-        ReadoutValue::Zero
+    let votes = |value| three.iter().filter(|&&v| v == value).count();
+    for value in [ReadoutValue::One, ReadoutValue::Zero] {
+        if 2 * votes(value) > three.len() {
+            return value;
+        }
     }
+    three
+        .iter()
+        .copied()
+        .find(|v| matches!(v, ReadoutValue::Missing(_)))
+        .unwrap_or(ReadoutValue::Missing(ReadoutFailure::Other))
 }
 
 #[cfg(test)]
 mod tests {
     use block_instruction_set::{
-        BlockInstruction, BlockInstructionSet, ReadoutValue, ShotConditions, instruction_set,
+        BlockCapabilities, BlockInstruction, BlockInstructionSet, ReadoutFailure, ReadoutValue,
+        instruction_set,
     };
-    use executor_protocol_core::{BoundaryCompatible as _, Lowering};
+    use executor_protocol_core::{
+        BoundaryCompatible as _, Capabilities, Features, Lowering, Resources,
+    };
 
     use super::Repetition3;
     use crate::parts::LogicalGates;
@@ -272,10 +283,12 @@ mod tests {
     }
 
     /// A logical measurement reads as the value at least two of its three
-    /// physical measurements gave.
+    /// physical measurements gave; where lost readouts leave no value two,
+    /// it is lost too, never a bit made up.
     #[test]
     fn a_logical_readout_is_the_majority_of_its_three_physical_ones() {
-        use ReadoutValue::{One, Zero};
+        use ReadoutValue::{Missing, One, Zero};
+        let lost = Missing(ReadoutFailure::Loss);
         let repetition = Repetition3::new(1);
         let measure = LogicalGates::set()
             .instruction("measure_z", [0], &[])
@@ -286,6 +299,11 @@ mod tests {
             ([Zero, One, One], One),
             ([One, Zero, One], One),
             ([One, One, One], One),
+            ([lost, One, One], One),
+            ([Zero, lost, Zero], Zero),
+            ([lost, Zero, One], lost),
+            ([lost, lost, One], lost),
+            ([lost, Missing(ReadoutFailure::Other), Zero], lost),
         ] {
             let mut into = [Zero];
             if logical == Zero {
@@ -296,16 +314,41 @@ mod tests {
         }
     }
 
-    /// A shot rejected below, or with a value unresolved, is so above.
+    /// Built for 2 logical qubits, the code takes at most 2, and the shots
+    /// above it reaching 2 require 6 physical qubits below; shots stating
+    /// no qubits require none.
     #[test]
-    fn a_shot_s_conditions_pass_up_unchanged() {
-        let repetition = Repetition3::new(1);
-        for conditions in [
-            ShotConditions::NONE,
-            ShotConditions::REJECTED,
-            ShotConditions::REJECTED | ShotConditions::UNRESOLVED,
+    fn each_logical_qubit_requires_three_physical_ones() {
+        let repetition = Repetition3::new(2);
+        let shots = |blocks| {
+            Capabilities::new(
+                Resources::unconstrained(),
+                Features::unconstrained(),
+                blocks,
+            )
+        };
+        assert_eq!(
+            repetition.provides().set_capabilities(),
+            &BlockCapabilities::NONE.with_qubits(2),
+            "what the code takes"
+        );
+        for (scene, above, below) in [
+            (
+                "2 logical qubits",
+                BlockCapabilities::NONE.with_qubits(2),
+                BlockCapabilities::NONE.with_qubits(6),
+            ),
+            (
+                "no qubits stated",
+                BlockCapabilities::NONE,
+                BlockCapabilities::NONE,
+            ),
         ] {
-            assert_eq!(repetition.read_conditions(conditions), conditions);
+            assert_eq!(
+                repetition.requires(&shots(above)).set_capabilities(),
+                &below,
+                "{scene}"
+            );
         }
     }
 }

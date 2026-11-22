@@ -5,7 +5,8 @@
 //! below provides: block counts by type and readout parities, every
 //! mismatch at once.
 
-use crate::{BlockCapabilities, BlockCountMismatch, BlockMismatch, BlockType, BoundaryCompatible};
+use crate::{BlockCapabilities, BlockCapabilitiesMismatch, BlockCountMismatch, BlockType};
+use executor_protocol_core::BoundaryCompatible;
 
 fn carbon() -> BlockType {
     BlockType::new("carbon")
@@ -105,7 +106,7 @@ fn a_required_count_fits_unless_a_stated_provided_count_is_smaller() {
 #[test]
 fn readout_parities_required_fit_unless_the_provider_takes_none() {
     let parity = |yes| BlockCapabilities::NONE.with_readout_parity(yes);
-    let refused = Err(BlockMismatch {
+    let refused = Err(BlockCapabilitiesMismatch {
         blocks: vec![],
         readout_parity: true,
     });
@@ -182,7 +183,7 @@ fn every_mismatch_is_listed_at_once_in_order() {
     let (required, provided) = every_kind_short();
     assert_eq!(
         required.fits(&provided),
-        Err(BlockMismatch {
+        Err(BlockCapabilitiesMismatch {
             blocks: vec![short(carbon(), 3, 2), short(BlockType::qubit(), 9, 8)],
             readout_parity: true,
         })

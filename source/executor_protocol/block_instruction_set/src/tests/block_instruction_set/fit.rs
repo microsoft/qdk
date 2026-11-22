@@ -4,11 +4,11 @@
 //! The fit of the instructions one part sends to those the part below
 //! accepts.
 
-use crate::BoundaryCompatible;
 use crate::{
     BlockInstructionSet, BlockOperand, BlockType, InstructionDef, InstructionMismatch, Meaning,
     ParameterKind, Pauli,
 };
+use executor_protocol_core::BoundaryCompatible;
 
 /// The set `name` over qubits of `qubits` qubits each.
 fn set_of(name: &str, qubits: u32, instructions: Vec<InstructionDef>) -> BlockInstructionSet {
@@ -422,7 +422,9 @@ fn shape_mismatch_is_reported_before_a_one_sided_meaning() {
 /// accepted ones after it, so a reader tells which side has which; and
 /// for one mnemonic, no two kinds say the same. A formatter that drops
 /// the mnemonic, a count or what differs, says one kind's difference for
-/// another, swaps the sides, or says the same for two kinds, fails.
+/// another, swaps the sides, or says the same for two kinds, fails. A fit
+/// refused for several instructions names each of them, so the chain's
+/// builder fixes all at once; a message of the first alone fails.
 #[test]
 fn a_mismatch_names_its_instruction_and_what_differs() {
     let cz = || "cz".to_owned();
@@ -482,6 +484,17 @@ fn a_mismatch_names_its_instruction_and_what_differs() {
         assert!(
             !messages[i + 1..].contains(message),
             "two kinds say {message}"
+        );
+    }
+    let sent = set_of("Gates", 1, vec![gate("cz"), gate("swap")]);
+    let refused = sent
+        .fits(&set_of("Gates", 1, vec![]))
+        .expect_err("a receiver of no instruction")
+        .to_string();
+    for mnemonic in ["cz", "swap"] {
+        assert!(
+            refused.contains(mnemonic),
+            "a fit missing `cz` and `swap` names {mnemonic}: {refused}"
         );
     }
 }

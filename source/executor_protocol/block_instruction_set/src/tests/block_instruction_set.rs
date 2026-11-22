@@ -3,9 +3,10 @@
 
 //! The checks of a set's declaration, its opcodes by name, and the sets
 //! the macro writes, and the check of an instruction written by hand
-//! against the shots' requirement. The faults of a meaning, which a set's declaration
-//! reports ([`DeclarationFault::Meaning`]), are in `meaning.rs`, Pauli
-//! operators' in `pauli.rs`.
+//! against the shots' requirement, with the readout slots it agrees with.
+//! The faults of a meaning, which a set's declaration reports
+//! ([`DeclarationFault::Meaning`]), are in `meaning.rs`, Pauli operators'
+//! in `pauli.rs`.
 
 mod block_capabilities;
 mod block_instruction;
@@ -14,12 +15,12 @@ mod meaning;
 mod pauli;
 mod shot_conditions;
 
-use crate::BoundaryCompatible;
 use crate::{
     Argument, Bit, BlockCapabilities, BlockInstruction, BlockInstructionSet, BlockOperand,
     BlockType, DeclarationFault, InstructionDef, InstructionFault, Opcode, ParameterKind,
     instruction_set,
 };
+use executor_protocol_core::{BoundaryCompatible, InstructionSet};
 use smallvec::smallvec;
 
 // Copied in `instruction_set!`'s doc: keep the two the same.
@@ -564,12 +565,8 @@ fn check_rows(
 ) {
     let set = device();
     for (row, instruction, shots, expected) in rows {
-        let requirement = executor_protocol_core::InstructionSet::requirement(&set, &shots);
-        assert_eq!(
-            executor_protocol_core::InstructionSet::check(&set, &instruction, &requirement),
-            expected,
-            "{row}"
-        );
+        let requirement = set.requirement(&shots);
+        assert_eq!(set.check(&instruction, &requirement), expected, "{row}");
     }
 }
 
@@ -753,4 +750,43 @@ fn a_block_beyond_the_shots_blocks_of_its_type_is_refused() {
             beyond("mpp", 5, 4),
         ),
     ]);
+}
+
+/// A sender sums each instruction's readout slots into its batch's, and
+/// its receiver checks that sum against what `check` answers for each, so
+/// the two agree on every instruction of the set, outcomes and flags alike
+/// (`m`, of one outcome and two flags, writes 3); an opcode beyond the
+/// set, which `check` refuses, writes none.
+#[test]
+fn an_instruction_s_readout_slots_are_those_its_check_answers() {
+    let set = device();
+    let on = |mnemonic, blocks| literal(&set, mnemonic, blocks);
+    let mut rz = on("rz", &[0]);
+    rz.arguments = smallvec![Argument::Number(0.1)];
+    let mut cond_x = on("cond_x", &[0]);
+    cond_x.arguments = smallvec![Argument::Bit(Bit::Value(true))];
+    let mut beyond = on("m", &[0]);
+    beyond.opcode = Opcode::__from_macro(99);
+    let requirement = set.requirement(&shots_of(2, 1));
+    for (row, instruction, checked) in [
+        ("`h`", on("h", &[0]), Ok(0)),
+        ("`rz`", rz, Ok(0)),
+        ("`mpp` on two qubits", on("mpp", &[0, 1]), Ok(1)),
+        ("`m`, of one outcome and two flags", on("m", &[0]), Ok(3)),
+        ("`encode`", on("encode", &[0]), Ok(0)),
+        ("`prepare`", on("prepare", &[0]), Ok(0)),
+        ("`cond_x`", cond_x, Ok(0)),
+        (
+            "an opcode beyond the set",
+            beyond,
+            Err(InstructionFault::UnknownOpcode(Opcode::__from_macro(99))),
+        ),
+    ] {
+        assert_eq!(set.check(&instruction, &requirement), checked, "{row}");
+        assert_eq!(
+            set.readout_slots(&instruction),
+            checked.unwrap_or(0),
+            "{row}'s readout slots"
+        );
+    }
 }

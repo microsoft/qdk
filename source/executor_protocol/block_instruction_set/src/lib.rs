@@ -10,5 +10,3 @@ pub use block_instruction_set::*;
 
 #[cfg(test)]
 mod tests;
-
-pub(crate) use executor_protocol_core::BoundaryCompatible;

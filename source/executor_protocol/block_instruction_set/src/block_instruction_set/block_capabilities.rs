@@ -3,12 +3,14 @@
 
 //! The block set's own capabilities ([`BlockCapabilities`]): the blocks of
 //! each type a shot holds, and readout parities; and why they do not fit
-//! ([`BlockMismatch`]).
+//! ([`BlockCapabilitiesMismatch`]).
 
 use std::collections::BTreeMap;
 use std::fmt;
 
-use crate::{BlockType, BoundaryCompatible};
+use executor_protocol_core::BoundaryCompatible;
+
+use crate::BlockType;
 
 /// The most blocks of each type a shot holds at once, and whether shots
 /// use readout parities, resolved per shot as it runs
@@ -23,7 +25,7 @@ use crate::{BlockType, BoundaryCompatible};
 ///
 /// Built from [`NONE`](Self::NONE), which states nothing, with the
 /// builders below.
-#[derive(Clone, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BlockCapabilities {
     /// The blocks stated, by type: in the types' order, the order
     /// mismatches are listed.
@@ -81,7 +83,7 @@ impl BlockCapabilities {
 /// Each count and feature required beyond what is provided, every one at
 /// once: block counts in their types' order, then readout parities.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BlockMismatch {
+pub struct BlockCapabilitiesMismatch {
     /// The block counts required above those provided.
     pub blocks: Vec<BlockCountMismatch>,
     /// Whether readout parities are required and not provided.
@@ -101,7 +103,7 @@ pub struct BlockCountMismatch {
 
 /// Each mismatch joined by `; `, as `` blocks of type `qubit`: 9 required,
 /// 8 provided; readout parity required, not provided ``.
-impl fmt::Display for BlockMismatch {
+impl fmt::Display for BlockCapabilitiesMismatch {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut separator = "";
         for BlockCountMismatch {
@@ -123,16 +125,16 @@ impl fmt::Display for BlockMismatch {
     }
 }
 
-impl std::error::Error for BlockMismatch {}
+impl std::error::Error for BlockCapabilitiesMismatch {}
 
 /// Required capabilities fit provided ones when no count stated on both
 /// sides is required above the one provided, and readout parities are not
 /// required where provided says `false`.
 impl BoundaryCompatible for BlockCapabilities {
     type Fit = ();
-    type Mismatch = BlockMismatch;
+    type Mismatch = BlockCapabilitiesMismatch;
 
-    fn fits(&self, provided: &Self) -> Result<(), BlockMismatch> {
+    fn fits(&self, provided: &Self) -> Result<(), BlockCapabilitiesMismatch> {
         let blocks: Vec<BlockCountMismatch> = self
             .blocks
             .iter()
@@ -150,7 +152,7 @@ impl BoundaryCompatible for BlockCapabilities {
         if blocks.is_empty() && !readout_parity {
             Ok(())
         } else {
-            Err(BlockMismatch {
+            Err(BlockCapabilitiesMismatch {
                 blocks,
                 readout_parity,
             })

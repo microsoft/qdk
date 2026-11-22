@@ -2,11 +2,10 @@
 // Licensed under the MIT License.
 
 //! Whether the instructions one part sends fit those the part below
-//! accepts ([`BlockInstructionSet`]'s
-//! [`fits`](crate::BoundaryCompatible::fits)), and, if they do, the
-//! receiver's opcode for each ([`OpcodeMap`]), with which the sender
-//! translates its instructions before sending them; otherwise every
-//! mismatch ([`InstructionMismatch`]).
+//! accepts ([`BlockInstructionSet`]'s [`fits`](BoundaryCompatible::fits)),
+//! and, if they do, the receiver's opcode for each ([`OpcodeMap`]), with
+//! which the sender translates its instructions before sending them;
+//! otherwise every mismatch ([`InstructionMismatch`]).
 //!
 //! Each sent instruction must be accepted with the same blocks (`in` and
 //! `out`, their types and sizes), parameters (their kinds, in order) and
@@ -21,7 +20,7 @@
 //! refused, though another instruction does the same.
 
 use super::{BlockInstructionSet, InstructionDef, Opcode, OpcodeMap};
-use crate::BoundaryCompatible;
+use executor_protocol_core::BoundaryCompatible;
 use std::fmt;
 
 /// Every mismatch of a set's fit, in the sent set's order: why it does not

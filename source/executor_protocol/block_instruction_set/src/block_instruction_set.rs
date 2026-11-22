@@ -54,7 +54,7 @@ mod pauli;
 mod readout_value;
 mod shot_conditions;
 
-pub use block_capabilities::{BlockCapabilities, BlockCountMismatch, BlockMismatch};
+pub use block_capabilities::{BlockCapabilities, BlockCapabilitiesMismatch, BlockCountMismatch};
 pub use block_instruction::{
     Argument, Arguments, Bit, BlockInstruction, Blocks, InstructionFault, ReadoutParity,
     SelectPattern,
@@ -204,7 +204,7 @@ impl BlockInstructionSet {
     /// a batch, to state its slots ([`Batch::new`](executor_protocol_core::Batch::new)).
     #[inline]
     #[must_use]
-    pub fn readout_slots(&self, opcode: Opcode) -> Option<u32> {
+    pub fn readout_slots_at(&self, opcode: Opcode) -> Option<u32> {
         self.layouts.get(opcode.index()).map(Layout::readout_slots)
     }
 
@@ -215,7 +215,7 @@ impl BlockInstructionSet {
     #[must_use]
     pub fn readout_slots_of(&self, instructions: &[BlockInstruction]) -> Option<u32> {
         instructions.iter().try_fold(0u32, |slots, instruction| {
-            slots.checked_add(self.readout_slots(instruction.opcode)?)
+            slots.checked_add(self.readout_slots_at(instruction.opcode)?)
         })
     }
 
@@ -262,9 +262,14 @@ impl executor_protocol_core::InstructionSet for BlockInstructionSet {
         &UNCONSTRAINED
     }
 
+    /// The readout slots of the instruction at its opcode
+    /// ([`readout_slots_at`](BlockInstructionSet::readout_slots_at)), and 0
+    /// for an opcode beyond the set, which
+    /// [`check`](executor_protocol_core::InstructionSet::check) refuses
+    /// ([`InstructionFault::UnknownOpcode`]).
     #[inline]
     fn readout_slots(&self, instruction: &BlockInstruction) -> ReadoutSlots {
-        BlockInstructionSet::readout_slots(self, instruction.opcode).unwrap_or(0)
+        self.readout_slots_at(instruction.opcode).unwrap_or(0)
     }
 
     fn requirement(&self, required: &BlockCapabilities) -> BlockRequirement {
@@ -283,7 +288,7 @@ impl executor_protocol_core::InstructionSet for BlockInstructionSet {
         instruction: &BlockInstruction,
         required: &BlockRequirement,
     ) -> Result<ReadoutSlots, InstructionFault> {
-        BlockInstructionSet::check(self, instruction, Some(required))
+        self.check_against(instruction, Some(required))
     }
 }
 
