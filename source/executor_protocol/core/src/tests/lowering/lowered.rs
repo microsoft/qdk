@@ -3,17 +3,26 @@
 
 //! [`Lowered`]: a lowering run as an adapter, on a driver of `WithToffoli`
 //! over an executor of `WithoutToffoli`: what it sends below, the readouts
-//! and conditions it reads back, a checked batch it lowers, and what it
-//! requires below.
+//! and conditions it reads back, a checked batch it lowers, what it
+//! requires below, and the memory it reuses.
 
 use std::any::type_name;
+use std::cell::Cell;
+use std::future::poll_fn;
+use std::pin::pin;
+use std::rc::Rc;
+use std::task::Poll;
 
 use crate::prelude::*;
+use crate::tests::allocations;
 use crate::tests::example_sets::{
     CliffordT, ToffoliGate, TooFewQubits, WithToffoli, WithoutToffoli,
 };
 use crate::tests::fake_parts::{CliffordTRegister, Log, ReadThrice, ToffoliFree, ToffoliProgram};
-use crate::{Lowered, PartId, ReadoutValue, ShotConditions, ShotSet};
+use crate::{
+    Batch, BatchReadouts, DriveError, ExecuteError, Lowered, PartId, ReadoutValue, Readouts, Seed,
+    ShotConditions, ShotSet,
+};
 
 use ReadoutValue::{One, Zero};
 use ToffoliGate::{Ccz, H, Mz};
@@ -154,4 +163,105 @@ fn what_a_lowering_requires_below_is_fit_at_on() {
         panic!("5 qubits of 5 compose");
     };
     runner.run(&ShotSet::ids([0]), 7).expect("5 qubits of 5");
+}
+
+/// A driver sending a round at a time, a batch of `gates` per shot, in one
+/// `execute`, into the readouts it keeps; it notes the allocations of its
+/// second round.
+struct RoundsOfToffoli {
+    gates: Vec<ToffoliGate>,
+    allocated: Rc<Cell<Option<usize>>>,
+}
+
+impl Driver for RoundsOfToffoli {
+    type Sends = WithToffoli;
+    type Output = ();
+
+    fn sends(&self) -> &WithToffoli {
+        &WithToffoli
+    }
+
+    fn bind(&mut self, (): ()) {}
+
+    async fn drive(
+        &mut self,
+        shots: &ShotSet,
+        seed: Seed,
+        below: &mut impl Executor<Accepts = WithToffoli>,
+    ) -> Result<Vec<()>, DriveError> {
+        let readout_slots = self
+            .gates
+            .iter()
+            .map(|gate| WithToffoli.readout_slots(gate))
+            .sum();
+        let each = (0..shots.len())
+            .map(|at| shots.select(&[at]).expect("a shot of the run"))
+            .collect::<Vec<_>>();
+        let batches = each
+            .iter()
+            .map(|shot| Batch::new(shot, &self.gates, readout_slots))
+            .collect::<Vec<_>>();
+        let mut kept = Readouts::new();
+        below
+            .execute(&batches, seed, kept.readouts_for(&batches))
+            .await?;
+        let mut execute = pin!(below.execute(&batches, seed, kept.readouts_for(&batches)));
+        let (count, answered) = poll_fn(|context| {
+            let mut answered = Poll::Pending;
+            let count = allocations(|| answered = execute.as_mut().poll(context));
+            Poll::Ready((count, answered))
+        })
+        .await;
+        let Poll::Ready(ran) = answered else {
+            panic!("the `execute` answers at its first poll");
+        };
+        ran?;
+        self.allocated.set(Some(count));
+        Ok(vec![(); shots.len()])
+    }
+}
+
+/// An executor of [`WithoutToffoli`] writing `Zero` in every slot of
+/// every row, and allocating nothing.
+struct Zeros;
+
+impl Executor for Zeros {
+    type Accepts = WithoutToffoli;
+
+    fn accepts(&self) -> &WithoutToffoli {
+        &WithoutToffoli
+    }
+
+    async fn execute(
+        &mut self,
+        _batches: &[Batch<'_, WithoutToffoli>],
+        _seed: Seed,
+        readouts: &mut [BatchReadouts],
+    ) -> Result<(), ExecuteError> {
+        for batch_readouts in readouts {
+            for position in 0..batch_readouts.shots() {
+                batch_readouts.row_mut(position).fill(Zero);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// A driver sending rounds of five batches, each a `ccz` and an `mz`,
+/// through a lowering rewriting `ccz` as thirteen gates and reading `mz`
+/// three times: the second round, of the size of the first, allocates
+/// only the list of the batches the lowering sends below.
+#[test]
+fn a_lowering_reuses_its_memory_from_one_round_to_the_next() {
+    let allocated = Rc::new(Cell::new(None));
+    let Ok(mut runner) = (RoundsOfToffoli {
+        gates: vec![Ccz(0, 1, 2), Mz(2)],
+        allocated: Rc::clone(&allocated),
+    })
+    .through(Lowered::new(ReadThrice))
+    .on(Zeros) else {
+        panic!("the chain composes");
+    };
+    runner.run(&ShotSet::ids(0..5), 7).expect("a run");
+    assert_eq!(allocated.get(), Some(1));
 }
