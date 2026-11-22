@@ -624,7 +624,11 @@ def _spy_sample(received):
         }
         return [], report
 
-    return "_tensor_network_sample", sample, lambda: tensornetwork_qir(BELL, [Sample(1)])
+    return (
+        "_tensor_network_sample",
+        sample,
+        lambda: tensornetwork_qir(BELL, [Sample(1)]),
+    )
 
 
 SPIED_ENTRIES = [
