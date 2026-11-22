@@ -16,7 +16,8 @@ use crate::{
 
 /// The parts of a chain, top to bottom, as the roles' hidden `declare`
 /// adds them, each given what arrives at it: whether each provides what
-/// arrives, and, when it lists faults, each fault.
+/// arrives, and, when it lists faults, each fault. The hidden
+/// `count_parts` adds them by name alone, to count them.
 ///
 /// What arrives at a part is what the part above requires given what
 /// arrived there, starting from what the run requires. A value a part
@@ -25,8 +26,8 @@ use crate::{
 /// sends below is the first to require it, and one that passes a value
 /// unchanged is not.
 ///
-/// It is public, because the roles' hidden hook names it, but no public
-/// path reaches it, so that no other crate can call or override the hook.
+/// It is public, because the roles' hidden hooks name it, but no public
+/// path reaches it, so that no other crate can call or override the hooks.
 /// It holds parts of different instruction sets, so it keeps each sent
 /// set and requirement as `Any`, read back as the receiver's set.
 pub struct DeclaredParts<'a> {
@@ -72,7 +73,8 @@ impl<'a> DeclaredParts<'a> {
     }
 
     /// No part yet, for a walk that only checks whether each part provides
-    /// what arrives at it: the one each run starts with.
+    /// what arrives at it: the one each run starts with. A join counts its
+    /// upper half's parts with one too.
     pub(crate) fn checking() -> Self {
         Self {
             parts: 0,

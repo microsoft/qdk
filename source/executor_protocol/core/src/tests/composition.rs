@@ -60,8 +60,8 @@ pub(super) fn plain(shots: &ShotSet) -> Vec<Values> {
 
 /// An executor whose set lists the driver's gates in another order: each
 /// sender writes each gate as its binding to the executor's set says, the
-/// driver, or a lowering between them, so the records are those on an
-/// executor of the driver's own set.
+/// driver, or a lowering between them wherever the brackets go, so the
+/// records are those on an executor of the driver's own set.
 #[test]
 fn a_sender_writes_as_its_binding_to_the_receivers_set_says() {
     let log = Log::default();
@@ -73,10 +73,13 @@ fn a_sender_writes_as_its_binding_to_the_receivers_set_says() {
     let executor = || Bits::accepting(reordered, &log);
     let by_driver = records(CoinCopy::new().on(executor()), &shots);
     assert_eq!(by_driver, plain(&shots), "the driver");
-    let lowered = CoinCopy::new()
-        .through(Lowered::new(GateForGate::default()))
-        .on(executor());
-    assert_eq!(records(lowered, &shots), plain(&shots), "a lowering");
+    in_each_bracketing!([d, lowering, e] from {
+        let d = CoinCopy::new();
+        let lowering = Lowered::new(GateForGate::default());
+        let e = executor();
+    }, |chain, brackets| {
+        assert_eq!(records(chain, &shots), plain(&shots), "a lowering, {brackets}");
+    });
 }
 
 // ---------------------------------------------------------------- the laws

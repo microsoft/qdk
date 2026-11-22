@@ -9,8 +9,8 @@ use crate::composition::boundary_crossing::BoundaryCrossing;
 use crate::composition::part_panics::{await_part, end_both};
 use crate::part_id::ChainPosition;
 use crate::{
-    Batch, BatchReadouts, Capabilities, ExecuteError, Executor, InstructionSet, NotReady, Seed,
-    ShotSet, TranslatingAdapter,
+    Batch, BatchReadouts, Capabilities, ExecuteError, Executor, NotReady, Seed, ShotSet,
+    TranslatingAdapter,
 };
 
 impl<U: TranslatingAdapter, L: Executor<Accepts = U::Sends>> Composed<U, L, U::Sends> {
@@ -24,7 +24,7 @@ impl<U: TranslatingAdapter, L: Executor<Accepts = U::Sends>> Composed<U, L, U::S
             },
         );
         let mut parts = DeclaredParts::checking();
-        upper.declare(U::Accepts::unconstrained(), &mut parts);
+        upper.count_parts(&mut parts);
         let upper_parts = parts.len();
         Self::new((upper, upper_parts), lower, fit)
     }

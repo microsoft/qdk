@@ -2,8 +2,9 @@
 // Licensed under the MIT License.
 
 //! The fake parts across a lowering of [`WithToffoli`] to
-//! [`WithoutToffoli`]: a driver of the first, an executor of the second,
-//! and the lowerings between them, for the tests of [`Lowered`].
+//! [`WithoutToffoli`]: a driver of the first, an adapter and an executor
+//! of the second, and the lowerings between them, for the tests of
+//! [`Lowered`].
 //!
 //! [`Lowered`]: crate::Lowered
 
@@ -153,6 +154,34 @@ impl Executor for CliffordTRegister {
             }
         }
         Ok(())
+    }
+}
+
+/// An adapter of [`WithoutToffoli`] that passes each batch below as it
+/// came: a part below a lowering, in the lowered set.
+pub(crate) struct CliffordTPassThrough;
+
+impl Adapter for CliffordTPassThrough {
+    type Set = WithoutToffoli;
+
+    fn accepts(&self) -> &WithoutToffoli {
+        &WithoutToffoli
+    }
+
+    fn sends(&self) -> &WithoutToffoli {
+        &WithoutToffoli
+    }
+
+    fn bind(&mut self, (): ()) {}
+
+    async fn adapt(
+        &mut self,
+        batches: &[Batch<'_, WithoutToffoli>],
+        seed: Seed,
+        below: &mut impl Executor<Accepts = WithoutToffoli>,
+        readouts: &mut [BatchReadouts<WithoutToffoli>],
+    ) -> Result<(), ExecuteError> {
+        below.execute(batches, seed, readouts).await
     }
 }
 

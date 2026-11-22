@@ -79,7 +79,9 @@ pub(crate) use panics_in_drop::PanicsInDrop;
 pub(crate) use qubit_limited::{QubitNarrowing, QubitPassThrough, QubitProgram, QubitRegister};
 pub(crate) use renamed::Renamed;
 pub(crate) use sees_seeds::SeesSeeds;
-pub(crate) use toffoli::{CliffordTRegister, ReadThrice, ToffoliFree, ToffoliProgram};
+pub(crate) use toffoli::{
+    CliffordTPassThrough, CliffordTRegister, ReadThrice, ToffoliFree, ToffoliProgram,
+};
 
 /// `h`, `x` and `mz`: what every fake part accepts and sends, unless a
 /// test gives it another set.

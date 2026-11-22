@@ -80,7 +80,8 @@ pub struct Composed<U, L, S: InstructionSet> {
     /// half's set does not fit the lower half's, what each run's refusal
     /// at `ready` is built from.
     fit: Result<Boundary<S>, UnfitHalves<S>>,
-    /// The parts the upper half holds, as it declares them: how far below
+    /// The parts the upper half holds, as it counts them (its hidden
+    /// `count_parts`, which asks no part what it requires): how far below
     /// this part's position the lower half's is.
     upper_parts: usize,
 }
@@ -100,7 +101,7 @@ type LowerHalfRun<'c, 'p, L, S> = (
 
 impl<U, L, S: InstructionSet> Composed<U, L, S> {
     /// `upper` calling `lower`, where they meet as `fit` says; the upper
-    /// half declares `upper_parts` parts.
+    /// half holds `upper_parts` parts.
     fn new(
         (upper, upper_parts): (U, usize),
         lower: L,

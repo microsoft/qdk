@@ -27,7 +27,10 @@ use crate::{
 /// The adapter that runs the lowering `L`: it accepts `L::From`, sends
 /// `L::To`, provides, requires below and gets ready as `L` does, and runs each batch as
 /// `L` lowers it, each sent checked if the batch it lowers arrived
-/// checked, as [`TranslatingAdapter::adapt`]'s rule asks.
+/// checked, as [`TranslatingAdapter::adapt`]'s rule asks. It passes a
+/// refusal from below up unchanged, so the driver reads it in the set
+/// below's terms: a [`BatchFault`](crate::BatchFault)'s `at` is a position
+/// in the lowered batch, and its fault is `L::To`'s.
 ///
 /// It keeps its lowered batches and their readouts from one `adapt` to the
 /// next, so that, once it has lowered batches as large, an `adapt`

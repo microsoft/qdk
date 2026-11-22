@@ -10,8 +10,8 @@ use crate::composition::part_panics::{await_part, end_both};
 use crate::part_id::ChainPosition;
 use crate::roles::lent_translating_adapter;
 use crate::{
-    Batch, BatchReadouts, Binding, Capabilities, ExecuteError, Executor, InstructionSet, NotReady,
-    Seed, ShotSet, TranslatingAdapter,
+    Batch, BatchReadouts, Binding, Capabilities, ExecuteError, Executor, NotReady, Seed, ShotSet,
+    TranslatingAdapter,
 };
 
 impl<U: TranslatingAdapter, L: TranslatingAdapter<Accepts = U::Sends>> Composed<U, L, U::Sends> {
@@ -25,7 +25,7 @@ impl<U: TranslatingAdapter, L: TranslatingAdapter<Accepts = U::Sends>> Composed<
             },
         );
         let mut parts = DeclaredParts::checking();
-        upper.declare(U::Accepts::unconstrained(), &mut parts);
+        upper.count_parts(&mut parts);
         let upper_parts = parts.len();
         Self::new((upper, upper_parts), lower, fit)
     }
@@ -115,6 +115,12 @@ impl<U: TranslatingAdapter, L: TranslatingAdapter<Accepts = U::Sends>> Translati
     ) -> Capabilities<L::Sends> {
         let required = self.upper.declare(above, parts);
         self.lower.declare(&required, parts)
+    }
+
+    /// The upper part's, then the lower one's.
+    fn count_parts<'a>(&'a self, parts: &mut DeclaredParts<'a>) {
+        self.upper.count_parts(parts);
+        self.lower.count_parts(parts);
     }
 
     /// Refuses the run if the halves' sets do not fit, or if what the

@@ -11,9 +11,9 @@
 //! - [`QubitLimited`]: one gate on one qubit, whose capabilities are a count
 //!   of qubits. What the tests of a set's own capabilities, and of a checked
 //!   batch's faults, send.
-//! - [`WithToffoli`] and [`WithoutToffoli`]: the same gates, the first with
-//!   a three-qubit `ccz`, the second without it. What the tests of a
-//!   lowering send.
+//! - [`WithToffoli`] and [`WithoutToffoli`]: `h`, a three-qubit `ccz` and
+//!   `mz`, and Clifford+T (`h`, `cx`, `t`, `tdg` and `mz`), what a `ccz`
+//!   lowers to. What the tests of a lowering send.
 //!
 //! Each is built only from the crate's public items, as a user's set is,
 //! and all read back a [`BitReadout`] per readout slot and note

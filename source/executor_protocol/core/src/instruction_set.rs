@@ -63,12 +63,12 @@ pub trait InstructionSet:
     /// The value of one readout slot, such as a measured bit, or why the
     /// readout has none: what an executor writes in each slot of a batch's
     /// [`BatchReadouts`](crate::BatchReadouts).
-    type Readout: Copy + PartialEq + fmt::Debug;
+    type Readout: Copy + PartialEq + fmt::Debug + Send + Sync;
 
     /// What the set's parts note of a shot beside its readouts, such as a
     /// shot they found suspect: `Default` is a shot with nothing noted, and
     /// `|=` joins what two notes hold.
-    type ShotConditions: Copy + PartialEq + Default + BitOrAssign + fmt::Debug;
+    type ShotConditions: Copy + PartialEq + Default + BitOrAssign + fmt::Debug + Send + Sync;
 
     /// The value of a readout slot no part wrote, so that it reads as no
     /// value, never as one made up for it.

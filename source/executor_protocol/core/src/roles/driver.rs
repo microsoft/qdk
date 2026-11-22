@@ -152,13 +152,13 @@ pub trait Driver {
     // They are in the trait because Rust cannot specialise a default method:
     // the protocol's joined parts (`Composed`, in `src/composition/composed/`)
     // override them, to declare each inner part, so that a composition fault
-    // names the inner part that is short; and to name an inner part's refusal
-    // by its position. Correctness does not depend on them: a
-    // joined part they do not reach, such as one inside a part of the user's
-    // that forwards only the public methods, checks its inner parts itself at
-    // `ready` (its halves' saved fit, and what arrives at its lower half),
-    // and gives the same outputs; a fault is then its refusal at `ready`, for
-    // the first boundary inside it found not to fit.
+    // names the inner part that is short; to count their inner parts; and to
+    // name an inner part's refusal by its position. Correctness does not
+    // depend on them: a joined part they do not reach, such as one inside a
+    // part of the user's that forwards only the public methods, checks its
+    // inner parts itself at `ready` (its halves' saved fit, and what arrives
+    // at its lower half), and gives the same outputs; a fault is then its
+    // refusal at `ready`, for the first boundary inside it found not to fit.
 
     /// Adds this part to `parts`, for a run that requires `run`, and gives
     /// what it requires of the part below. Only the crate overrides it, to
@@ -175,6 +175,15 @@ pub trait Driver {
         let required = self.requires(run);
         parts.send(self.sends(), &required);
         required
+    }
+
+    /// Adds each part it holds to `parts`, top to bottom, by name alone,
+    /// without asking what any requires: how a join counts the parts above
+    /// the boundary it makes, before any run says what arrives. Only the
+    /// crate overrides it, to add each part it holds.
+    #[doc(hidden)]
+    fn count_parts<'a>(&'a self, parts: &mut DeclaredParts<'a>) {
+        parts.push(Driver::name(self));
     }
 
     /// [`ready`](Self::ready), for this part at `at` in its chain. Only

@@ -27,7 +27,7 @@ impl<U: Driver, L: TranslatingAdapter<Accepts = U::Sends>> Composed<U, L, U::Sen
             },
         );
         let mut parts = DeclaredParts::checking();
-        upper.declare(&RunRequirement::unconstrained(), &mut parts);
+        upper.count_parts(&mut parts);
         let upper_parts = parts.len();
         Self::new((upper, upper_parts), lower, fit)
     }
@@ -101,6 +101,12 @@ impl<U: Driver, L: TranslatingAdapter<Accepts = U::Sends>> Driver for Composed<U
     ) -> Capabilities<L::Sends> {
         let required = self.upper.declare(run, parts);
         self.lower.declare(&required, parts)
+    }
+
+    /// The driver's, then the adapter's.
+    fn count_parts<'a>(&'a self, parts: &mut DeclaredParts<'a>) {
+        self.upper.count_parts(parts);
+        self.lower.count_parts(parts);
     }
 
     /// Refuses the run if the halves' sets do not fit, or if what the

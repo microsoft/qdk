@@ -19,10 +19,14 @@ use crate::tests::example_sets::{BitReadout, ShotFlags};
 use crate::tests::example_sets::{
     CliffordT, Qubits, ToffoliGate, TooFewQubits, WithToffoli, WithoutToffoli,
 };
-use crate::tests::fake_parts::{CliffordTRegister, Log, ReadThrice, ToffoliFree, ToffoliProgram};
+use crate::tests::fake_parts::{
+    CliffordTPassThrough, CliffordTRegister, Log, ReadThrice, ToffoliFree, ToffoliProgram,
+    in_each_bracketing,
+};
 use crate::{
-    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, Lowered, PartId, Readouts,
-    ResourceMismatch, RunError, RunRefusal, RunRequirement, Seed, ShotSet,
+    Batch, BatchReadouts, Capabilities, CompositionFaults, DriveError, ExecuteError, Lowered,
+    PartId, Readouts, ResourceMismatch, RunError, RunRefusal, RunRequirement, Runner, Seed,
+    ShotSet,
 };
 
 use BitReadout::{One, Zero};
@@ -48,17 +52,67 @@ fn run<L: Lowering<From = WithToffoli, To = WithoutToffoli> + 'static>(
     (outputs, log)
 }
 
+/// What `log` saw of a run of `shots` on the chain `composed` gave, which
+/// must compose.
+fn received<D: Driver, E: Executor<Accepts = D::Sends>>(
+    composed: Result<Runner<D, E>, CompositionFaults>,
+    shots: &ShotSet,
+    log: &Log,
+) -> Vec<String> {
+    let Ok(mut runner) = composed else {
+        panic!("the chain composes");
+    };
+    runner.run(shots, 7).expect("a run");
+    log.entries()
+}
+
 /// A program of an `h`, a `ccz` and an `mz`, through a lowering rewriting
-/// `ccz` as seven `t` and `tdg` and six `cx`: the register receives each
-/// instruction's lowering, in order, in one batch.
+/// `ccz` as seven `t` and `tdg` and six `cx` with 2 ancillas, over a
+/// register of 5 qubits: the register receives each instruction's
+/// lowering, in order, in one batch. So it does wherever the brackets go,
+/// with an adapter of the lowered set below the lowering or none, and with
+/// the lowering lent by `&mut`.
 #[test]
 fn each_instruction_runs_below_as_its_lowering() {
-    let program = ToffoliProgram::new(&[H(0), Ccz(0, 1, 2), Mz(2)], 3);
-    let (_, log) = run(program, ToffoliFree::new(), &[Zero], &ShotSet::ids([0]));
+    let program = || ToffoliProgram::new(&[H(0), Ccz(0, 1, 2), Mz(2)], 3);
+    let with_ancillas = || Lowered::new(ToffoliFree::with_ancillas(2));
+    let register = |log: &Log| CliffordTRegister::new(5, &[Zero], log);
+    let shots = ShotSet::ids([0]);
     let mut lowered = vec![CliffordT::H(0)];
     lowered.extend(ToffoliFree::ccz(0, 1, 2));
     lowered.push(CliffordT::Mz(2));
-    assert_eq!(log.entries(), [format!("runs {lowered:?}, checked: false")]);
+    let expected = [format!("runs {lowered:?}, checked: false")];
+    in_each_bracketing!([d, lowering, e] from {
+        let log = Log::default();
+        let d = program();
+        let lowering = with_ancillas();
+        let e = register(&log);
+    }, |chain, brackets| assert_eq!(received(chain, &shots, &log), expected, "{brackets}"));
+    in_each_bracketing!([d, lowering, a, e] from {
+        let log = Log::default();
+        let d = program();
+        let lowering = with_ancillas();
+        let a = CliffordTPassThrough;
+        let e = register(&log);
+    }, |chain, brackets| assert_eq!(received(chain, &shots, &log), expected, "{brackets}"));
+    let mut lent = with_ancillas();
+    let log = Log::default();
+    assert_eq!(
+        received(program().on((&mut lent).on(register(&log))), &shots, &log),
+        expected,
+        "on a lent lowering"
+    );
+    let log = Log::default();
+    let lent_through = (&mut lent).through(CliffordTPassThrough);
+    assert_eq!(
+        received(
+            program().through(lent_through).on(register(&log)),
+            &shots,
+            &log
+        ),
+        expected,
+        "through a lent lowering"
+    );
 }
 
 /// Each instruction's readouts are read back from those of its lowering,

@@ -96,6 +96,15 @@ pub trait TranslatingAdapter {
         required
     }
 
+    /// Adds each part it holds to `parts`, top to bottom, by name alone,
+    /// without asking what any requires: how a join counts the parts above
+    /// the boundary it makes, before any run says what arrives. Only the
+    /// crate overrides it, to add each part it holds.
+    #[doc(hidden)]
+    fn count_parts<'a>(&'a self, parts: &mut DeclaredParts<'a>) {
+        parts.push(TranslatingAdapter::name(self));
+    }
+
     /// [`ready`](Self::ready), for this part at `at` in its chain. Only
     /// the crate overrides it, to name a refusal of a part it holds by
     /// that part's position.
@@ -231,6 +240,10 @@ macro_rules! lent_translating_adapter {
                 parts: &mut $crate::composition::DeclaredParts<'a>,
             ) -> $crate::Capabilities<Self::Sends> {
                 <$ty as $crate::TranslatingAdapter>::declare(&**self, above, parts)
+            }
+
+            fn count_parts<'a>(&'a self, parts: &mut $crate::composition::DeclaredParts<'a>) {
+                <$ty as $crate::TranslatingAdapter>::count_parts(&**self, parts);
             }
 
             fn ready_at(

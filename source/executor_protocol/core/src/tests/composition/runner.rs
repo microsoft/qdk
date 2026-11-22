@@ -22,13 +22,14 @@ use crate::prelude::*;
 use crate::tests::example_sets::Measuring;
 use crate::tests::example_sets::{BitReadout, ShotFlags};
 use crate::tests::fake_parts::{
-    BitFlip, Bits, CoinCopy, FailsOnce, FromThread, Later, Log, Panics, PanicsWhen, Profiler,
-    Program, Renamed, SeesSeeds, Splitter, Spread, Stating, Trap, Values, YieldNow, batches_of,
-    coin_gates, in_each_bracketing,
+    BitFlip, Bits, CoinCopy, FailsOnce, FromThread, GateForGate, Later, Log, Panics, PanicsWhen,
+    Profiler, Program, Renamed, SeesSeeds, Splitter, Spread, Stating, Trap, Values, YieldNow,
+    batches_of, coin_gates, in_each_bracketing,
 };
 use crate::{
     BoundaryCompatible, BoundaryMismatch, CapabilitiesMismatch, CompositionFault, DriveError,
-    Failure, FeatureMismatch, Features, ResourceMismatch, RunError, RunRefusal, Runner, ShotSet,
+    Failure, FeatureMismatch, Features, Lowered, ResourceMismatch, RunError, RunRefusal, Runner,
+    ShotSet,
 };
 
 pub(super) const SEED: u64 = 7;
@@ -585,8 +586,9 @@ fn a_rerun_after_an_unfinished_run_gives_a_new_chains_records() {
 /// Whether `T` may move to another thread; it compiles only if so.
 fn is_send<T: Send>(_: &T) {}
 
-/// Parts that are `Send`, and whose futures are, in three bracketings:
-/// the future of `run_async` may move to another thread.
+/// Parts that are `Send`, and whose futures are, in three bracketings, and
+/// a lowering between them in two: the future of `run_async` may move to
+/// another thread.
 #[test]
 fn a_runs_future_is_send_when_every_part_and_its_future_are() {
     let shots = ShotSet::ids(0..2);
@@ -599,6 +601,11 @@ fn a_runs_future_is_send_when_every_part_and_its_future_are() {
     is_send(&left.run_async(&shots, SEED));
     let mut right = runner(driver().on(splitter().on(executor())));
     is_send(&right.run_async(&shots, SEED));
+    let lowering = || Lowered::new(GateForGate::default());
+    let mut lowered_left = runner(driver().through(lowering()).on(executor()));
+    is_send(&lowered_left.run_async(&shots, SEED));
+    let mut lowered_right = runner(driver().on(lowering().on(executor())));
+    is_send(&lowered_right.run_async(&shots, SEED));
 }
 
 // ---------------------------------------------------------------- refusals
@@ -630,7 +637,8 @@ fn calibrating(refusal: &RunRefusal) -> Option<(usize, &str)> {
 /// parts below it are asked, those above it are not, and nothing runs: no
 /// shot is ended on any part, as no drive started. A part refusing inside
 /// a joined part held by a part of a user's, which the chain's check does
-/// not see into, is named by the user's part, with its own reason.
+/// not see into, is named by the user's part, with its own reason; one
+/// below a joined part lent by `&mut` is named by its own position.
 #[test]
 #[expect(
     clippy::too_many_lines,
@@ -681,6 +689,19 @@ fn the_parts_are_asked_bottom_up_until_one_refuses() {
         ended(&log),
         [] as [String; 0],
         "held busy bits: no shot ended"
+    );
+    // Busy bits below a joined part lent by `&mut`: named by their
+    // position, below each part the lent part holds.
+    let log = Log::default();
+    let mut lent = Profiler::new(&counted, &log).through(Profiler::new(&counted, &log));
+    let refusal = refused(
+        runner(CoinCopy::new().on((&mut lent).on(Bits::new(&log).busy("calibrating"))))
+            .run(&ShotSet::ids(0..4), SEED),
+    );
+    assert_eq!(
+        calibrating(&refusal),
+        Some((3, "Bits")),
+        "busy bits below a lent part: {refusal:?}"
     );
     // A profiler that cannot take a run, between bits and another profiler:
     // the bits below it are asked, and the profiler above it is not.
