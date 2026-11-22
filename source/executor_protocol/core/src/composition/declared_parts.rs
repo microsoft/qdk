@@ -151,7 +151,7 @@ impl<'a> DeclaredParts<'a> {
         if let Some(mismatch) = set_capabilities {
             let at = origin(&|a, b| {
                 let a = a.set_capabilities.downcast_ref::<S::Capabilities>();
-                a.is_some() && a == b.set_capabilities.downcast_ref::<S::Capabilities>()
+                a == b.set_capabilities.downcast_ref::<S::Capabilities>()
             });
             split.entry(at).or_default().set_capabilities = Some(mismatch);
         }

@@ -14,13 +14,13 @@ use crate::tests::example_sets::{
     CliffordT, Qubits, ToffoliGate, WithToffoli, WithoutToffoli, on_qubits,
 };
 use crate::{
-    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, NotReady, RunRequirement, Seed,
-    ShotSet,
+    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, NotReady, Resources,
+    RunRequirement, Seed, ShotSet,
 };
 
 /// A driver sending `gates`, one batch of every shot, checked if
-/// `checked`, and requiring `qubits` qubits. Each shot's output is its
-/// readouts and conditions.
+/// `checked`, and requiring `qubits` qubits and batches of its gates'
+/// count. Each shot's output is its readouts and conditions.
 pub(crate) struct ToffoliProgram {
     gates: Vec<ToffoliGate>,
     qubits: u32,
@@ -51,9 +51,11 @@ impl Driver for ToffoliProgram {
         &WithToffoli
     }
 
-    /// The run's, on `qubits` qubits.
+    /// The run's, on `qubits` qubits, in batches of its gates' count.
     fn requires(&self, run: &RunRequirement) -> Capabilities<WithToffoli> {
-        Capabilities::new(run.resources, run.features, Qubits(self.qubits))
+        let gates = u32::try_from(self.gates.len()).expect("fewer than 2^32 gates");
+        let resources = run.resources.with_instructions_per_batch(gates);
+        Capabilities::new(resources, run.features, Qubits(self.qubits))
     }
 
     fn bind(&mut self, (): ()) {}
@@ -108,6 +110,13 @@ impl CliffordTRegister {
             log: log.clone(),
         }
     }
+
+    /// This register, taking batches of at most `n` instructions.
+    pub(crate) fn taking(mut self, n: u32) -> Self {
+        self.provides =
+            (self.provides).map_resources(|resources| resources.with_instructions_per_batch(n));
+        self
+    }
 }
 
 impl Executor for CliffordTRegister {
@@ -149,9 +158,10 @@ impl Executor for CliffordTRegister {
 
 /// `ccz` rewritten as the standard decomposition of seven `t` and `tdg`
 /// and six `cx`, and every other gate as its namesake, requiring below
-/// what arrives and `ancillas` more qubits, as a decomposition using them
-/// would; it takes at most the qubits it provides, and is ready unless it
-/// is told why not.
+/// what arrives, with 13 instructions a batch for each one that arrives
+/// (its longest rewriting) and `ancillas` more qubits, as a decomposition
+/// using them would; it takes at most the qubits it provides, and is
+/// ready unless it is told why not.
 pub(crate) struct ToffoliFree {
     ancillas: u32,
     provides: Capabilities<WithToffoli>,
@@ -231,7 +241,7 @@ impl Lowering for ToffoliFree {
     fn requires(&self, above: &Capabilities<WithToffoli>) -> Capabilities<WithoutToffoli> {
         let Qubits(qubits) = above.set_capabilities();
         Capabilities::new(
-            *above.resources(),
+            longest_rewriting_per_instruction(above.resources()),
             *above.features(),
             Qubits(qubits + self.ancillas),
         )
@@ -265,7 +275,9 @@ impl Lowering for ToffoliFree {
 
 /// Each `mz` read three times below, its readout the majority of the
 /// three, as a lowering suppressing readout errors would; every other gate
-/// as its namesake. It requires below what arrives.
+/// as [`ToffoliFree`] lowers it. It requires below what arrives, with 13
+/// instructions a batch for each one that arrives (`ccz`'s rewriting, its
+/// longest).
 pub(crate) struct ReadThrice;
 
 impl Lowering for ReadThrice {
@@ -282,7 +294,7 @@ impl Lowering for ReadThrice {
 
     fn requires(&self, above: &Capabilities<WithToffoli>) -> Capabilities<WithoutToffoli> {
         Capabilities::new(
-            *above.resources(),
+            longest_rewriting_per_instruction(above.resources()),
             *above.features(),
             *above.set_capabilities(),
         )
@@ -308,5 +320,14 @@ impl Lowering for ReadThrice {
 
     fn read_conditions(&self, lowered: ShotFlags) -> ShotFlags {
         lowered
+    }
+}
+
+/// `above`, with 13 instructions a batch for each one it states: a batch
+/// of the lowerings above, each instruction rewritten as at most 13.
+fn longest_rewriting_per_instruction(above: &Resources) -> Resources {
+    Resources {
+        instructions_per_batch: (above.instructions_per_batch).map(|n| n.saturating_mul(13)),
+        ..*above
     }
 }

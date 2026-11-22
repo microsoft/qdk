@@ -9,7 +9,11 @@
 //! lowering's readouts are found without reading its instructions again,
 //! it notes, as it lowers, where each instruction's readout slots lie in
 //! the batch's rows above and below, summing the slots of its lowering
-//! ([`InstructionSet::readout_slots`]) for the slots it states below.
+//! ([`InstructionSet::readout_slots`]) for the slots it states below. It
+//! sums them as the receiver's set reads them, not as the lowering's
+//! [`sends`](Lowering::sends) does: its lowering is encoded as the
+//! binding to the receiver's set says, which may number the gates
+//! otherwise.
 
 use std::ops::Range;
 
@@ -96,7 +100,7 @@ impl<L: Lowering> TranslatingAdapter for Lowered<L> {
             lowered.resize_with(batches.len(), LoweredBatch::default);
         }
         for (batch, lowered) in batches.iter().zip(lowered.iter_mut()) {
-            lowered.lower(lowering, batch.instructions);
+            lowered.lower(lowering, below.accepts(), batch.instructions);
         }
         let sent: Vec<Batch<'_, L::To>> = batches
             .iter()
@@ -152,13 +156,16 @@ impl<S: InstructionSet> Default for LoweredBatch<S> {
 }
 
 impl<S: InstructionSet> LoweredBatch<S> {
-    /// Lowers `instructions` with `lowering`, in place of what it held.
+    /// Lowers `instructions` with `lowering`, in place of what it held,
+    /// counting the readout slots of their lowering as `receiver`, the set
+    /// below they are encoded in, reads them.
     fn lower<L: Lowering<To = S>>(
         &mut self,
         lowering: &L,
+        receiver: &S,
         instructions: &[<L::From as InstructionSet>::Instruction],
     ) {
-        let (above_set, below_set) = (lowering.accepts(), lowering.sends());
+        let above_set = lowering.accepts();
         self.instructions.clear();
         self.reads.clear();
         let mut above = 0;
@@ -171,7 +178,7 @@ impl<S: InstructionSet> LoweredBatch<S> {
             // batch of that many slots sent unlowered.
             let below_slots = self.instructions[start..]
                 .iter()
-                .map(|lowered| below_set.readout_slots(lowered))
+                .map(|lowered| receiver.readout_slots(lowered))
                 .fold(0, u32::saturating_add);
             let above_slots = above_set.readout_slots(instruction) as usize;
             if above_slots > 0 {

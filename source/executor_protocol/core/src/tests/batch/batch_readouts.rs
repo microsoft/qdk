@@ -434,12 +434,21 @@ fn concat_panics_on_parts_of_other_summed_readout_slots() {
     }
 }
 
-/// A failing test shows the readouts by shot.
+/// A failing test shows the readouts by shot: each shot's readouts and
+/// conditions, in the shots' order.
 #[test]
 fn debug_shows_the_rows_by_shot() {
-    let batch = readouts(1, &[(&[One], ShotFlags::INCONSISTENT)]);
-    assert_eq!(
-        format!("{batch:?}"),
-        "BatchReadouts { readout_slots: 1, rows: [([One], ShotFlags(2))] }"
-    );
+    let shots: [(&[BitReadout], ShotFlags); 2] = [
+        (&[One, Zero], ShotFlags::INCONSISTENT),
+        (&[Zero, One], ShotFlags::REJECTED),
+    ];
+    let shown = format!("{:?}", readouts(2, &shots));
+    let mut from = 0;
+    for (row, conditions) in shots {
+        for said in [format!("{row:?}"), format!("{conditions:?}")] {
+            let at = shown[from..].find(&said);
+            let at = at.unwrap_or_else(|| panic!("{shown} shows {said} after {from}"));
+            from += at + said.len();
+        }
+    }
 }

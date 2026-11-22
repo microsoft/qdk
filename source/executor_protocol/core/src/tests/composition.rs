@@ -22,11 +22,12 @@ use std::rc::Rc;
 use crate::prelude::*;
 use crate::tests::example_sets::Measuring;
 use crate::tests::fake_parts::{
-    BitFlip, Bits, CoinCopy, FromThread, Later, Log, NamesBelow, Profiler, Program, Renamed,
-    Splitter, Spread, Stating, Trap, Values, batches_of, coin_gate, in_each_bracketing,
+    BitFlip, Bits, CoinCopy, FromThread, GateForGate, Later, Log, NamesBelow, Profiler, Program,
+    Renamed, Splitter, Spread, Stating, Trap, Values, batches_of, coin_gate, in_each_bracketing,
 };
 use crate::{
-    CompositionFaults, Features, Resources, RunRequirement, Runner, ShotSet, TranslatingAdapter,
+    CompositionFaults, Features, Lowered, Resources, RunRequirement, Runner, ShotSet,
+    TranslatingAdapter,
 };
 
 const SEED: u64 = 7;
@@ -57,9 +58,10 @@ pub(super) fn plain(shots: &ShotSet) -> Vec<Values> {
 
 // ------------------------------------------------------------ the binding
 
-/// An executor whose set lists the driver's gates in another order: the
-/// driver writes each gate as its binding to the executor's set says, so
-/// the records are those on an executor of the driver's own set.
+/// An executor whose set lists the driver's gates in another order: each
+/// sender writes each gate as its binding to the executor's set says, the
+/// driver, or a lowering between them, so the records are those on an
+/// executor of the driver's own set.
 #[test]
 fn a_sender_writes_as_its_binding_to_the_receivers_set_says() {
     let log = Log::default();
@@ -68,8 +70,13 @@ fn a_sender_writes_as_its_binding_to_the_receivers_set_says() {
     for name in ["h", "mz"] {
         assert_ne!(reordered.gate(name, 0), coin_gate(name, 0), "another order");
     }
-    let composed = CoinCopy::new().on(Bits::accepting(reordered, &log));
-    assert_eq!(records(composed, &shots), plain(&shots));
+    let executor = || Bits::accepting(reordered, &log);
+    let by_driver = records(CoinCopy::new().on(executor()), &shots);
+    assert_eq!(by_driver, plain(&shots), "the driver");
+    let lowered = CoinCopy::new()
+        .through(Lowered::new(GateForGate::default()))
+        .on(executor());
+    assert_eq!(records(lowered, &shots), plain(&shots), "a lowering");
 }
 
 // ---------------------------------------------------------------- the laws

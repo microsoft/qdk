@@ -54,9 +54,17 @@ pub trait Lowering {
     }
 
     /// What it requires below, given what arrives from above, `above`, as
-    /// [`TranslatingAdapter::requires`](crate::TranslatingAdapter::requires): the same
-    /// resources and features, and the set's own capabilities its
-    /// rewriting needs, such as three physical qubits for each logical one.
+    /// [`TranslatingAdapter::requires`](crate::TranslatingAdapter::requires):
+    /// the same resources and features, but for the instructions a batch
+    /// holds, and the set's own capabilities its rewriting needs, such as
+    /// three physical qubits for each logical one.
+    ///
+    /// [`Lowered`] sends one lowered batch for each batch that arrives, so a
+    /// lowering that rewrites an instruction as several requires that many
+    /// more instructions a batch below, such as 13 a batch for each one
+    /// above when its longest rewriting is 13 instructions; required
+    /// unchanged, a chain whose receiver takes fewer is joined, and its
+    /// lowered batches are refused at run time.
     fn requires(&self, above: &Capabilities<Self::From>) -> Capabilities<Self::To>;
 
     /// As [`TranslatingAdapter::ready`](crate::TranslatingAdapter::ready),

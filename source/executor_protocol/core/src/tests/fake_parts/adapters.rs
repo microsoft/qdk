@@ -15,7 +15,7 @@ use super::{
     ready_for, unconstrained,
 };
 use crate::prelude::*;
-use crate::tests::example_sets::{Gate, Measuring};
+use crate::tests::example_sets::{BitReadout, Gate, Measuring, ShotFlags};
 use crate::{
     Batch, BatchReadouts, Capabilities, ExecuteError, Failure, Features, NotReady, Readouts,
     Resources, Seed, ShotId, ShotSet,
@@ -920,5 +920,46 @@ impl Adapter for EndsBelow {
             below.end_shots(batch.shots);
         }
         Ok(())
+    }
+}
+
+/// A lowering of [`coin_gates`] to the same gates, each as itself,
+/// encoded as its binding to the receiver's set says, its readouts copied
+/// and its shots' conditions kept: a lowering whose binding is not `()`.
+#[derive(Default)]
+pub(crate) struct GateForGate {
+    below: Option<Vec<u32>>,
+}
+
+impl Lowering for GateForGate {
+    type From = Measuring;
+    type To = Measuring;
+
+    fn accepts(&self) -> &Measuring {
+        coin_gates()
+    }
+
+    fn sends(&self) -> &Measuring {
+        coin_gates()
+    }
+
+    fn requires(&self, above: &Capabilities<Measuring>) -> Capabilities<Measuring> {
+        above.clone()
+    }
+
+    fn bind(&mut self, below: Vec<u32>) {
+        self.below = Some(below);
+    }
+
+    fn lower(&self, gate: &Gate, into: &mut Vec<Gate>) {
+        into.push(Measuring::bound(bound(self.below.as_ref()), *gate));
+    }
+
+    fn read(&self, _gate: &Gate, lowered: &[BitReadout], into: &mut [BitReadout]) {
+        into.copy_from_slice(lowered);
+    }
+
+    fn read_conditions(&self, lowered: ShotFlags) -> ShotFlags {
+        lowered
     }
 }

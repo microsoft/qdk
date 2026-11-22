@@ -26,7 +26,8 @@
 //!   [`PanicsEnding`], which panics in `end_shots`, each time or once;
 //!   [`EndsBelow`], which ends its shots below inside `adapt`;
 //!   [`Impatient`], which stops waiting for its first answer from below;
-//!   [`Misbehaving`], which breaks the protocol's rules.
+//!   [`Misbehaving`], which breaks the protocol's rules; and the lowering
+//!   [`GateForGate`], which binds to the receiver's set.
 //! - Driver and executor: [`Panics`], which panics in `drive` and in
 //!   `execute`.
 //! - Any role: [`Renamed`], a part with a name other than its type's;

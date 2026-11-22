@@ -22,7 +22,7 @@ use crate::tests::example_sets::{
 use crate::tests::fake_parts::{CliffordTRegister, Log, ReadThrice, ToffoliFree, ToffoliProgram};
 use crate::{
     Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, Lowered, PartId, Readouts,
-    RunError, RunRefusal, RunRequirement, Seed, ShotSet,
+    ResourceMismatch, RunError, RunRefusal, RunRequirement, Seed, ShotSet,
 };
 
 use BitReadout::{One, Zero};
@@ -234,39 +234,80 @@ fn a_lowered_batch_is_checked_as_the_batch_it_lowers() {
 }
 
 /// A lowering requires below what it states, given what arrives, which is
-/// fit against the executor at `on`: a decomposition using 2 ancillas on a
-/// program of 3 qubits requires 5, so a register of 4 is refused, naming
-/// the lowering's adapter, with the set's own mismatch; a register of 5
-/// runs it.
+/// fit at `on` against the executor, a fault naming the part that first
+/// required the value: a decomposition using 2 ancillas on a program of 3
+/// qubits requires 5, so a register of 4 is refused, naming the
+/// lowering's adapter, with the set's own mismatch; a batch of one
+/// instruction, whose `ccz` is lowered as 13, requires 13 a batch, so a
+/// register taking 12 is refused, naming the lowering's adapter; a
+/// decomposition using no ancilla passes the program's 3 qubits below
+/// unchanged, so a register of 2 is refused naming the program. A
+/// register of 5 qubits, taking 13 instructions a batch, runs each.
 #[test]
 fn what_a_lowering_requires_below_is_fit_at_on() {
     let program = || ToffoliProgram::new(&[Ccz(0, 1, 2)], 3);
+    let lowering = PartId::new(1, type_name::<Lowered<ToffoliFree>>());
+    let driver = PartId::new(0, type_name::<ToffoliProgram>());
     let log = Log::default();
-    let faults = program()
-        .through(Lowered::new(ToffoliFree::with_ancillas(2)))
-        .on(CliffordTRegister::new(4, &[], &log))
-        .err()
-        .expect("4 qubits are short of 5");
-    let [fault] = faults.faults() else {
-        panic!("one fault: {faults}");
-    };
-    assert_eq!(
-        fault.requirer,
-        PartId::new(1, type_name::<Lowered<ToffoliFree>>())
-    );
-    let mismatch = fault.mismatch.capabilities.set_capabilities.as_ref();
-    assert_eq!(
-        mismatch.and_then(|mismatch| mismatch.downcast_ref()),
-        Some(&TooFewQubits {
-            required: 5,
-            provided: 4
-        })
-    );
+    let cases = [
+        (
+            "2 ancillas, on 4 qubits",
+            2,
+            CliffordTRegister::new(4, &[], &log),
+            &lowering,
+            vec![],
+            Some(TooFewQubits {
+                required: 5,
+                provided: 4,
+            }),
+        ),
+        (
+            "a ccz lowered as 13, on 12 a batch",
+            2,
+            CliffordTRegister::new(5, &[], &log).taking(12),
+            &lowering,
+            vec![ResourceMismatch::InstructionsPerBatch {
+                required: 13,
+                provided: 12,
+            }],
+            None,
+        ),
+        (
+            "no ancilla, on 2 qubits",
+            0,
+            CliffordTRegister::new(2, &[], &log),
+            &driver,
+            vec![],
+            Some(TooFewQubits {
+                required: 3,
+                provided: 2,
+            }),
+        ),
+    ];
+    for (case, ancillas, register, requirer, resources, set_capabilities) in cases {
+        let faults = program()
+            .through(Lowered::new(ToffoliFree::with_ancillas(ancillas)))
+            .on(register)
+            .err()
+            .unwrap_or_else(|| panic!("{case}: refused"));
+        let [fault] = faults.faults() else {
+            panic!("{case}: one fault: {faults}");
+        };
+        assert_eq!(&fault.requirer, requirer, "{case}");
+        let mismatch = &fault.mismatch.capabilities;
+        assert_eq!(mismatch.resources, resources, "{case}");
+        let set = mismatch.set_capabilities.as_ref();
+        assert_eq!(
+            set.and_then(|mismatch| mismatch.downcast_ref()),
+            set_capabilities.as_ref(),
+            "{case}"
+        );
+    }
     let Ok(mut runner) = program()
         .through(Lowered::new(ToffoliFree::with_ancillas(2)))
-        .on(CliffordTRegister::new(5, &[], &log))
+        .on(CliffordTRegister::new(5, &[], &log).taking(13))
     else {
-        panic!("5 qubits of 5 compose");
+        panic!("5 qubits of 5, 13 instructions a batch of 13, compose");
     };
     runner.run(&ShotSet::ids([0]), 7).expect("5 qubits of 5");
 }
