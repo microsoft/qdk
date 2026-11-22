@@ -90,6 +90,7 @@ extends:
                         --toolchain-feed "$TOOLCHAIN_FEED" \
                         --crates-feed "$CRATES_FEED" \
                         --platform linux/${{ target.arch }} \
+                        --engine docker \
                         --registry-name "$ACR_SERVER" --tag "$BUILD_BUILDID"
                     displayName: Build offline-verified agent and proxy
                     env:

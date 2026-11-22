@@ -111,8 +111,8 @@ setup_chemistry_repo() {
 }
 
 load_token() {
-    local path=${1:-/run/secrets/gh_token}
-    [[ -s $path ]] || { info 'The gh_token Compose secret is required.'; return 1; }
+    local path=${1:-/tmp/qdk-sandbox/gh_token}
+    [[ -s $path ]] || { info 'The launcher must deliver the PAT before the workload starts.'; return 1; }
     COPILOT_GITHUB_TOKEN=$(<"$path")
     GH_TOKEN=$COPILOT_GITHUB_TOKEN
     export COPILOT_GITHUB_TOKEN GH_TOKEN

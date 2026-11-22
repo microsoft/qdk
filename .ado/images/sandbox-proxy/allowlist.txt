@@ -5,3 +5,5 @@ api.github.com
 .business.githubcopilot.com
 .enterprise.githubcopilot.com
 copilot-proxy.githubusercontent.com
+# Probe names only: the launcher maps them to loopback and the host, which Squid must refuse.
+.qdk-boundary.test

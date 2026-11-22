@@ -84,7 +84,7 @@ def command_error(
 ) -> LauncherError:
     program = Path(os.fspath(result.args[0])).stem
     message = f"{operation or program} failed (exit {result.returncode})."
-    if program in {"docker", "git"} and result.stderr:
+    if program in {"podman", "git"} and result.stderr:
         message += "\n" + sanitize_diagnostic(result.stderr)
     return LauncherError(message)
 

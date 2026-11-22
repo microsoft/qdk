@@ -11,18 +11,20 @@ ARG BUILD_ID
 ARG QDK_SOURCE_SHA
 ARG QDK_BUILD_ARGS='["--qdk","--cli"]'
 LABEL qdk.copilot-sandbox.build-id=${BUILD_ID} \
+    qdk.copilot-sandbox.interface=2 \
     org.opencontainers.image.revision=${QDK_SOURCE_SHA}
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 RUN tdnf -y upgrade && tdnf -y install \
     gcc binutils make glibc-devel kernel-headers pkgconf git tar xz unzip jq curl ca-certificates \
     python3 python3-devel python3-pip nodejs nodejs-npm gh \
-    less procps-ng file time gdb which diffutils patch findutils shadow-utils sed grep gawk \
+    less procps-ng file time gdb which diffutils patch findutils shadow-utils sed grep gawk socat \
     && tdnf clean all
 COPY scripts/ /opt/sandbox/scripts/
 COPY runtime/ /opt/sandbox/runtime/
 COPY copilot/ /opt/sandbox/copilot/
 RUN useradd --create-home --uid 1000 --user-group --shell /bin/bash agent \
     && install -d -o agent -g agent /work /home/agent/.copilot /home/agent/.cargo /home/agent/.npm \
+    && install -d -m 0755 /run/qdk-relay \
     && passwd -l root \
     && ! command -v sudo
 ENV MSRUSTUP_HOME=/opt/msrustup \
@@ -62,6 +64,7 @@ RUN chown 0:0 /etc/github-copilot/policy.d/copilot-sandbox.json \
     && chmod 0444 /etc/github-copilot/policy.d/copilot-sandbox.json \
     && chmod 0755 /etc/github-copilot /etc/github-copilot/policy.d \
     && chmod 0555 /opt/sandbox/runtime/entrypoint.sh /opt/sandbox/runtime/sandbox-push \
+        /opt/sandbox/runtime/receive-token \
         /opt/sandbox/runtime/hooks/* /opt/sandbox/runtime/policy/tool_policy.py \
     && ln -s /opt/sandbox/copilot/node_modules/.bin/copilot /usr/local/bin/copilot \
     && ln -s /opt/sandbox/runtime/sandbox-push /usr/local/bin/sandbox-push \
@@ -78,8 +81,8 @@ ENV HOME=/home/agent \
     PYRIGHT_PYTHON_GLOBAL_NODE=1 \
     PYRIGHT_PYTHON_NODEJS_WHEEL=0 \
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
-    HTTPS_PROXY=http://proxy:3128 \
-    HTTP_PROXY=http://proxy:3128 \
+    HTTPS_PROXY=http://127.0.0.1:3128 \
+    HTTP_PROXY=http://127.0.0.1:3128 \
     NO_PROXY=localhost,127.0.0.1
 USER 1000:1000
 WORKDIR /work

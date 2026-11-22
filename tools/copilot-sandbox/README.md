@@ -11,7 +11,7 @@ More details below, but summarizing here for the TL;DR.
    1. Be particularly careful with scripts it provides for local repros.
    2. By default, the loose files it creates are available within the repo itself, which VS Code typically considers trusted. If you're doing something risky, update your configuration to put them in an untrusted folder.
 2. The sandbox infrastructure is in the same repo the sandbox has access to - only run the infrastructure from a trusted branch, preferably `main`.
-3. State is preserved session over session in docker volumes. If you work on something sensitive, you may wish to wipe them (or create a new instance).
+3. State is preserved session over session in Podman volumes. If you work on something sensitive, you may wish to wipe them (or create a new instance).
 4. A sandbox makes `--allow-all` safer, not safe.
 
 ## Safeguards
@@ -19,11 +19,36 @@ More details below, but summarizing here for the TL;DR.
 ### Networking
 
 All networking goes through a proxy with a domain allowlist.
-Before starting the workload, the host verifies the actual container and network configuration, checks kernel privilege and seccomp restrictions, and probes that protected mounts reject writes, direct egress fails, and the proxy rejects forbidden destinations.
-Verification failure prevents the workload from starting.
-Shell access is also refused until that container has passed verification.
-(You can locally supplement the allowlist according to your risk tolerance without rebuilding the image.)
-The `web_search` tool is blocked because it actually makes a safe-looking API call and then GitHub performs a Bing search and returns results that aren't subject to the allowlist.
+The agent container has no network interface except loopback.
+Its main process is a `socat` relay from `127.0.0.1:3128` to a Unix socket on a small volume that it mounts read-only.
+The proxy container creates that socket and forwards it to Squid, which listens only on the proxy's own loopback.
+Only the proxy has egress, through its own rootless network, and it's removed when the session ends.
+
+```mermaid
+flowchart LR
+  subgraph Agent["agent (no network)"]
+    A["copilot / tools"] -->|"127.0.0.1:3128"| AR["socat"]
+  end
+  AR --> S[("relay volume: proxy.sock<br/>agent read-only")]
+  subgraph Proxy["proxy (rootless egress only)"]
+    PR["socat"] -->|"127.0.0.1:3128"| SQ["Squid allowlist"]
+  end
+  S --> PR
+  SQ --> Internet
+```
+
+Squid refuses destinations that resolve to loopback, private or link-local addresses, which include your machine and its local services.
+
+Before starting the workload, the host verifies the actual container configuration, including the exact set of mounts and devices as the kernel sees them.
+It also checks kernel privilege and seccomp restrictions, and probes that:
+
+- the agent has only loopback and can't open hypervisor (vsock) sockets or create user namespaces;
+- protected mounts reject writes and direct connections fail;
+- Squid answers through the relay and refuses forbidden destinations, including allowlisted probe names that resolve to loopback and to your machine.
+  Verification failure prevents the workload from starting.
+  Shell access is also refused until that container has passed verification.
+  (You can locally supplement the allowlist according to your risk tolerance without rebuilding the image.)
+  The `web_search` tool is blocked because it actually makes a safe-looking API call and then GitHub performs a Bing search and returns results that aren't subject to the allowlist.
 
 One consequence of this network filtering is that you can't reach pypi, npm, etc.
 For this reason, the dependencies required to build `--qdk` are built into the image.
@@ -69,17 +94,28 @@ The default mounts are `exchange/INSTANCE_NAME/to_copilot` (read-only context) a
 ### Accounts
 
 The container runs as a non-root user and `sudo` is unavailable.
+Containers run under rootless Podman, so no sandbox process is root on the machine running Podman.
+The agent's user maps to your account, so its outbox and exchange writes are owned by you; nothing in the proxy maps to your account.
+
+Podman's default seccomp profile is more permissive than Docker's: it lets containers create user namespaces, a common first step in kernel exploits, and open vsock sockets to the hypervisor.
+The launcher therefore applies [`seccomp.json`](seccomp.json), Docker's default profile from [moby/profiles](https://github.com/moby/profiles/blob/2ab3e516a3b49550c35b5e4511a0a7d136a02c8d/seccomp/default.json) (Apache-2.0), and verification confirms its effect.
 
 ### Tokens
 
 The container is powered by a GitHub fine-grained PAT, preferably with only `Public Repositories` and `Copilot Requests - Read` permissions.
 It has no access to your personal GitHub token or OS/domain credentials.
+The launcher delivers the PAT only after verification passes, over `podman exec` stdin into a mode 0400 file on the agent's memory-backed `/tmp`.
+It never appears in a command line, the container's configuration or environment, or on disk (memory can still be swapped).
 
 ### Known Loopholes
 
 1. `web_search` is blocked by a hook, but the agent has a token and can make a REST request directly.
    It's relatively safe, since following any of the returned links still goes through the proxy (though summaries can still contain injected prompts).
 1. Every public repo on GitHub is reachable, which almost certainly includes a bunch of prompt injection.
+1. The agent's output goes straight to your terminal, and escape sequences can, for example, set your clipboard.
+   Consider disabling clipboard access by programs in your terminal's settings.
+1. A container escape (a kernel or Podman bug) reaches the Podman machine, which can see the folders shared into it.
+   On Windows that's every drive, and the machine shares a kernel with your other WSL distributions.
 
 Since the code is already public (modulo local branches), the main risk is exfiltration of the fine-grained PAT, which should be short-lived and low-permission.
 There can also be private configuration and history data in `.git`.
@@ -87,24 +123,39 @@ There can also be private configuration and history data in `.git`.
 ## Prerequisites
 
 - Python 3.10 or newer. Use this checkout's `.venv` interpreter when available.
-- Docker Engine 28 or newer, Linux containers, and the Docker Compose v2 plugin with `compose run --pull` support.
-  Windows/macOS need a recent Docker Desktop Linux engine.
-  The launcher checks the server, not just the client.
+- Rootless Podman 4.9 or newer with cgroup v2.
+  On Linux, the launcher uses Podman directly; your account needs `/etc/subuid` and `/etc/subgid` ranges.
+  On Windows and macOS, it uses a dedicated Podman machine (see [Podman Machine](#podman-machine-windows-and-macos));
 - Git; 2.45.1 or newer is recommended and older versions get a warning.
   It contains some security fixes related to nested .git folders.
-- For published images only: Docker Buildx and Azure CLI with permission to pull from the team's `qdkacr` registry.
-  The launcher offers `az acr login --name qdkacr` when registry access fails.
+- For published images only: Azure CLI, signed in, with permission to pull from the team's `qdkacr` registry.
   Locally built images launched with `--local` do not need ACR access.
 - A secret store: initialized `pass` plus GnuPG on Linux, unlocked Keychain (`security`) on macOS, or current-user DPAPI on Windows.
-- On Linux, host bind mounts must be readable/writable by container uid 1000 as appropriate.
-  Docker Desktop must be allowed to share the checkout and instance directory.
+- The checkout, instance directory and exchange folders must be readable/writable by your account, and their paths can't contain commas.
   The launcher does not change host ownership or ACLs.
 
 Images must first be published by the separate image pipeline or built with the maintainer tool.
 This launcher does not install prerequisites.
-Docker's daemon is a trusted host service; rootless/remote-daemon networking and file sharing are not certified by these unit tests.
+Podman and its configuration are trusted, but verification checks the resulting containers, so configuration that adds mounts or devices is refused (see [Troubleshooting](#troubleshooting)).
 
 ## Setup
+
+### Podman Machine (Windows and macOS)
+
+From the repository root, once:
+
+```sh
+.venv/bin/python tools/copilot-sandbox/sandbox.py setup-machine
+```
+
+This creates a rootless Podman machine named `qdk-sandbox`, used only by the sandbox.
+
+- On macOS, it shares only this checkout (and its Git directory, if separate) and `~/qdk-copilot-sandbox`, instead of your whole home folder.
+  Exchange folders relocated outside those need their own shares.
+  Shares can't be changed later; to use another checkout, remove the machine (`podman machine rm qdk-sandbox`, which deletes the instances' work volumes) and run `setup-machine` again.
+  The launcher warns if the machine shares anything else.
+- On Windows, WSL shares every drive and can start Windows programs.
+  `setup-machine` turns off the latter (`[interop] enabled=false` in the machine's `/etc/wsl.conf`), and the launcher refuses to start if it's on.
 
 ### Providing a Token
 
@@ -156,15 +207,7 @@ pass init YOUR_GPG_KEY_FINGERPRINT
 
 ### Launching
 
-**Don't run Docker Compose directly.**
-
-First, start Docker Desktop and login to ACR:
-
-```sh
-az acr login --name qdkacr
-```
-
-Then, from the repository root:
+From the repository root:
 
 ```sh
 .venv/bin/python tools/copilot-sandbox/sandbox.py run
@@ -184,7 +227,7 @@ You may find it convenient to launch a bash prompt in the same session:
 ```
 
 To stop an agent from another terminal, use `sandbox.py stop --instance NAME`.
-This preserves the instance's work, volumes, PAT, and settings; the proxy is left available for the next launch.
+This preserves the instance's work, volumes, PAT, and settings.
 An active launcher performs its normal cleanup and fetch after the agent exits.
 If the launcher is no longer running, use `sandbox.py fetch --instance NAME` to fetch the stopped agent's commits.
 If a launcher is still starting or waiting for input without an agent, exit that launcher instead.
@@ -210,8 +253,10 @@ qdkacr-cfgqhwddajdaebhg.azurecr.io/copilot-sandbox/proxy:<agent-build-id>
 
 `--tag BUILD_ID` selects another published tag.
 Only builds from `main` publish `latest`; use an explicit build ID for feature-branch images.
-The launcher resolves the architecture-specific agent/proxy pair from registry metadata before downloading image layers.
-It asks once for any required downloads, pulls those images in parallel by immutable digest, and pins the session to the selected local image IDs.
+The pipeline builds them with Docker; Podman runs them unchanged.
+The launcher resolves the architecture-specific agent digest from registry metadata before downloading image layers.
+Podman can't read a remote image's labels, so the agent is pulled before its paired proxy is known.
+It asks once before downloading, pulls both images by immutable digest, and pins the session to the selected local image IDs.
 There is no download prompt when both images are already available locally.
 Declining downloads uses the existing matching cached pair, or fails if that pair is unavailable.
 If registry inspection fails, using a cached pair requires explicit confirmation. Authentication retries can prompt separately.
@@ -230,7 +275,7 @@ This isn't an offline mode - it's just a way to avoid upgrading your container.
 Local images can be built without using any Microsoft-internal resources.
 
 ```sh
-DOCKER_BUILDKIT=1 .venv/bin/python tools/copilot-sandbox/build_images.py --package-source public
+.venv/bin/python tools/copilot-sandbox/build_images.py --package-source public
 ```
 
 By default, it will build (and thus, pre-download dependencies) for only the QDK (e.g. not VS Code).
@@ -238,7 +283,7 @@ By default, it will build (and thus, pre-download dependencies) for only the QDK
 If you want to support more or less of the repo, you can pass your own build arguments:
 
 ```sh
-DOCKER_BUILDKIT=1 .venv/bin/python tools/copilot-sandbox/build_images.py --package-source public -- --vscode --npm --wasm
+.venv/bin/python tools/copilot-sandbox/build_images.py --package-source public -- --vscode --npm --wasm
 ```
 
 After the build succeeds, launch Copilot:
@@ -247,7 +292,8 @@ After the build succeeds, launch Copilot:
 .venv/bin/python tools/copilot-sandbox/sandbox.py run --local
 ```
 
-The build tool produces `copilot-sandbox-agent:local`, `copilot-sandbox-proxy:local` and additional build-id pairing tags.
+The build tool uses Podman (in the `qdk-sandbox` machine on Windows and macOS; `--engine docker` is for the pipeline).
+It produces `copilot-sandbox-agent:local`, `copilot-sandbox-proxy:local` and additional build-id pairing tags.
 The launcher selects the local agent and its matching build-id-tagged proxy.
 Keep those pairing tags; the two `:local` tags alone are not sufficient.
 `run --local --tag TAG` selects another local agent tag.
@@ -283,7 +329,8 @@ To mimic the pipeline build locally, you need to pass a lot more arguments:
 
 `--instance NAME` defaults to `default`. Names are 1-40 lowercase letters, digits, hyphens or underscores, starting with a letter or digit.
 Windows device names such as `con` and `nul` are reserved on every platform.
-Each instance has its own Compose project `qdk-copilot-sandbox-NAME`, proxy, networks, work volume, Copilot home volume, PAT, outbox and settings.
+Each instance has its own containers (`qdk-copilot-sandbox-NAME-agent` and `-proxy`), volumes (`qdk-copilot-sandbox-NAME_work`, `_copilot` and `_relay`), PAT, outbox and settings.
+Instances last run with the Docker-based launcher start with fresh work and Copilot volumes, since Podman can't see Docker's; their outbox commits and settings are kept.
 
 Host state lives in `~/qdk-copilot-sandbox/NAME/` outside the checkout.
 The directory is mode 0700 on POSIX; config/token files are atomically written with mode 0600.
