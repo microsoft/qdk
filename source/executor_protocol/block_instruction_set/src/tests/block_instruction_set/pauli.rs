@@ -8,14 +8,23 @@ use std::sync::Arc;
 use crate::{Argument, Pauli};
 
 /// Factors on one qubit multiply into one, with its phase, and drop out
-/// when they cancel: `X_0 · Y_0 = i Z_0`, `Y_0 · X_0 = -i Z_0`, and
-/// `(X_0 Z_3)²` is the identity.
+/// when they cancel: each pair of axes, in either order, gives the third
+/// with the phase `i` in the cyclic order X, Y, Z and `-i` against it
+/// (`X_0 · Y_0 = i Z_0`, `Y_0 · X_0 = -i Z_0`), and each axis squared, like
+/// `(X_0 Z_3)²`, is the identity.
 #[test]
 fn pauli_factors_on_one_qubit_multiply_into_one() {
     let xz = Pauli::x(0) * Pauli::z(3);
     for (row, product, expected) in [
         ("X_0 · Y_0", Pauli::x(0) * Pauli::y(0), "i Z_0"),
         ("Y_0 · X_0", Pauli::y(0) * Pauli::x(0), "-i Z_0"),
+        ("Y_0 · Z_0", Pauli::y(0) * Pauli::z(0), "i X_0"),
+        ("Z_0 · Y_0", Pauli::z(0) * Pauli::y(0), "-i X_0"),
+        ("Z_0 · X_0", Pauli::z(0) * Pauli::x(0), "i Y_0"),
+        ("X_0 · Z_0", Pauli::x(0) * Pauli::z(0), "-i Y_0"),
+        ("X_0²", Pauli::x(0) * Pauli::x(0), "I"),
+        ("Y_0²", Pauli::y(0) * Pauli::y(0), "I"),
+        ("Z_0²", Pauli::z(0) * Pauli::z(0), "I"),
         ("(X_0 Z_3)²", xz.clone() * xz, "I"),
     ] {
         assert_eq!(product.to_string(), expected, "{row}");

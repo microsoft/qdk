@@ -58,9 +58,9 @@ fn fit(
         .map_err(|mismatch| listed(&mismatch))
 }
 
-/// The block counts `required` states above those `provided` states.
-fn short_counts(required: &BlockCapabilities, provided: &BlockCapabilities) -> Vec<Short> {
-    fit(required, provided).map_or_else(|(blocks, _)| blocks, |()| vec![])
+/// The refusal of the short counts `blocks`, readout parities fitting.
+fn short_of(blocks: Vec<Short>) -> Result<(), (Vec<Short>, bool)> {
+    Err((blocks, false))
 }
 
 /// A required count fits a provided one unless the provider states a
@@ -69,9 +69,11 @@ fn short_counts(required: &BlockCapabilities, provided: &BlockCapabilities) -> V
 /// either side. Each count required above the one provided is listed, with
 /// both counts, every one at once and in the types' order, so that the
 /// faults read alike whatever order the parts stated them in. A fit
-/// refusing an equal count fails "an equal count"; one reading a type the
-/// provider does not state as a limit fails "a type the provider does not
-/// state"; one listing in another order fails "every larger count".
+/// refusing an equal count fails "an equal count"; one refusing a smaller
+/// count, even with no short count listed, fails "a smaller count"; one
+/// reading a type the provider does not state as a limit fails "a type the
+/// provider does not state"; one listing in another order fails "every
+/// larger count".
 #[test]
 fn a_required_count_fits_unless_a_stated_provided_count_is_smaller() {
     let qubit = BlockType::qubit;
@@ -80,41 +82,41 @@ fn a_required_count_fits_unless_a_stated_provided_count_is_smaller() {
             "a type the requirer does not state",
             vec![],
             vec![(carbon(), 0)],
-            vec![],
+            Ok(()),
         ),
         (
             "a type the provider does not state",
             vec![(carbon(), u32::MAX)],
             vec![],
-            vec![],
+            Ok(()),
         ),
         (
             "an equal count",
             vec![(carbon(), 4)],
             vec![(carbon(), 4)],
-            vec![],
+            Ok(()),
         ),
         (
             "a smaller count",
             vec![(carbon(), 3)],
             vec![(carbon(), 4)],
-            vec![],
+            Ok(()),
         ),
         (
             "a larger count",
             vec![(carbon(), 5)],
             vec![(carbon(), 4)],
-            vec![short(carbon(), 5, 4)],
+            short_of(vec![short(carbon(), 5, 4)]),
         ),
         (
             "every larger count, a fitting one between them",
             vec![(qubit(), 9), (magic(), 1), (carbon(), 5)],
             vec![(magic(), 2), (qubit(), 8), (carbon(), 4)],
-            vec![short(carbon(), 5, 4), short(qubit(), 9, 8)],
+            short_of(vec![short(carbon(), 5, 4), short(qubit(), 9, 8)]),
         ),
     ] {
         assert_eq!(
-            short_counts(&stating(&required), &stating(&provided)),
+            fit(&stating(&required), &stating(&provided)),
             expected,
             "{row}"
         );
@@ -163,8 +165,8 @@ fn each_block_type_is_a_count_of_its_own() {
         .with_qubits(8)
         .with_blocks(carbon(), 0);
     assert_eq!(
-        short_counts(&required, &provided),
-        vec![short(carbon(), 2, 0)]
+        fit(&required, &provided),
+        short_of(vec![short(carbon(), 2, 0)])
     );
 }
 

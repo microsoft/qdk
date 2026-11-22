@@ -336,7 +336,9 @@ pub enum DeclarationFault {
         block_type: BlockType,
     },
     /// A variadic operand that is not the last of its side, or a position
-    /// variadic on one side and not on the other.
+    /// both sides declare that only one makes variadic. A variadic operand
+    /// last on the longer side, at a position the other side does not
+    /// declare, is no fault.
     MisplacedVariadic {
         /// The instruction's mnemonic.
         mnemonic: String,
@@ -452,7 +454,9 @@ impl std::error::Error for DeclarationFault {}
 /// are `qubit`, one qubit each, unless listed after the name, as Qodec's
 /// `blocks`: `pub CodeGates [carbon: 2] { … }`. Its instructions declare no
 /// meaning and no flags: a set that needs them is built with
-/// [`BlockInstructionSet::new`].
+/// [`BlockInstructionSet::new`]. Attributes before the name go on its
+/// type, and a `#[cfg(…)]` also on its constants and `set()`, so a set
+/// compiled out leaves nothing behind.
 ///
 /// # Panics
 ///
@@ -487,17 +491,33 @@ macro_rules! instruction_set {
     (@outcomes $outcomes:literal outcomes) => {
         $outcomes
     };
+    // Splits the declaration's attributes, one at a time: its `cfg`s go on
+    // the set's `impl` too, so a declaration compiled out leaves no `impl`
+    // of a missing type; the others (docs, derives, `cfg_attr`s, which may
+    // hold derives) on its type alone.
+    (@split [$($cfg:tt)*] [$($other:tt)*] #[cfg($($condition:tt)*)] $($rest:tt)*) => {
+        $crate::instruction_set!(
+            @split [$($cfg)* #[cfg($($condition)*)]] [$($other)*] $($rest)*
+        );
+    };
+    (@split [$($cfg:tt)*] [$($other:tt)*] #[$($attribute:tt)*] $($rest:tt)*) => {
+        $crate::instruction_set!(
+            @split [$($cfg)*] [$($other)* #[$($attribute)*]] $($rest)*
+        );
+    };
     (
-        $(#[$attribute:meta])*
+        @split [$($cfg:tt)*] [$($other:tt)*]
         $visibility:vis $name:ident $([$($block:ident : $qubits:literal),+ $(,)?])? {
             $($constant:ident = $mnemonic:ident (
                 $($operand:ident),* $(; $($parameter:ident : $kind:ident),* $(,)?)?
             ) $(-> $outcomes:literal $unit:ident)?),* $(,)?
         }
     ) => {
-        $(#[$attribute])*
+        $($cfg)*
+        $($other)*
         $visibility struct $name;
 
+        $($cfg)*
         impl $name {
             $crate::instruction_set!(@opcodes [$($constant)*] $($constant $mnemonic)*);
 
@@ -534,5 +554,8 @@ macro_rules! instruction_set {
                 .clone()
             }
         }
+    };
+    ($($declaration:tt)*) => {
+        $crate::instruction_set!(@split [] [] $($declaration)*);
     };
 }

@@ -36,10 +36,21 @@ instruction_set! {
 }
 
 instruction_set! {
-    /// A code's logical instructions, on blocks of two qubits.
+    /// A code's logical instructions, on blocks of two qubits; derived
+    /// traits are its type's alone.
+    #[derive(Clone, Copy, Debug)]
     CodeGates [carbon: 2] {
         MERGE = merge(carbon, carbon),
         MEASURE = measure(carbon; basis: Pauli) -> 2 outcomes,
+    }
+}
+
+instruction_set! {
+    /// A set compiled out: its type and the type's constants and `set()`
+    /// alike, so nothing names a type that does not exist.
+    #[cfg(any())]
+    Off {
+        H = h(qubit),
     }
 }
 
@@ -302,11 +313,14 @@ fn operand_of_an_undeclared_block_type_is_refused_once() {
     );
 }
 
-/// A variadic operand is the last, and variadic on both sides: otherwise
-/// no block count would say where it ends, or one block would become many,
-/// or many one.
+/// A variadic operand is the last of its side, and a position both sides
+/// declare is variadic on both or on neither: otherwise no block count
+/// would say where it ends, or one block would become many, or many one.
+/// A variadic operand last on the longer side, at a position the other
+/// side does not declare, consumes or makes any number of blocks, as
+/// Qodec's measurement of any number of qubits.
 #[test]
-fn a_variadic_operand_is_last_and_variadic_on_both_sides() {
+fn a_variadic_operand_is_last_and_a_shared_position_is_variadic_on_both_sides() {
     let qubits = || BlockOperand::variadic(BlockType::qubit());
     let misplaced = |mnemonic: &str| {
         Err(vec![DeclarationFault::MisplacedVariadic {
@@ -344,6 +358,23 @@ fn a_variadic_operand_is_last_and_variadic_on_both_sides() {
                 .acts_on([qubits()])
                 .parameter("p", ParameterKind::Pauli)
                 .outcomes(1),
+            Ok(()),
+        ),
+        (
+            "a variadic operand consumed, none made: measuring any number of qubits",
+            InstructionDef::new("measure").takes([qubits()]).outcomes(1),
+            Ok(()),
+        ),
+        (
+            "a variadic operand made, none consumed: preparing any number of qubits",
+            InstructionDef::new("prepare").gives([qubits()]),
+            Ok(()),
+        ),
+        (
+            "a variadic operand past the shorter side's last position",
+            InstructionDef::new("merge")
+                .takes([BlockType::qubit().into(), qubits()])
+                .gives([BlockType::qubit()]),
             Ok(()),
         ),
     ] {
@@ -539,9 +570,10 @@ fn every_declaration_fault_is_reported_at_once() {
 }
 
 /// A device's set over qubits and a code's `carbon` blocks: gates, Stim's
-/// `MPP`, a flagged measurement, an encoding that turns a qubit into a
-/// block, a preparation that makes a block, and an `x` run if a parity of
-/// earlier readouts is odd.
+/// `MPP`, a flagged measurement, a measurement of as many flags as a flag
+/// pattern holds, an encoding that turns a qubit into a block, a
+/// preparation that makes a block, and an `x` run if a parity of earlier
+/// readouts is odd.
 fn device() -> BlockInstructionSet {
     let qubit = || [BlockType::qubit()];
     BlockInstructionSet::new(
@@ -559,6 +591,10 @@ fn device() -> BlockInstructionSet {
                 .acts_on(qubit())
                 .outcomes(1)
                 .flags(["reject", "leak"]),
+            InstructionDef::new("m64")
+                .acts_on(qubit())
+                .outcomes(1)
+                .flags((0..64).map(|k| format!("f{k}"))),
             InstructionDef::new("encode")
                 .takes(qubit())
                 .gives([carbon()]),
@@ -610,10 +646,10 @@ fn check_rows(
 
 /// An instruction its set does not declare, or whose arguments or flag
 /// patterns its instruction does not take, is refused; the same
-/// instruction, with what it takes, is checked to its readout slots. A
-/// readout parity, even of no readout, is taken only when the shots
-/// require readout parities; a bit known when written, whatever they
-/// require.
+/// instruction, with what it takes, is checked to its readout slots, a
+/// pattern on the last of 64 flags included. A readout parity, even of no
+/// readout, is taken only when the shots require readout parities; a bit
+/// known when written, whatever they require.
 #[test]
 #[expect(clippy::too_many_lines, reason = "a table, one row per scene")]
 fn an_instruction_its_set_does_not_take_is_refused() {
@@ -627,6 +663,9 @@ fn an_instruction_its_set_does_not_take_is_refused() {
     };
     let m = literal(&set, "m", &[0])
         .select(&set, [[("leak", 0)]])
+        .expect("a declared flag");
+    let m64_on_its_last_flag = literal(&set, "m64", &[0])
+        .select(&set, [[("f63", 1)]])
         .expect("a declared flag");
     let mut h_with_ms_pattern = m.clone();
     h_with_ms_pattern.opcode = set.opcode("h").expect("an instruction of the set");
@@ -662,6 +701,12 @@ fn an_instruction_its_set_does_not_take_is_refused() {
             }),
         ),
         ("`m` selecting on its flags", m, qubit(), Ok(3)),
+        (
+            "`m64` selecting on its last flag, 63, of the 64 a pattern holds",
+            m64_on_its_last_flag,
+            qubit(),
+            Ok(65),
+        ),
         (
             "a pattern of `m`'s flags on `h`, which has none",
             h_with_ms_pattern,
@@ -827,6 +872,11 @@ fn an_instruction_s_readout_slots_are_those_its_check_answers() {
         ("`rz`", rz, Ok(0)),
         ("`mpp` on two qubits", on("mpp", &[0, 1]), Ok(1)),
         ("`m`, of one outcome and two flags", on("m", &[0]), Ok(3)),
+        (
+            "`m64`, of one outcome and 64 flags",
+            on("m64", &[0]),
+            Ok(65),
+        ),
         ("`encode`", on("encode", &[0]), Ok(0)),
         ("`prepare`", on("prepare", &[0]), Ok(0)),
         ("`cond_x`", cond_x, Ok(0)),
