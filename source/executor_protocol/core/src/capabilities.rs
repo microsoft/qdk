@@ -54,6 +54,10 @@ use crate::{BoundaryCompatible, InstructionSet};
 /// [`unconstrained`](InstructionSet::unconstrained), which states nothing,
 /// with [`map_resources`](Self::map_resources) and
 /// [`map_features`](Self::map_features).
+#[expect(
+    clippy::struct_field_names,
+    reason = "named as its accessor, `set_capabilities`"
+)]
 pub struct Capabilities<S: InstructionSet> {
     resources: Resources,
     features: Features,

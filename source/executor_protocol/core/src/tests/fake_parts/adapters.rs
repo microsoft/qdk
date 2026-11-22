@@ -43,8 +43,7 @@ impl BitFlip {
 }
 
 impl Adapter for BitFlip {
-    type Accepts = Measuring;
-    type Sends = Measuring;
+    type Set = Measuring;
 
     fn accepts(&self) -> &Measuring {
         coin_gates()
@@ -157,8 +156,7 @@ impl Profiler {
 }
 
 impl Adapter for Profiler {
-    type Accepts = Measuring;
-    type Sends = Measuring;
+    type Set = Measuring;
 
     fn accepts(&self) -> &Measuring {
         &self.set
@@ -218,8 +216,7 @@ impl NamesBelow {
 }
 
 impl Adapter for NamesBelow {
-    type Accepts = Measuring;
-    type Sends = Measuring;
+    type Set = Measuring;
 
     fn accepts(&self) -> &Measuring {
         coin_gates()
@@ -263,8 +260,7 @@ pub(crate) struct Splitter {
 }
 
 impl Adapter for Splitter {
-    type Accepts = Measuring;
-    type Sends = Measuring;
+    type Set = Measuring;
 
     fn accepts(&self) -> &Measuring {
         coin_gates()
@@ -360,8 +356,7 @@ impl Spread {
 }
 
 impl Adapter for Spread {
-    type Accepts = Measuring;
-    type Sends = Measuring;
+    type Set = Measuring;
 
     fn accepts(&self) -> &Measuring {
         coin_gates()
@@ -526,8 +521,7 @@ impl Stating {
 }
 
 impl Adapter for Stating {
-    type Accepts = Measuring;
-    type Sends = Measuring;
+    type Set = Measuring;
 
     fn accepts(&self) -> &Measuring {
         coin_gates()
@@ -577,8 +571,7 @@ impl Impatient {
 }
 
 impl Adapter for Impatient {
-    type Accepts = Measuring;
-    type Sends = Measuring;
+    type Set = Measuring;
 
     fn accepts(&self) -> &Measuring {
         coin_gates()
@@ -639,8 +632,7 @@ impl Trap {
 }
 
 impl Adapter for Trap {
-    type Accepts = Measuring;
-    type Sends = Measuring;
+    type Set = Measuring;
 
     fn accepts(&self) -> &Measuring {
         coin_gates()
@@ -712,8 +704,7 @@ impl FailsOnce {
 }
 
 impl Adapter for FailsOnce {
-    type Accepts = Measuring;
-    type Sends = Measuring;
+    type Set = Measuring;
 
     fn accepts(&self) -> &Measuring {
         coin_gates()
@@ -778,8 +769,7 @@ impl Misbehaving {
 }
 
 impl Adapter for Misbehaving {
-    type Accepts = Measuring;
-    type Sends = Measuring;
+    type Set = Measuring;
 
     fn accepts(&self) -> &Measuring {
         coin_gates()
@@ -857,8 +847,7 @@ impl PanicsEnding {
 }
 
 impl Adapter for PanicsEnding {
-    type Accepts = Measuring;
-    type Sends = Measuring;
+    type Set = Measuring;
 
     fn accepts(&self) -> &Measuring {
         coin_gates()
@@ -905,8 +894,7 @@ impl EndsBelow {
 }
 
 impl Adapter for EndsBelow {
-    type Accepts = Measuring;
-    type Sends = Measuring;
+    type Set = Measuring;
 
     fn accepts(&self) -> &Measuring {
         coin_gates()

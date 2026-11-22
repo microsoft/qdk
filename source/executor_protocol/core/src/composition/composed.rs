@@ -56,8 +56,8 @@ use super::part_panics::end_both;
 use crate::PartId;
 use crate::part_id::ChainPosition;
 use crate::{
-    Adapter, Batch, BatchReadouts, Binding, Boundary, BoundaryCompatible, Capabilities,
-    ExecuteError, Executor, InstructionSet, NotReady, Seed, ShotSet,
+    Batch, BatchReadouts, Binding, Boundary, BoundaryCompatible, Capabilities, ExecuteError,
+    Executor, InstructionSet, NotReady, Seed, ShotSet, TranslatingAdapter,
 };
 
 /// Two parts as one: `upper` calls `lower`. A driver, an adapter or an
@@ -166,7 +166,7 @@ struct ChainBelow<'a, A, B> {
     below: &'a mut B,
 }
 
-impl<A: Adapter, B: Executor<Accepts = A::Sends>> Executor for ChainBelow<'_, A, B> {
+impl<A: TranslatingAdapter, B: Executor<Accepts = A::Sends>> Executor for ChainBelow<'_, A, B> {
     type Accepts = A::Accepts;
 
     /// The adapter's, which receives its calls.

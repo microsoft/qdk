@@ -25,7 +25,9 @@ use crate::tests::fake_parts::{
     BitFlip, Bits, CoinCopy, FromThread, Later, Log, NamesBelow, Profiler, Program, Renamed,
     Splitter, Spread, Stating, Trap, Values, batches_of, coin_gate, in_each_bracketing,
 };
-use crate::{CompositionFaults, Features, Resources, RunRequirement, Runner, ShotSet};
+use crate::{
+    CompositionFaults, Features, Resources, RunRequirement, Runner, ShotSet, TranslatingAdapter,
+};
 
 const SEED: u64 = 7;
 
@@ -311,7 +313,8 @@ fn a_joined_part_is_named_for_its_top_part() {
         ),
         (
             "an adapter through an adapter",
-            Adapter::name(&Profiler::new(&counted, &log).through(Spread::new(2, &log))).to_owned(),
+            TranslatingAdapter::name(&Profiler::new(&counted, &log).through(Spread::new(2, &log)))
+                .to_owned(),
             type_name::<Profiler>(),
         ),
         (

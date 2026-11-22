@@ -2,21 +2,19 @@
 // Licensed under the MIT License.
 
 //! The adapter's role, [`Adapter`]: a part between a driver and an
-//! executor.
+//! executor that receives and sends one instruction set type.
 
-use std::any::Any;
-
-use crate::composition::DeclaredParts;
-use crate::part_id::ChainPosition;
 use crate::{
     Batch, BatchReadouts, Binding, Capabilities, ExecuteError, Executor, InstructionSet, NotReady,
     Seed, ShotSet,
 };
 
-/// Answers each `execute` it receives, in the instructions it accepts (of
-/// its set [`Accepts`](Self::Accepts)), by calling the part below, in the
-/// instructions it sends (of its set [`Sends`](Self::Sends)), as many
-/// times as it needs, and maps the readouts back.
+/// Answers each `execute` it receives, in the instructions it accepts, by
+/// calling the part below, in the instructions it sends, both of its set
+/// type [`Set`](Self::Set), as many times as it needs, and maps the
+/// readouts back. A part that sends another set type than it receives is
+/// a [`TranslatingAdapter`](crate::TranslatingAdapter); every `Adapter` is
+/// one.
 ///
 /// Such as a code that turns each logical instruction into physical ones,
 /// a noise model that adds instructions, or a debugger that splits a batch
@@ -49,15 +47,10 @@ use crate::{
 /// ends its shots ([`end_shots`](Self::end_shots)), and the part above
 /// calls it ([`adapt`](Self::adapt)).
 pub trait Adapter {
-    /// The instruction set it receives: the part above must send the same,
-    /// checked at compile time.
-    type Accepts: InstructionSet;
-
-    /// The instruction set it sends: the part below must accept the same,
-    /// checked at compile time. Another set than
-    /// [`Accepts`](Self::Accepts) makes it a lowering, such as a
-    /// [`Lowered`](crate::Lowered) one.
-    type Sends: InstructionSet;
+    /// The instruction set type it receives and sends: the parts above and
+    /// below must send and accept the same, checked at compile time. What
+    /// it accepts and what it sends may still differ in value.
+    type Set: InstructionSet;
 
     /// As [`Executor::name`].
     fn name(&self) -> &str {
@@ -66,10 +59,10 @@ pub trait Adapter {
 
     /// The instructions it receives: what the part above sends must fit
     /// them.
-    fn accepts(&self) -> &Self::Accepts;
+    fn accepts(&self) -> &Self::Set;
 
     /// The instructions it sends: the part below must accept them.
-    fn sends(&self) -> &Self::Sends;
+    fn sends(&self) -> &Self::Set;
 
     /// Its fixed limits on what arrives from above, such as a job queue's
     /// most shots, or what its set's capabilities say it takes: what
@@ -80,8 +73,8 @@ pub trait Adapter {
     /// Stating its real limits is the writer's job: an adapter that does
     /// not lets `on` accept a chain that sends it more than it can take,
     /// which then fails as it runs.
-    fn provides(&self) -> &Capabilities<Self::Accepts> {
-        Self::Accepts::unconstrained()
+    fn provides(&self) -> &Capabilities<Self::Set> {
+        Self::Set::unconstrained()
     }
 
     /// What it requires of the part below, given `above`, what arrives
@@ -89,13 +82,10 @@ pub trait Adapter {
     /// shots, whatever run arrives, or, in its set's capabilities, what an
     /// encoding needs below for what arrives.
     ///
-    /// By default `above` itself, for an adapter that sends the set it
-    /// accepts: it passes what arrives below unchanged. An adapter that
-    /// sends another set states it, since `above` is not of that set: the
-    /// default panics then, at the join, naming the adapter. Stating what
-    /// it changes is the writer's job: an adapter that needs more below,
-    /// and does not say so, lets `on` accept a chain whose executor cannot
-    /// hold it, which then fails as it runs.
+    /// By default `above` itself: it passes what arrives below unchanged.
+    /// Stating what it changes is the writer's job: an adapter that needs
+    /// more below, and does not say so, lets `on` accept a chain whose
+    /// executor cannot hold it, which then fails as it runs.
     ///
     /// It is deterministic, and monotone: given an `above` that requires
     /// no more than another, as [`Capabilities`] defines it, it requires
@@ -104,18 +94,8 @@ pub trait Adapter {
     /// its top, so a part short then is short on every run; and a joined
     /// part calls `requires` again at `ready`, for what its run's start
     /// checked (`docs/capabilities.md`, The rule).
-    fn requires(&self, above: &Capabilities<Self::Accepts>) -> Capabilities<Self::Sends> {
-        let above: &dyn Any = above;
-        above
-            .downcast_ref::<Capabilities<Self::Sends>>()
-            .unwrap_or_else(|| {
-                panic!(
-                    "the adapter `{}` sends another set than it accepts, so it states what \
-                     it requires below (`Adapter::requires`)",
-                    self.name()
-                )
-            })
-            .clone()
+    fn requires(&self, above: &Capabilities<Self::Set>) -> Capabilities<Self::Set> {
+        above.clone()
     }
 
     /// Receives, once, the fit's binding: what the
@@ -125,13 +105,13 @@ pub trait Adapter {
     /// carry. The join to the part below calls it once, after the fit and
     /// before any run; an adapter keeps the binding to encode each
     /// instruction it forwards or adds.
-    fn bind(&mut self, below: Binding<Self::Sends>);
+    fn bind(&mut self, below: Binding<Self::Set>);
 
     /// As [`Executor::ready`], for `above`, what arrives from the part
     /// above.
     fn ready(
         &mut self,
-        above: &Capabilities<Self::Accepts>,
+        above: &Capabilities<Self::Set>,
     ) -> impl Future<Output = Result<(), NotReady>> {
         let _ = above;
         async { Ok(()) }
@@ -174,9 +154,9 @@ pub trait Adapter {
     /// protocol does not check.
     fn adapt(
         &mut self,
-        batches: &[Batch<'_, Self::Accepts>],
+        batches: &[Batch<'_, Self::Set>],
         seed: Seed,
-        below: &mut impl Executor<Accepts = Self::Sends>,
+        below: &mut impl Executor<Accepts = Self::Set>,
         readouts: &mut [BatchReadouts],
     ) -> impl Future<Output = Result<(), ExecuteError>>;
 
@@ -184,84 +164,52 @@ pub trait Adapter {
     fn end_shots(&mut self, shots: &ShotSet) {
         let _ = shots;
     }
-
-    // Protocol hooks: sealed and hidden, as `Driver`'s are.
-
-    /// Adds this part to `parts`, given `above`, what arrives at it, and
-    /// gives what it requires of the part below. Only the crate overrides
-    /// it, to add each part it holds, top to bottom. The
-    /// [`on`](crate::DriverJoins::on) that makes a runner calls it, and
-    /// the runner on each run.
-    #[doc(hidden)]
-    fn declare<'a>(
-        &'a self,
-        above: &Capabilities<Self::Accepts>,
-        parts: &mut DeclaredParts<'a>,
-    ) -> Capabilities<Self::Sends> {
-        parts.push(Adapter::name(self));
-        parts.receive(self.accepts(), self.provides(), above);
-        let required = self.requires(above);
-        parts.send(self.sends(), &required);
-        required
-    }
-
-    /// [`ready`](Self::ready), for this part at `at` in its chain. Only
-    /// the crate overrides it, to name a refusal of a part it holds by
-    /// that part's position.
-    #[doc(hidden)]
-    fn ready_at(
-        &mut self,
-        above: &Capabilities<Self::Accepts>,
-        at: ChainPosition<'_>,
-    ) -> impl Future<Output = Result<(), NotReady>> {
-        let _ = at;
-        self.ready(above)
-    }
 }
 
 // A lent adapter is the adapter itself: every method forwards, and the
 // lint fails the build if a new one falls back to its default instead.
+// Through the blanket `TranslatingAdapter` of every `Adapter`, a lent
+// adapter is a translating one too.
 #[deny(clippy::missing_trait_methods)]
 impl<A: Adapter + ?Sized> Adapter for &mut A {
-    type Accepts = A::Accepts;
-    type Sends = A::Sends;
+    type Set = A::Set;
 
     fn name(&self) -> &str {
         (**self).name()
     }
 
-    fn accepts(&self) -> &A::Accepts {
+    fn accepts(&self) -> &A::Set {
         (**self).accepts()
     }
 
-    fn sends(&self) -> &A::Sends {
+    fn sends(&self) -> &A::Set {
         (**self).sends()
     }
 
-    fn provides(&self) -> &Capabilities<A::Accepts> {
+    fn provides(&self) -> &Capabilities<A::Set> {
         (**self).provides()
     }
 
-    fn requires(&self, above: &Capabilities<A::Accepts>) -> Capabilities<A::Sends> {
+    fn requires(&self, above: &Capabilities<A::Set>) -> Capabilities<A::Set> {
         (**self).requires(above)
     }
 
-    fn bind(&mut self, below: Binding<A::Sends>) {
+    fn bind(&mut self, below: Binding<A::Set>) {
         (**self).bind(below);
     }
 
     fn ready(
         &mut self,
-        above: &Capabilities<A::Accepts>,
+        above: &Capabilities<A::Set>,
     ) -> impl Future<Output = Result<(), NotReady>> {
         (**self).ready(above)
     }
 
     fn adapt(
         &mut self,
-        batches: &[Batch<'_, A::Accepts>],
+        batches: &[Batch<'_, A::Set>],
         seed: Seed,
-        below: &mut impl Executor<Accepts = A::Sends>,
+        below: &mut impl Executor<Accepts = A::Set>,
         readouts: &mut [BatchReadouts],
     ) -> impl Future<Output = Result<(), ExecuteError>> {
         (**self).adapt(batches, seed, below, readouts)
@@ -269,21 +217,5 @@ impl<A: Adapter + ?Sized> Adapter for &mut A {
 
     fn end_shots(&mut self, shots: &ShotSet) {
         (**self).end_shots(shots);
-    }
-
-    fn declare<'a>(
-        &'a self,
-        above: &Capabilities<A::Accepts>,
-        parts: &mut DeclaredParts<'a>,
-    ) -> Capabilities<A::Sends> {
-        (**self).declare(above, parts)
-    }
-
-    fn ready_at(
-        &mut self,
-        above: &Capabilities<A::Accepts>,
-        at: ChainPosition<'_>,
-    ) -> impl Future<Output = Result<(), NotReady>> {
-        (**self).ready_at(above, at)
     }
 }

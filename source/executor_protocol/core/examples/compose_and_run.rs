@@ -383,8 +383,7 @@ impl BitFlip {
 }
 
 impl Adapter for BitFlip {
-    type Accepts = CoinGates;
-    type Sends = CoinGates;
+    type Set = CoinGates;
 
     fn accepts(&self) -> &CoinGates {
         &CoinGates

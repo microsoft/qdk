@@ -8,7 +8,7 @@ use crate::prelude::*;
 use crate::tests::fake_parts::Log;
 use crate::{
     Batch, BatchReadouts, Binding, Capabilities, DriveError, ExecuteError, NotReady,
-    RunRequirement, Seed, ShotId, ShotSet,
+    RunRequirement, Seed, ShotId, ShotSet, TranslatingAdapter,
 };
 
 /// `part`, which logs `"{label} got seed {stream}"` for each `drive`,
@@ -71,7 +71,7 @@ impl<P: Driver> Driver for SeesSeeds<P> {
     }
 }
 
-impl<P: Adapter> Adapter for SeesSeeds<P> {
+impl<P: TranslatingAdapter> TranslatingAdapter for SeesSeeds<P> {
     type Accepts = P::Accepts;
     type Sends = P::Sends;
 

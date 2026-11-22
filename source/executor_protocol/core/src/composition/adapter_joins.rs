@@ -5,7 +5,7 @@
 //! which gives an adapter, and on an executor, which gives an executor.
 
 use super::composed::Composed;
-use crate::{Adapter, Executor};
+use crate::{Executor, TranslatingAdapter};
 
 /// The joins of an adapter with the part below it:
 /// [`through`](Self::through) an adapter, which gives an adapter, and
@@ -13,19 +13,21 @@ use crate::{Adapter, Executor};
 /// has them.
 ///
 /// Each join joins only a part below that accepts the instruction set type
-/// the adapter sends ([`Adapter::Sends`]), checked at compile time, and
+/// the adapter sends ([`TranslatingAdapter::Sends`]), checked at compile
+/// time, and
 /// checks that the set the adapter sends fits the one the part below
-/// accepts, and binds the adapter where it fits ([`Adapter::bind`]);
+/// accepts, and binds the adapter where it fits
+/// ([`TranslatingAdapter::bind`]);
 /// a boundary that does not fit is reported, with every other fault of
 /// the chain, by the [`on`](crate::DriverJoins::on) that makes the runner.
-pub trait AdapterJoins: Adapter + Sized {
+pub trait AdapterJoins: TranslatingAdapter + Sized {
     /// This adapter calling `below`, as one adapter: it accepts and
     /// provides what this adapter accepts and provides, sends what `below`
     /// sends, and requires what `below` requires given what this adapter
     /// requires. What arrives at `below` is checked against what it
     /// provides when the joined adapter gets ready, or, seen from the
     /// chain, by the walk of [`on`](crate::DriverJoins::on).
-    fn through<L: Adapter<Accepts = Self::Sends>>(
+    fn through<L: TranslatingAdapter<Accepts = Self::Sends>>(
         self,
         below: L,
     ) -> Composed<Self, L, Self::Sends> {
@@ -42,4 +44,4 @@ pub trait AdapterJoins: Adapter + Sized {
     }
 }
 
-impl<A: Adapter> AdapterJoins for A {}
+impl<A: TranslatingAdapter> AdapterJoins for A {}

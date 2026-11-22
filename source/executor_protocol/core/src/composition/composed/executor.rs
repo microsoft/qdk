@@ -9,11 +9,11 @@ use crate::composition::boundary_crossing::BoundaryCrossing;
 use crate::composition::part_panics::{await_part, end_both};
 use crate::part_id::ChainPosition;
 use crate::{
-    Adapter, Batch, BatchReadouts, Capabilities, ExecuteError, Executor, InstructionSet, NotReady,
-    Seed, ShotSet,
+    Batch, BatchReadouts, Capabilities, ExecuteError, Executor, InstructionSet, NotReady, Seed,
+    ShotSet, TranslatingAdapter,
 };
 
-impl<U: Adapter, L: Executor<Accepts = U::Sends>> Composed<U, L, U::Sends> {
+impl<U: TranslatingAdapter, L: Executor<Accepts = U::Sends>> Composed<U, L, U::Sends> {
     /// `upper` on `lower`: binds `upper` where its set fits the one `lower`
     /// accepts.
     pub(crate) fn adapter_on(mut upper: U, lower: L) -> Self {
@@ -31,7 +31,7 @@ impl<U: Adapter, L: Executor<Accepts = U::Sends>> Composed<U, L, U::Sends> {
 }
 
 /// An adapter on an executor: an executor.
-impl<U: Adapter, L: Executor<Accepts = U::Sends>> Executor for Composed<U, L, U::Sends> {
+impl<U: TranslatingAdapter, L: Executor<Accepts = U::Sends>> Executor for Composed<U, L, U::Sends> {
     type Accepts = U::Accepts;
 
     /// The adapter's, which receives its calls.

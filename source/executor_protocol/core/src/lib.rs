@@ -46,5 +46,6 @@ pub use lowering::{Lowered, Lowering};
 pub use part_id::PartId;
 pub use roles::{
     Adapter, DriveError, Driver, ExecuteError, ExecuteRefusal, Executor, Failure, NotReady,
+    TranslatingAdapter,
 };
 pub use seed::Seed;

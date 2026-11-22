@@ -12,11 +12,11 @@ use crate::composition::part_panics::{PanicEndingShots, await_part, catch_panic}
 use crate::composition::unended_shots::UnendedShots;
 use crate::part_id::ChainPosition;
 use crate::{
-    Adapter, Binding, Capabilities, DriveError, Driver, Executor, NotReady, RunRequirement, Seed,
-    ShotSet,
+    Binding, Capabilities, DriveError, Driver, Executor, NotReady, RunRequirement, Seed, ShotSet,
+    TranslatingAdapter,
 };
 
-impl<U: Driver, L: Adapter<Accepts = U::Sends>> Composed<U, L, U::Sends> {
+impl<U: Driver, L: TranslatingAdapter<Accepts = U::Sends>> Composed<U, L, U::Sends> {
     /// `upper` through `lower`: binds `upper` where its set fits the one
     /// `lower` accepts.
     pub(crate) fn driver_through(mut upper: U, lower: L) -> Self {
@@ -34,7 +34,7 @@ impl<U: Driver, L: Adapter<Accepts = U::Sends>> Composed<U, L, U::Sends> {
 }
 
 /// A driver through an adapter: a driver.
-impl<U: Driver, L: Adapter<Accepts = U::Sends>> Driver for Composed<U, L, U::Sends> {
+impl<U: Driver, L: TranslatingAdapter<Accepts = U::Sends>> Driver for Composed<U, L, U::Sends> {
     type Output = U::Output;
     type Sends = L::Sends;
 

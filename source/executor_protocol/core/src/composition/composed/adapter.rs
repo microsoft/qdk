@@ -8,12 +8,13 @@ use crate::composition::DeclaredParts;
 use crate::composition::boundary_crossing::BoundaryCrossing;
 use crate::composition::part_panics::{await_part, end_both};
 use crate::part_id::ChainPosition;
+use crate::roles::lent_translating_adapter;
 use crate::{
-    Adapter, Batch, BatchReadouts, Binding, Capabilities, ExecuteError, Executor, InstructionSet,
-    NotReady, Seed, ShotSet,
+    Batch, BatchReadouts, Binding, Capabilities, ExecuteError, Executor, InstructionSet, NotReady,
+    Seed, ShotSet, TranslatingAdapter,
 };
 
-impl<U: Adapter, L: Adapter<Accepts = U::Sends>> Composed<U, L, U::Sends> {
+impl<U: TranslatingAdapter, L: TranslatingAdapter<Accepts = U::Sends>> Composed<U, L, U::Sends> {
     /// `upper` through `lower`: binds `upper` where its set fits the one
     /// `lower` accepts.
     pub(crate) fn adapter_through(mut upper: U, lower: L) -> Self {
@@ -31,7 +32,9 @@ impl<U: Adapter, L: Adapter<Accepts = U::Sends>> Composed<U, L, U::Sends> {
 }
 
 /// An adapter through an adapter: an adapter.
-impl<U: Adapter, L: Adapter<Accepts = U::Sends>> Adapter for Composed<U, L, U::Sends> {
+impl<U: TranslatingAdapter, L: TranslatingAdapter<Accepts = U::Sends>> TranslatingAdapter
+    for Composed<U, L, U::Sends>
+{
     type Accepts = U::Accepts;
     type Sends = L::Sends;
 
@@ -132,3 +135,7 @@ impl<U: Adapter, L: Adapter<Accepts = U::Sends>> Adapter for Composed<U, L, U::S
         await_part(self.upper.ready_at(above, at)).await
     }
 }
+
+lent_translating_adapter!(
+    [U: TranslatingAdapter, L: TranslatingAdapter<Accepts = U::Sends>] Composed<U, L, U::Sends>
+);

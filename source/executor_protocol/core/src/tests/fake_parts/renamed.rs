@@ -6,7 +6,7 @@
 use crate::prelude::*;
 use crate::{
     Batch, BatchReadouts, Binding, Capabilities, DriveError, ExecuteError, NotReady,
-    RunRequirement, Seed, ShotSet,
+    RunRequirement, Seed, ShotSet, TranslatingAdapter,
 };
 
 /// `part`, named `name`, as a part built at run time is named by what it
@@ -72,7 +72,7 @@ impl<P: Driver> Driver for Renamed<P> {
     }
 }
 
-impl<P: Adapter> Adapter for Renamed<P> {
+impl<P: TranslatingAdapter> TranslatingAdapter for Renamed<P> {
     type Accepts = P::Accepts;
     type Sends = P::Sends;
 

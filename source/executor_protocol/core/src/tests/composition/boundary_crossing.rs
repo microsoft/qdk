@@ -52,8 +52,8 @@ struct Failed {
 /// bracketing gets new parts, a new log and a new count.
 fn failed_in_both_brackets<
     D: Driver<Output: std::fmt::Debug>,
-    A: Adapter<Accepts = D::Sends>,
-    E: Executor<Accepts = A::Sends>,
+    A: Adapter<Set = D::Sends>,
+    E: Executor<Accepts = A::Set>,
 >(
     shots: &ShotSet,
     parts: impl Fn(&Log, &Rc<Cell<usize>>) -> (D, A, E),
@@ -347,8 +347,7 @@ enum Stage {
 }
 
 impl Adapter for Stage {
-    type Accepts = Measuring;
-    type Sends = Measuring;
+    type Set = Measuring;
 
     fn accepts(&self) -> &Measuring {
         match self {
@@ -679,8 +678,7 @@ impl Executor for AnswersWhenCalled {
 struct ForwardsWhenCalled(Rc<Cell<usize>>);
 
 impl Adapter for ForwardsWhenCalled {
-    type Accepts = Measuring;
-    type Sends = Measuring;
+    type Set = Measuring;
 
     fn accepts(&self) -> &Measuring {
         coin_gates()
@@ -1030,8 +1028,7 @@ impl Executor for FailsFirst {
 struct RetriesAfterAFailure(Profiler);
 
 impl Adapter for RetriesAfterAFailure {
-    type Accepts = Measuring;
-    type Sends = Measuring;
+    type Set = Measuring;
 
     fn accepts(&self) -> &Measuring {
         Adapter::accepts(&self.0)
@@ -1092,8 +1089,7 @@ fn an_execute_sent_again_after_a_failure_gets_its_readouts_shaped_again() {
 struct PassesTooFewReadouts(Profiler);
 
 impl Adapter for PassesTooFewReadouts {
-    type Accepts = Measuring;
-    type Sends = Measuring;
+    type Set = Measuring;
 
     fn accepts(&self) -> &Measuring {
         Adapter::accepts(&self.0)

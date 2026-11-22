@@ -8,7 +8,7 @@
 use super::composed::Composed;
 use super::{CompositionFaults, DeclaredParts};
 use crate::capabilities::Boundary;
-use crate::{Adapter, Driver, Executor, RunRequirement, Runner};
+use crate::{Driver, Executor, RunRequirement, Runner, TranslatingAdapter};
 
 /// The joins of a driver with the part below it: [`through`](Self::through)
 /// an adapter, which gives a driver, and [`on`](Self::on) an executor,
@@ -25,7 +25,7 @@ pub trait DriverJoins: Driver + Sized {
     /// This driver calling `adapter`, as one driver: it sends what
     /// `adapter` sends, and requires what `adapter` requires given what
     /// this driver requires.
-    fn through<A: Adapter<Accepts = Self::Sends>>(
+    fn through<A: TranslatingAdapter<Accepts = Self::Sends>>(
         self,
         adapter: A,
     ) -> Composed<Self, A, Self::Sends> {

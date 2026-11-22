@@ -2,7 +2,9 @@
 // Licensed under the MIT License.
 
 //! The three roles a part takes in a chain, one trait each, which an
-//! implementer writes: [`Driver`], [`Adapter`] and [`Executor`]. Each
+//! implementer writes: [`Driver`], [`Adapter`] (or, for one that sends
+//! another set type than it receives, [`TranslatingAdapter`]) and
+//! [`Executor`]. Each
 //! trait's methods come in two groups: its declarations, which the joins
 //! read before any run, with what it is handed back, once, before any
 //! run; and what the chain calls on every run. And the errors the run's
@@ -31,9 +33,12 @@ mod driver;
 mod executor;
 mod failure;
 mod not_ready;
+mod translating_adapter;
 
 pub use adapter::Adapter;
 pub use driver::{DriveError, Driver};
 pub use executor::{ExecuteError, ExecuteRefusal, Executor};
 pub use failure::Failure;
 pub use not_ready::NotReady;
+pub use translating_adapter::TranslatingAdapter;
+pub(crate) use translating_adapter::lent_translating_adapter;

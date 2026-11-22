@@ -10,7 +10,7 @@ use std::task::{Context, Poll};
 use crate::prelude::*;
 use crate::{
     Batch, BatchReadouts, Binding, Capabilities, DriveError, ExecuteError, NotReady,
-    RunRequirement, Seed, ShotSet,
+    RunRequirement, Seed, ShotSet, TranslatingAdapter,
 };
 
 /// `part`, named as `part` is, whose futures of `drive`, `adapt` or
@@ -133,7 +133,7 @@ impl<P: Driver> Driver for PanicsInDrop<P> {
     }
 }
 
-impl<P: Adapter> Adapter for PanicsInDrop<P> {
+impl<P: TranslatingAdapter> TranslatingAdapter for PanicsInDrop<P> {
     type Accepts = P::Accepts;
     type Sends = P::Sends;
 

@@ -21,7 +21,7 @@ use crate::tests::fake_parts::{
 use crate::{
     Batch, BatchReadouts, BoundaryCompatible, BoundaryMismatch, Capabilities, CapabilitiesMismatch,
     CompositionFault, CompositionFaults, ExecuteError, FeatureMismatch, Features, PartId,
-    ResourceMismatch, Resources, RunRequirement, Seed,
+    ResourceMismatch, Resources, RunRequirement, Seed, TranslatingAdapter,
 };
 
 /// `h`, `x` and `mz` without `x`.
@@ -246,8 +246,7 @@ fn a_part_is_checked_below_for_the_instructions_it_sends() {
 struct Decomposer(Measuring);
 
 impl Adapter for Decomposer {
-    type Accepts = Measuring;
-    type Sends = Measuring;
+    type Set = Measuring;
 
     fn accepts(&self) -> &Measuring {
         coin_gates()
@@ -585,7 +584,7 @@ fn a_joined_part_requires_its_parts_requirements_in_turn_and_provides_its_top_pa
         ),
         (
             "an encoding through a profiler, requiring",
-            read(&Adapter::requires(
+            read(&TranslatingAdapter::requires(
                 &Spread::new(7, &log)
                     .built_for(2)
                     .through(Profiler::new(&counted, &log)),
@@ -595,7 +594,7 @@ fn a_joined_part_requires_its_parts_requirements_in_turn_and_provides_its_top_pa
         ),
         (
             "a profiler through an encoding, providing",
-            read(Adapter::provides(
+            read(TranslatingAdapter::provides(
                 &Profiler::new(&counted, &log).through(Spread::new(7, &log).built_for(2)),
             )),
             (Resources::unconstrained(), Features::unconstrained()),
@@ -623,7 +622,7 @@ fn a_joined_part_requires_its_parts_requirements_in_turn_and_provides_its_top_pa
         // The decoder's batches of 64, not the queue's 4 shots.
         (
             "a decoder through a queue",
-            read(Adapter::provides(
+            read(TranslatingAdapter::provides(
                 &Stating::capping(64, &log).through(Stating::queue(4, &log)),
             )),
             (batches_of(64), Features::unconstrained()),

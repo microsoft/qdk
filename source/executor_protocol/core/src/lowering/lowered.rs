@@ -14,15 +14,16 @@
 use std::ops::Range;
 
 use super::Lowering;
+use crate::roles::lent_translating_adapter;
 use crate::{
-    Adapter, Batch, BatchReadouts, Binding, Capabilities, ExecuteError, Executor, InstructionSet,
-    Readouts, Seed,
+    Batch, BatchReadouts, Binding, Capabilities, ExecuteError, Executor, InstructionSet,
+    ReadoutSlots, Readouts, Seed, TranslatingAdapter,
 };
 
 /// The adapter that runs the lowering `L`: it accepts `L::From`, sends
 /// `L::To`, requires below what `L` requires, and runs each batch as
 /// `L` lowers it, each sent checked if the batch it lowers arrived
-/// checked, as [`Adapter::adapt`]'s rule asks.
+/// checked, as [`TranslatingAdapter::adapt`]'s rule asks.
 ///
 /// It keeps its lowered batches and their readouts from one `adapt` to the
 /// next, so that, once it has lowered batches as large, an `adapt`
@@ -48,7 +49,7 @@ impl<L: Lowering> Lowered<L> {
     }
 }
 
-impl<L: Lowering> Adapter for Lowered<L> {
+impl<L: Lowering> TranslatingAdapter for Lowered<L> {
     type Accepts = L::From;
     type Sends = L::To;
 
@@ -108,6 +109,8 @@ impl<L: Lowering> Adapter for Lowered<L> {
     }
 }
 
+lent_translating_adapter!([L: Lowering] Lowered<L>);
+
 /// A batch as lowered: its instructions below, and where each instruction
 /// with readout slots finds its readouts.
 struct LoweredBatch<S: InstructionSet> {
@@ -115,7 +118,7 @@ struct LoweredBatch<S: InstructionSet> {
     /// One per instruction above with a readout slot, in their order.
     reads: Vec<InstructionReadouts>,
     /// The readout slots of `instructions`, summed.
-    readout_slots: u32,
+    readout_slots: ReadoutSlots,
 }
 
 /// Where an instruction above finds its readouts: its slots in a row above,
@@ -148,7 +151,7 @@ impl<S: InstructionSet> LoweredBatch<S> {
         self.instructions.clear();
         self.reads.clear();
         let mut above = 0;
-        let mut below: u32 = 0;
+        let mut below: ReadoutSlots = 0;
         for (at, instruction) in instructions.iter().enumerate() {
             let start = self.instructions.len();
             lowering.lower(instruction, &mut self.instructions);

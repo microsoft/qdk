@@ -78,8 +78,7 @@ impl QubitPassThrough {
 }
 
 impl Adapter for QubitPassThrough {
-    type Accepts = QubitLimited;
-    type Sends = QubitLimited;
+    type Set = QubitLimited;
 
     fn accepts(&self) -> &QubitLimited {
         &QubitLimited
@@ -121,8 +120,7 @@ impl QubitNarrowing {
 }
 
 impl Adapter for QubitNarrowing {
-    type Accepts = QubitLimited;
-    type Sends = QubitLimited;
+    type Set = QubitLimited;
 
     fn accepts(&self) -> &QubitLimited {
         &QubitLimited
