@@ -61,9 +61,9 @@ impl Executor for Bits {
 
     /// Holds the qubits the parts above require, or, if none states them,
     /// every qubit it provides.
-    async fn ready(&mut self, required: &Capabilities) -> Result<(), NotReady> {
+    async fn ready(&mut self, above: &Capabilities) -> Result<(), NotReady> {
         let qubit = BlockType::qubit();
-        let stated = required.resources().blocks(&qubit);
+        let stated = above.resources().blocks(&qubit);
         self.qubits = stated
             .or(self.provides.resources().blocks(&qubit))
             .unwrap_or(0) as usize;
