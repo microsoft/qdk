@@ -113,7 +113,7 @@ impl<P: TranslatingAdapter> TranslatingAdapter for Renamed<P> {
         batches: &[Batch<'_, P::Accepts>],
         seed: Seed,
         below: &mut impl Executor<Accepts = P::Sends>,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<P::Accepts>],
     ) -> impl Future<Output = Result<(), ExecuteError>> {
         self.part.adapt(batches, seed, below, readouts)
     }
@@ -150,7 +150,7 @@ impl<P: Executor> Executor for Renamed<P> {
         &mut self,
         batches: &[Batch<'_, P::Accepts>],
         seed: Seed,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<P::Accepts>],
     ) -> impl Future<Output = Result<(), ExecuteError>> {
         self.part.execute(batches, seed, readouts)
     }

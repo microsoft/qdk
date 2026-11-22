@@ -6,6 +6,7 @@
 
 use std::error::Error;
 use std::fmt;
+use std::ops::BitOrAssign;
 
 use crate::{BoundaryCompatible, Capabilities, ReadoutSlots};
 
@@ -58,6 +59,20 @@ pub trait InstructionSet:
 
     /// Why [`check`](Self::check) refuses an instruction.
     type Fault: Error + Send + Sync + 'static;
+
+    /// The value of one readout slot, such as a measured bit, or why the
+    /// readout has none: what an executor writes in each slot of a batch's
+    /// [`BatchReadouts`](crate::BatchReadouts).
+    type Readout: Copy + PartialEq + fmt::Debug;
+
+    /// What the set's parts note of a shot beside its readouts, such as a
+    /// shot they found suspect: `Default` is a shot with nothing noted, and
+    /// `|=` joins what two notes hold.
+    type ShotConditions: Copy + PartialEq + Default + BitOrAssign + fmt::Debug;
+
+    /// The value of a readout slot no part wrote, so that it reads as no
+    /// value, never as one made up for it.
+    const UNWRITTEN_READOUT: Self::Readout;
 
     /// No limit and no need: the core's unconstrained resources and
     /// features, with the set's capabilities that state nothing. What a

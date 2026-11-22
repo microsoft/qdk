@@ -70,7 +70,7 @@ impl Executor for Panics {
         &mut self,
         _batches: &[Batch<'_, Measuring>],
         _seed: Seed,
-        _readouts: &mut [BatchReadouts],
+        _readouts: &mut [BatchReadouts<Measuring>],
     ) -> impl Future<Output = Result<(), ExecuteError>> {
         assert!(
             matches!(self.0, PanicsWhen::Polled),

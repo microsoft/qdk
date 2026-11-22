@@ -2,19 +2,18 @@
 // Licensed under the MIT License.
 
 //! What comes back up for a batch: its [`BatchReadouts`], a row per shot,
-//! in its shot set's order, of one [`ReadoutValue`] per readout slot, with
-//! the shot's [`ShotConditions`]; a slot's position in a row, a
+//! in its shot set's order, of one value per readout slot, with the
+//! shot's conditions, both of the set's types; a slot's position in a row, a
 //! [`ReadoutSlot`]; and the buffer a caller keeps them in, [`Readouts`].
 //!
 //! A part that sends a batch must match each value it gets back to the
 //! readout it asked for, on each shot. Rows by position make that an index:
 //! the slots are each instruction's readouts in instruction order (its
 //! outcomes, then its flags), so slot k is the same readout on every shot
-//! of the batch; and a lost value is [`ReadoutValue::Missing`], never left
-//! out. So the protocol shapes each batch's readouts before the receiver's
+//! of the batch; and a lost value is a value of the set, never left out. So the protocol shapes each batch's readouts before the receiver's
 //! `execute` runs, from the batch: a row per shot, of a value per readout
 //! slot of its instructions, as its sender stated them, each value
-//! `Missing(ReadoutFailure::Other)` and each shot clear of conditions. The
+//! the set's `UNWRITTEN_READOUT` and each shot clear of conditions. The
 //! executor fills them in place, with methods that keep their shape
 //! ([`row_mut`](BatchReadouts::row_mut),
 //! [`set_conditions`](BatchReadouts::set_conditions)), and the part above
@@ -29,52 +28,44 @@
 //! The crate's `docs/batches-and-readouts.md` gives the batches and their
 //! readouts as a part that sends or answers them sees them.
 
-mod readout_failure;
 mod readout_slot;
-mod readout_value;
 mod readouts;
-mod shot_conditions;
 
 use std::fmt;
 
-pub use readout_failure::ReadoutFailure;
 pub use readout_slot::{ReadoutSlot, ReadoutSlots};
-pub use readout_value::ReadoutValue;
 pub use readouts::Readouts;
-pub use shot_conditions::ShotConditions;
+
+use crate::InstructionSet;
 
 /// One batch's readouts: a row per shot, in its shot set's order, of one
-/// [`ReadoutValue`] per readout slot, and each shot's conditions. An
+/// [`S::Readout`](InstructionSet::Readout) per readout slot, and each
+/// shot's [`S::ShotConditions`](InstructionSet::ShotConditions). An
 /// `execute` fills one per batch, shaped by the protocol from the batch,
 /// as [`Executor::execute`](crate::Executor::execute) says.
 ///
 /// Every row has exactly one value per readout slot it was shaped with;
 /// slot k is the same readout on every shot; and a lost value is
-/// [`ReadoutValue::Missing`]. A value no part wrote is
-/// `Missing(ReadoutFailure::Other)`, so that it reads as lost, never as a
-/// bit made up for it. A shot is read by its position in the batch's shot
+/// a value of the set. A value no part wrote is
+/// [`S::UNWRITTEN_READOUT`](InstructionSet::UNWRITTEN_READOUT). A shot is read by its position in the batch's shot
 /// set, as `row(i)`, and written as `row_mut(i)`.
 #[derive(Clone)]
-pub struct BatchReadouts {
+pub struct BatchReadouts<S: InstructionSet> {
     /// The number of values in each row: its readout slots.
     readout_slots: ReadoutSlots,
     /// How many rows there are.
     shots: usize,
     /// The rows, one after another: shot i's row is
     /// `values[i * readout_slots..(i + 1) * readout_slots]`.
-    values: Vec<ReadoutValue>,
+    values: Vec<S::Readout>,
     /// Each shot's conditions, by its position; empty while every shot's
-    /// conditions are `NONE`, so that readouts of clear shots take no
+    /// conditions are the default, so that readouts of clear shots take no
     /// allocation for them.
-    conditions: Vec<ShotConditions>,
+    conditions: Vec<S::ShotConditions>,
 }
 
-/// The value of each slot once shaped, until a part writes it: lost, for
-/// no reason given.
-const PREFILL: ReadoutValue = ReadoutValue::Missing(ReadoutFailure::Other);
-
 /// The same readout slots, rows and conditions, whatever memory each keeps.
-impl PartialEq for BatchReadouts {
+impl<S: InstructionSet> PartialEq for BatchReadouts<S> {
     fn eq(&self, other: &Self) -> bool {
         self.readout_slots == other.readout_slots
             && self.shots == other.shots
@@ -83,15 +74,20 @@ impl PartialEq for BatchReadouts {
     }
 }
 
-impl Eq for BatchReadouts {}
+impl<S: InstructionSet> Eq for BatchReadouts<S>
+where
+    S::Readout: Eq,
+    S::ShotConditions: Eq,
+{
+}
 
 // The small methods a part calls per batch or per shot, to fill readouts
 // or to read them, are `#[inline]`: parts live in other crates, where,
 // without it, these methods are not inlined, and their calls cost more
 // than their work.
-impl BatchReadouts {
+impl<S: InstructionSet> BatchReadouts<S> {
     /// A row of `readout_slots` values for each of `shots` shots, each
-    /// value `Missing(ReadoutFailure::Other)` and each shot clear: the shape
+    /// value the set's `UNWRITTEN_READOUT` and each shot clear: the shape
     /// the protocol gives an executor for a batch of `shots` shots whose
     /// instructions have `readout_slots` readout slots, here for a part that
     /// builds readouts itself, such as a test's expected readouts, or the
@@ -130,7 +126,7 @@ impl BatchReadouts {
         self.readout_slots = readout_slots;
         self.shots = shots;
         self.values.clear();
-        self.values.resize(values, PREFILL);
+        self.values.resize(values, S::UNWRITTEN_READOUT);
         self.conditions.clear();
     }
 
@@ -159,15 +155,15 @@ impl BatchReadouts {
     #[must_use]
     #[track_caller]
     #[inline]
-    pub fn row(&self, position: usize) -> &[ReadoutValue] {
+    pub fn row(&self, position: usize) -> &[S::Readout] {
         self.check_position(position);
         let slots = self.readout_slots as usize;
         &self.values[position * slots..(position + 1) * slots]
     }
 
     /// The row of the shot at `position` in the batch's shot set, to fill:
-    /// its value in each readout slot, by slot, each
-    /// `Missing(ReadoutFailure::Other)` until written.
+    /// its value in each readout slot, by slot, each the set's
+    /// `UNWRITTEN_READOUT` until written.
     ///
     /// # Panics
     ///
@@ -175,7 +171,7 @@ impl BatchReadouts {
     #[must_use]
     #[track_caller]
     #[inline]
-    pub fn row_mut(&mut self, position: usize) -> &mut [ReadoutValue] {
+    pub fn row_mut(&mut self, position: usize) -> &mut [S::Readout] {
         self.check_position(position);
         let slots = self.readout_slots as usize;
         &mut self.values[position * slots..(position + 1) * slots]
@@ -192,7 +188,7 @@ impl BatchReadouts {
     #[must_use]
     #[track_caller]
     #[inline]
-    pub fn value(&self, position: usize, slot: ReadoutSlot) -> ReadoutValue {
+    pub fn value(&self, position: usize, slot: ReadoutSlot) -> S::Readout {
         assert!(
             slot.get() < self.readout_slots,
             "slot {} is beyond the rows' {} readout slots",
@@ -210,16 +206,13 @@ impl BatchReadouts {
     #[must_use]
     #[track_caller]
     #[inline]
-    pub fn conditions(&self, position: usize) -> ShotConditions {
+    pub fn conditions(&self, position: usize) -> S::ShotConditions {
         self.check_position(position);
-        self.conditions
-            .get(position)
-            .copied()
-            .unwrap_or(ShotConditions::NONE)
+        self.conditions.get(position).copied().unwrap_or_default()
     }
 
     /// Sets the conditions of the shot at `position` in the batch's shot
-    /// set, which are [`NONE`](ShotConditions::NONE) until set. The first
+    /// set, which are the default until set. The first
     /// shot given any takes room for every shot's.
     ///
     /// # Panics
@@ -227,13 +220,14 @@ impl BatchReadouts {
     /// When `position` is not below [`shots`](Self::shots).
     #[track_caller]
     #[inline]
-    pub fn set_conditions(&mut self, position: usize, conditions: ShotConditions) {
+    pub fn set_conditions(&mut self, position: usize, conditions: S::ShotConditions) {
         self.check_position(position);
         if self.conditions.is_empty() {
-            if conditions.is_empty() {
+            if conditions == S::ShotConditions::default() {
                 return;
             }
-            self.conditions.resize(self.shots, ShotConditions::NONE);
+            self.conditions
+                .resize(self.shots, S::ShotConditions::default());
         }
         self.conditions[position] = conditions;
     }
@@ -242,7 +236,7 @@ impl BatchReadouts {
     /// batch's instructions sent below in parts, as consecutive `execute`s
     /// on the same shots, such as a stepping debugger sends them: each
     /// shot's row is its rows in the parts, in order, and its conditions
-    /// their union.
+    /// theirs joined (`|=`).
     ///
     /// # Panics
     ///
@@ -251,7 +245,7 @@ impl BatchReadouts {
     /// do not add up to these readouts' (they must answer all of the
     /// batch's instructions).
     #[track_caller]
-    pub fn concat_from(&mut self, parts: &[BatchReadouts]) {
+    pub fn concat_from(&mut self, parts: &[Self]) {
         if let Some(other) = parts.iter().find(|part| part.shots() != self.shots) {
             panic!(
                 "readouts of {} shot{} cannot fill readouts of {}: the parts must answer the same shots",
@@ -267,7 +261,7 @@ impl BatchReadouts {
             self.readout_slots
         );
         for position in 0..self.shots {
-            let mut conditions = ShotConditions::NONE;
+            let mut conditions = S::ShotConditions::default();
             let mut from = position * self.readout_slots as usize;
             for part in parts {
                 let row = part.row(position);
@@ -292,13 +286,13 @@ impl BatchReadouts {
 }
 
 /// The rows, each its values and its shot's conditions, so a failing test
-/// shows them by shot: `BatchReadouts { readout_slots: 1, rows:
-/// [([One], ShotConditions(NONE))] }`.
+/// shows them by shot: `BatchReadouts { readout_slots: 1, rows: [([One],
+/// NONE)] }`, with the set's `Debug` of each.
 #[expect(
     clippy::missing_fields_in_debug,
     reason = "the rows show `values` and `conditions` by shot"
 )]
-impl fmt::Debug for BatchReadouts {
+impl<S: InstructionSet> fmt::Debug for BatchReadouts<S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let rows =
             (0..self.shots()).map(|position| (self.row(position), self.conditions(position)));
@@ -312,9 +306,11 @@ impl fmt::Debug for BatchReadouts {
 /// Lists the rows for `BatchReadouts`' `Debug`.
 struct DebugRows<I>(I);
 
-impl<'a, I> fmt::Debug for DebugRows<I>
+impl<'a, I, R, C> fmt::Debug for DebugRows<I>
 where
-    I: Iterator<Item = (&'a [ReadoutValue], ShotConditions)> + Clone,
+    I: Iterator<Item = (&'a [R], C)> + Clone,
+    R: fmt::Debug + 'a,
+    C: fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_list().entries(self.0.clone()).finish()

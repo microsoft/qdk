@@ -126,7 +126,7 @@ pub trait Executor {
     /// `batches[i]`, shaped by the protocol as a row per shot, in its set's
     /// order, of a value per readout slot of its instructions, as its
     /// sender stated them ([`Batch::readout_slots`]), each value
-    /// `Missing(ReadoutFailure::Other)` and each shot clear of conditions
+    /// the set's `UNWRITTEN_READOUT` and each shot clear of conditions
     /// ([`BatchReadouts`]). The executor fills each row
     /// ([`row_mut`](BatchReadouts::row_mut)) and each shot's conditions
     /// ([`set_conditions`](BatchReadouts::set_conditions)), and writes
@@ -187,7 +187,7 @@ pub trait Executor {
         &mut self,
         batches: &[Batch<'_, Self::Accepts>],
         seed: Seed,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<Self::Accepts>],
     ) -> impl Future<Output = Result<(), ExecuteError>>;
 
     /// Frees what it holds for shots that ended. The protocol calls it on
@@ -262,7 +262,7 @@ impl<E: Executor + ?Sized> Executor for &mut E {
         &mut self,
         batches: &[Batch<'_, E::Accepts>],
         seed: Seed,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<E::Accepts>],
     ) -> impl Future<Output = Result<(), ExecuteError>> {
         (**self).execute(batches, seed, readouts)
     }

@@ -62,7 +62,7 @@ impl<U: TranslatingAdapter, L: Executor<Accepts = U::Sends>> Executor for Compos
         &mut self,
         batches: &[Batch<'_, U::Accepts>],
         seed: Seed,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<U::Accepts>],
     ) -> Result<(), ExecuteError> {
         let (upper, lower, boundary) = self.halves();
         await_part(upper.adapt(

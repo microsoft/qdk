@@ -20,6 +20,7 @@ use std::time::{Duration, Instant};
 use super::driver_joins::{NO_X, fault, listed, part, short_shots};
 use crate::prelude::*;
 use crate::tests::example_sets::Measuring;
+use crate::tests::example_sets::{BitReadout, ShotFlags};
 use crate::tests::fake_parts::{
     BitFlip, Bits, CoinCopy, FailsOnce, FromThread, Later, Log, Panics, PanicsWhen, Profiler,
     Program, Renamed, SeesSeeds, Splitter, Spread, Stating, Trap, Values, YieldNow, batches_of,
@@ -27,8 +28,7 @@ use crate::tests::fake_parts::{
 };
 use crate::{
     BoundaryCompatible, BoundaryMismatch, CapabilitiesMismatch, CompositionFault, DriveError,
-    Failure, FeatureMismatch, Features, ReadoutFailure, ReadoutValue, ResourceMismatch, RunError,
-    RunRefusal, Runner, ShotConditions, ShotSet,
+    Failure, FeatureMismatch, Features, ResourceMismatch, RunError, RunRefusal, Runner, ShotSet,
 };
 
 pub(super) const SEED: u64 = 7;
@@ -153,8 +153,8 @@ fn a_shots_values_are_in_the_order_it_read_them() {
         .run(&ShotSet::ids(0..4), SEED)
         .expect("the run succeeds");
     let expected = (
-        vec![ReadoutValue::Zero, ReadoutValue::One, ReadoutValue::One],
-        ShotConditions::NONE,
+        vec![BitReadout::Zero, BitReadout::One, BitReadout::One],
+        ShotFlags::NONE,
     );
     assert_eq!(records, vec![expected; 4]);
 }
@@ -243,13 +243,7 @@ fn a_lost_value_and_a_rejected_shot_reach_the_driver() {
         .expect("the run succeeds");
     assert_eq!(
         records,
-        vec![
-            (
-                vec![ReadoutValue::Missing(ReadoutFailure::Loss)],
-                ShotConditions::REJECTED
-            );
-            3
-        ]
+        vec![(vec![BitReadout::Lost], ShotFlags::REJECTED); 3]
     );
 }
 

@@ -5,6 +5,7 @@
 
 use std::convert::Infallible;
 
+use super::{BitReadout, ShotFlags};
 use super::{QubitBeyond, Qubits};
 use crate::{BoundaryCompatible, Capabilities, Features, InstructionSet, ReadoutSlots, Resources};
 
@@ -45,6 +46,9 @@ impl InstructionSet for WithToffoli {
     type Capabilities = Qubits;
     type Requirement = u32;
     type Fault = QubitBeyond;
+    type Readout = BitReadout;
+    type ShotConditions = ShotFlags;
+    const UNWRITTEN_READOUT: BitReadout = BitReadout::Unwritten;
 
     fn unconstrained() -> &'static Capabilities<Self> {
         static UNCONSTRAINED: Capabilities<WithToffoli> = Capabilities::new(

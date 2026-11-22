@@ -62,7 +62,7 @@ impl Adapter for BitFlip {
         batches: &[Batch<'_, Measuring>],
         seed: Seed,
         below: &mut impl Executor<Accepts = Measuring>,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<Measuring>],
     ) -> Result<(), ExecuteError> {
         let map = bound(self.below.as_ref());
         let own = seed.derive("bit_flip");
@@ -183,7 +183,7 @@ impl Adapter for Profiler {
         batches: &[Batch<'_, Measuring>],
         seed: Seed,
         below: &mut impl Executor<Accepts = Measuring>,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<Measuring>],
     ) -> Result<(), ExecuteError> {
         let count: usize = batches.iter().map(|batch| batch.instructions.len()).sum();
         self.instructions.set(self.instructions.get() + count);
@@ -235,7 +235,7 @@ impl Adapter for NamesBelow {
         batches: &[Batch<'_, Measuring>],
         seed: Seed,
         below: &mut impl Executor<Accepts = Measuring>,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<Measuring>],
     ) -> Result<(), ExecuteError> {
         self.log.push(format!("below: {}", below.name()));
         self.log
@@ -284,10 +284,10 @@ impl Adapter for Splitter {
         batches: &[Batch<'_, Measuring>],
         seed: Seed,
         below: &mut impl Executor<Accepts = Measuring>,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<Measuring>],
     ) -> Result<(), ExecuteError> {
         let map = bound(self.below.as_ref());
-        let mut parts: Vec<BatchReadouts> = Vec::new();
+        let mut parts: Vec<BatchReadouts<Measuring>> = Vec::new();
         for (batch, batch_readouts) in batches.iter().zip(readouts) {
             let instructions = mapped(map, batch.instructions);
             parts.clear();
@@ -394,7 +394,7 @@ impl Adapter for Spread {
         batches: &[Batch<'_, Measuring>],
         seed: Seed,
         below: &mut impl Executor<Accepts = Measuring>,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<Measuring>],
     ) -> Result<(), ExecuteError> {
         let map = bound(self.below.as_ref());
         forward(batches, seed, below, readouts, |batch| {
@@ -552,7 +552,7 @@ impl Adapter for Stating {
         batches: &[Batch<'_, Measuring>],
         seed: Seed,
         below: &mut impl Executor<Accepts = Measuring>,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<Measuring>],
     ) -> Result<(), ExecuteError> {
         self.spread.adapt(batches, seed, below, readouts).await
     }
@@ -590,7 +590,7 @@ impl Adapter for Impatient {
         batches: &[Batch<'_, Measuring>],
         seed: Seed,
         below: &mut impl Executor<Accepts = Measuring>,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<Measuring>],
     ) -> Result<(), ExecuteError> {
         {
             let mut first = pin!(self.0.adapt(batches, seed, below, &mut *readouts));
@@ -651,7 +651,7 @@ impl Adapter for Trap {
         batches: &[Batch<'_, Measuring>],
         seed: Seed,
         below: &mut impl Executor<Accepts = Measuring>,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<Measuring>],
     ) -> Result<(), ExecuteError> {
         if batches
             .iter()
@@ -723,7 +723,7 @@ impl Adapter for FailsOnce {
         batches: &[Batch<'_, Measuring>],
         seed: Seed,
         below: &mut impl Executor<Accepts = Measuring>,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<Measuring>],
     ) -> Result<(), ExecuteError> {
         self.adapts += 1;
         if self.adapts == 2 {
@@ -788,7 +788,7 @@ impl Adapter for Misbehaving {
         batches: &[Batch<'_, Measuring>],
         seed: Seed,
         below: &mut impl Executor<Accepts = Measuring>,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<Measuring>],
     ) -> Result<(), ExecuteError> {
         match self.misbehaviour {
             Misbehaviour::PanicsWithAString => {
@@ -866,7 +866,7 @@ impl Adapter for PanicsEnding {
         batches: &[Batch<'_, Measuring>],
         seed: Seed,
         below: &mut impl Executor<Accepts = Measuring>,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<Measuring>],
     ) -> Result<(), ExecuteError> {
         self.pass_through
             .adapt(batches, seed, below, readouts)
@@ -913,7 +913,7 @@ impl Adapter for EndsBelow {
         batches: &[Batch<'_, Measuring>],
         seed: Seed,
         below: &mut impl Executor<Accepts = Measuring>,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<Measuring>],
     ) -> Result<(), ExecuteError> {
         self.0.adapt(batches, seed, below, readouts).await?;
         for batch in batches {

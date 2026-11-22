@@ -51,7 +51,7 @@ impl Executor for Refuses {
         &mut self,
         _batches: &[Batch<'_, Measuring>],
         _seed: Seed,
-        _readouts: &mut [BatchReadouts],
+        _readouts: &mut [BatchReadouts<Measuring>],
     ) -> Result<(), ExecuteError> {
         Err(ExecuteError::Refused((self.refusal)(self.shot)))
     }

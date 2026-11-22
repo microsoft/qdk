@@ -13,9 +13,10 @@ use std::time::Duration;
 use super::{Log, Stream, YieldNow, batches_of, capabilities, coin_gates, ready_for};
 use crate::prelude::*;
 use crate::tests::example_sets::Measuring;
+use crate::tests::example_sets::{BitReadout, ShotFlags};
 use crate::{
-    Batch, BatchReadouts, Capabilities, ExecuteError, Features, NotReady, ReadoutFailure,
-    ReadoutValue, Resources, Seed, ShotConditions, ShotId, ShotSet,
+    Batch, BatchReadouts, Capabilities, ExecuteError, Features, NotReady, Resources, Seed, ShotId,
+    ShotSet,
 };
 
 /// A toy executor on classical bits, as many as its instructions name:
@@ -125,7 +126,7 @@ impl Executor for Bits {
         &mut self,
         batches: &[Batch<'_, Measuring>],
         seed: Seed,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<Measuring>],
     ) -> Result<(), ExecuteError> {
         self.log.push("Bits execute");
         for (batch, batch_readouts) in batches.iter().zip(readouts) {
@@ -145,11 +146,11 @@ impl Executor for Bits {
                         Some("x") => bits[q] = !bits[q],
                         Some("mz") => {
                             *row.next().expect("a slot per `mz`") = if self.loses {
-                                ReadoutValue::Missing(ReadoutFailure::Loss)
+                                BitReadout::Lost
                             } else if bits[q] {
-                                ReadoutValue::One
+                                BitReadout::One
                             } else {
-                                ReadoutValue::Zero
+                                BitReadout::Zero
                             };
                         }
                         Some(_) => {}
@@ -157,7 +158,7 @@ impl Executor for Bits {
                     }
                 }
                 if self.loses {
-                    batch_readouts.set_conditions(position, ShotConditions::REJECTED);
+                    batch_readouts.set_conditions(position, ShotFlags::REJECTED);
                 }
             }
         }
@@ -197,7 +198,7 @@ impl<E: Executor> Executor for Later<E> {
         &mut self,
         batches: &[Batch<'_, E::Accepts>],
         seed: Seed,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<E::Accepts>],
     ) -> Result<(), ExecuteError> {
         YieldNow::default().await;
         self.0.execute(batches, seed, readouts).await
@@ -227,7 +228,7 @@ impl<E: Executor> Executor for StatesNoLimits<E> {
         &mut self,
         batches: &[Batch<'_, E::Accepts>],
         seed: Seed,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<E::Accepts>],
     ) -> Result<(), ExecuteError> {
         self.0.execute(batches, seed, readouts).await
     }
@@ -288,7 +289,7 @@ impl<E: Executor> Executor for FromThread<E> {
         &mut self,
         batches: &[Batch<'_, E::Accepts>],
         seed: Seed,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<E::Accepts>],
     ) -> Result<(), ExecuteError> {
         let result = self.inner.execute(batches, seed, readouts).await;
         let handover = Arc::new(Mutex::new(Handover {

@@ -25,6 +25,7 @@ use std::task::Poll;
 use super::runner::{SEED, failed, runner};
 use crate::prelude::*;
 use crate::tests::allocations;
+use crate::tests::example_sets::{BitReadout, ShotFlags};
 use crate::tests::example_sets::{Gate, Measuring, QubitBeyond, UnknownGate};
 use crate::tests::fake_parts::{
     Bits, Log, Misbehaving, Misbehaviour, NamesBelow, Profiler, Program, QubitNarrowing,
@@ -32,11 +33,10 @@ use crate::tests::fake_parts::{
 };
 use crate::{
     Batch, BatchFault, BatchReadouts, Capabilities, CompositionFaults, DriveError, ExecuteError,
-    ExecuteRefusal, Failure, NotReady, PartId, ReadoutValue, Readouts, Runner, Seed,
-    ShotConditions, ShotId, ShotSet,
+    ExecuteRefusal, Failure, NotReady, PartId, Readouts, Runner, Seed, ShotId, ShotSet,
 };
 
-use ReadoutValue::{One, Zero};
+use BitReadout::{One, Zero};
 
 /// A run of a chain in one bracketing: how it failed, what its parts
 /// logged, and how many instructions its profiler counted.
@@ -285,7 +285,7 @@ fn every_batch_is_checked_against_the_set_read_at_composition() {
     ];
     for (i, run) in runs.into_iter().enumerate() {
         let records = run.unwrap_or_else(|error| panic!("bracketing {i}: {error:?}"));
-        let ones = (vec![ReadoutValue::One], ShotConditions::NONE);
+        let ones = (vec![BitReadout::One], ShotFlags::NONE);
         assert_eq!(records, [ones.clone(), ones], "bracketing {i}");
     }
     assert_eq!(log.count("Bits execute"), 3, "each bracketing ran it");
@@ -382,7 +382,7 @@ impl Adapter for Stage {
         batches: &[Batch<'_, Measuring>],
         seed: Seed,
         below: &mut impl Executor<Accepts = Measuring>,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<Measuring>],
     ) -> Result<(), ExecuteError> {
         match self {
             Self::Counts(profiler) => profiler.adapt(batches, seed, below, readouts).await,
@@ -584,9 +584,7 @@ impl Driver for SendsNothing {
         below: &mut impl Executor<Accepts = Measuring>,
     ) -> Result<Vec<()>, DriveError> {
         let mut kept = Readouts::new();
-        below
-            .execute(&[], seed, kept.readouts_for::<Measuring>(&[]))
-            .await?;
+        below.execute(&[], seed, kept.readouts_for(&[])).await?;
         Ok(vec![(); shots.len()])
     }
 }
@@ -665,7 +663,7 @@ impl Executor for AnswersWhenCalled {
         &mut self,
         _batches: &[Batch<'_, Measuring>],
         _seed: Seed,
-        _readouts: &mut [BatchReadouts],
+        _readouts: &mut [BatchReadouts<Measuring>],
     ) -> impl Future<Output = Result<(), ExecuteError>> {
         self.0.set(self.0.get() + 1);
         std::future::ready(Ok(()))
@@ -695,7 +693,7 @@ impl Adapter for ForwardsWhenCalled {
         batches: &[Batch<'_, Measuring>],
         seed: Seed,
         below: &mut impl Executor<Accepts = Measuring>,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<Measuring>],
     ) -> impl Future<Output = Result<(), ExecuteError>> {
         self.0.set(self.0.get() + 1);
         below.execute(batches, seed, readouts)
@@ -749,7 +747,7 @@ struct TwoBatches {
     /// The readout slots it states for each batch.
     stated: [u32; 2],
     passes: Passes,
-    read: Rc<RefCell<Option<Vec<BatchReadouts>>>>,
+    read: Rc<RefCell<Option<Vec<BatchReadouts<Measuring>>>>>,
 }
 
 /// What a [`TwoBatches`] passes below.
@@ -764,7 +762,7 @@ enum Passes {
 }
 
 impl TwoBatches {
-    fn new(read: &Rc<RefCell<Option<Vec<BatchReadouts>>>>) -> Self {
+    fn new(read: &Rc<RefCell<Option<Vec<BatchReadouts<Measuring>>>>>) -> Self {
         Self {
             instructions: [
                 vec![coin_gate("x", 0), coin_gate("mz", 0), coin_gate("mz", 0)],
@@ -792,7 +790,7 @@ impl TwoBatches {
 /// Readouts that held, for a [`TwoBatches`], 3 batches' of values `One`,
 /// each shot rejected: the first of 1 row of 1 value, smaller than the
 /// first batch's, the others of 4 rows of 3, larger than either batch's.
-fn readouts_of_other_shapes() -> Readouts {
+fn readouts_of_other_shapes() -> Readouts<Measuring> {
     let mut readouts = Readouts::new();
     let shot = ShotSet::ids([0]);
     let three = [0; 3].map(|_| Batch::<Measuring>::new(&shot, &[], 0));
@@ -801,7 +799,7 @@ fn readouts_of_other_shapes() -> Readouts {
         *batch_readouts = BatchReadouts::new(rows, slots);
         for position in 0..rows {
             batch_readouts.row_mut(position).fill(One);
-            batch_readouts.set_conditions(position, ShotConditions::REJECTED);
+            batch_readouts.set_conditions(position, ShotFlags::REJECTED);
         }
     }
     readouts
@@ -838,11 +836,12 @@ impl Driver for TwoBatches {
         ];
         let mut kept = readouts_of_other_shapes();
         let readouts = kept.readouts_for(&batches);
-        let (sent, passed): (&[Batch<'_, Measuring>], &mut [BatchReadouts]) = match self.passes {
-            Passes::OnePerBatch => (&batches, &mut readouts[..]),
-            Passes::FewerThanBatches => (&batches, &mut readouts[..1]),
-            Passes::WithoutBatches => (&[], &mut readouts[..1]),
-        };
+        let (sent, passed): (&[Batch<'_, Measuring>], &mut [BatchReadouts<Measuring>]) =
+            match self.passes {
+                Passes::OnePerBatch => (&batches, &mut readouts[..]),
+                Passes::FewerThanBatches => (&batches, &mut readouts[..1]),
+                Passes::WithoutBatches => (&[], &mut readouts[..1]),
+            };
         below.execute(sent, seed, passed).await?;
         *self.read.borrow_mut() = Some(readouts.to_vec());
         Ok(vec![(); shots.len()])
@@ -852,7 +851,7 @@ impl Driver for TwoBatches {
 /// What a [`TwoBatches`] read on the chain `below` composes it into.
 fn read_on<D: Driver, E: Executor<Accepts = D::Sends>>(
     below: impl FnOnce(TwoBatches) -> Result<Runner<D, E>, CompositionFaults>,
-) -> Vec<BatchReadouts> {
+) -> Vec<BatchReadouts<Measuring>> {
     read_stating([2, 0], below)
 }
 
@@ -861,7 +860,7 @@ fn read_on<D: Driver, E: Executor<Accepts = D::Sends>>(
 fn read_stating<D: Driver, E: Executor<Accepts = D::Sends>>(
     stated: [u32; 2],
     below: impl FnOnce(TwoBatches) -> Result<Runner<D, E>, CompositionFaults>,
-) -> Vec<BatchReadouts> {
+) -> Vec<BatchReadouts<Measuring>> {
     let read = Rc::new(RefCell::new(None));
     runner(below(TwoBatches::new(&read).stating(stated)))
         .run(&ShotSet::ids(0..3), SEED)
@@ -872,7 +871,7 @@ fn read_stating<D: Driver, E: Executor<Accepts = D::Sends>>(
 /// An executor that records the readouts it is passed, as it finds them,
 /// then lets [`Bits`] fill them, or, if it has none, leaves them as they
 /// are.
-struct RecordsWhatItFinds(Option<Bits>, Rc<RefCell<Vec<BatchReadouts>>>);
+struct RecordsWhatItFinds(Option<Bits>, Rc<RefCell<Vec<BatchReadouts<Measuring>>>>);
 
 impl Executor for RecordsWhatItFinds {
     type Accepts = Measuring;
@@ -892,7 +891,7 @@ impl Executor for RecordsWhatItFinds {
         &mut self,
         batches: &[Batch<'_, Measuring>],
         seed: Seed,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<Measuring>],
     ) -> Result<(), ExecuteError> {
         *self.1.borrow_mut() = readouts.to_vec();
         match &mut self.0 {
@@ -909,7 +908,7 @@ impl Executor for RecordsWhatItFinds {
 /// shaped as the batch, whether they grow (the first) or shrink (the
 /// second), a row per shot of a value per readout slot its
 /// sender stated (an unchecked batch's instructions unread, so fewer or
-/// more than they read), each value `Missing(ReadoutFailure::Other)` and
+/// more than they read), each value `Unwritten` and
 /// each shot clear, and the driver reads what the executor wrote; what it
 /// did not write stays as found.
 #[test]
@@ -923,7 +922,7 @@ fn each_batchs_readouts_come_shaped_as_the_batch_prefilled() {
     }
     let stating_fewer = vec![BatchReadouts::new(2, 1), BatchReadouts::new(1, 0)];
     let stating_more = vec![BatchReadouts::new(2, 3), BatchReadouts::new(1, 0)];
-    let found: [Rc<RefCell<Vec<BatchReadouts>>>; 6] = Default::default();
+    let found: [Rc<RefCell<Vec<BatchReadouts<Measuring>>>>; 6] = Default::default();
     let executor = |row: usize, writes: bool| {
         let bits = writes.then(|| Bits::new(&log));
         RecordsWhatItFinds(bits, Rc::clone(&found[row]))
@@ -1001,13 +1000,13 @@ impl Executor for FailsFirst {
         &mut self,
         batches: &[Batch<'_, Measuring>],
         seed: Seed,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<Measuring>],
     ) -> Result<(), ExecuteError> {
         self.0.execute(batches, seed, readouts).await?;
         if std::mem::replace(&mut self.1, false) {
             for batch_readouts in readouts.iter_mut() {
                 for position in 0..batch_readouts.shots() {
-                    batch_readouts.set_conditions(position, ShotConditions::REJECTED);
+                    batch_readouts.set_conditions(position, ShotFlags::REJECTED);
                 }
             }
             return Err(ExecuteError::Failed {
@@ -1055,7 +1054,7 @@ impl Adapter for RetriesAfterAFailure {
         batches: &[Batch<'_, Measuring>],
         seed: Seed,
         below: &mut impl Executor<Accepts = Measuring>,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<Measuring>],
     ) -> Result<(), ExecuteError> {
         if self.0.adapt(batches, seed, below, readouts).await.is_ok() {
             return Ok(());
@@ -1116,7 +1115,7 @@ impl Adapter for PassesTooFewReadouts {
         batches: &[Batch<'_, Measuring>],
         seed: Seed,
         below: &mut impl Executor<Accepts = Measuring>,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<Measuring>],
     ) -> Result<(), ExecuteError> {
         self.0.adapt(batches, seed, below, &mut readouts[1..]).await
     }
@@ -1262,7 +1261,7 @@ impl Executor for Zeros {
         &mut self,
         _batches: &[Batch<'_, Measuring>],
         _seed: Seed,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<Measuring>],
     ) -> Result<(), ExecuteError> {
         for batch_readouts in readouts {
             for position in 0..batch_readouts.shots() {

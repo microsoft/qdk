@@ -11,13 +11,14 @@ use std::error::Error;
 use std::fmt;
 
 use crate::prelude::*;
+use crate::tests::example_sets::{BitReadout, ShotFlags};
 use crate::tests::example_sets::{
     Gate, Measuring, OnQubit, QubitBeyond, QubitLimited, UnknownGate, on_qubits,
 };
 use crate::{
     Batch, BatchFault, BatchReadouts, Binding, BoundaryCompatible, Capabilities, DriveError,
-    ExecuteError, ExecuteRefusal, Failure, Features, InstructionSet, ReadoutSlots, ReadoutValue,
-    Readouts, Resources, RunError, RunRequirement, Seed, ShotId, ShotSet,
+    ExecuteError, ExecuteRefusal, Failure, Features, InstructionSet, ReadoutSlots, Readouts,
+    Resources, RunError, RunRequirement, Seed, ShotId, ShotSet,
 };
 
 /// How a sender marks a new batch before it sends it.
@@ -77,7 +78,7 @@ struct Zeros<S: InstructionSet> {
     provides: Capabilities<S>,
 }
 
-impl<S: InstructionSet> Executor for Zeros<S> {
+impl<S: InstructionSet<Readout = BitReadout>> Executor for Zeros<S> {
     type Accepts = S;
 
     fn accepts(&self) -> &S {
@@ -92,11 +93,11 @@ impl<S: InstructionSet> Executor for Zeros<S> {
         &mut self,
         _batches: &[Batch<'_, S>],
         _seed: Seed,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<S>],
     ) -> Result<(), ExecuteError> {
         for batch_readouts in readouts {
             for position in 0..batch_readouts.shots() {
-                batch_readouts.row_mut(position).fill(ReadoutValue::Zero);
+                batch_readouts.row_mut(position).fill(BitReadout::Zero);
             }
         }
         Ok(())
@@ -106,7 +107,7 @@ impl<S: InstructionSet> Executor for Zeros<S> {
 /// The run of shots 0 and 1 of `driver` over an executor of its set
 /// providing `provided`: the readout slots of the readouts it filled, or
 /// the refusal of its batch.
-fn run<S: InstructionSet>(
+fn run<S: InstructionSet<Readout = BitReadout>>(
     driver: Literal<S>,
     provided: Capabilities<S>,
 ) -> Result<u32, ExecuteRefusal> {
@@ -328,6 +329,9 @@ impl InstructionSet for Wide {
     type Capabilities = Nothing;
     type Requirement = ();
     type Fault = Beyond;
+    type Readout = BitReadout;
+    type ShotConditions = ShotFlags;
+    const UNWRITTEN_READOUT: BitReadout = BitReadout::Unwritten;
 
     fn unconstrained() -> &'static Capabilities<Self> {
         static UNCONSTRAINED: Capabilities<Wide> = Capabilities::new(

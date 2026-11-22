@@ -100,7 +100,7 @@ impl Adapter for QubitPassThrough {
         batches: &[Batch<'_, QubitLimited>],
         seed: Seed,
         below: &mut impl Executor<Accepts = QubitLimited>,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<QubitLimited>],
     ) -> Result<(), ExecuteError> {
         below.execute(batches, seed, readouts).await
     }
@@ -142,7 +142,7 @@ impl Adapter for QubitNarrowing {
         batches: &[Batch<'_, QubitLimited>],
         seed: Seed,
         below: &mut impl Executor<Accepts = QubitLimited>,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<QubitLimited>],
     ) -> Result<(), ExecuteError> {
         below.execute(batches, seed, readouts).await
     }
@@ -184,7 +184,7 @@ impl Executor for QubitRegister {
         &mut self,
         _batches: &[Batch<'_, QubitLimited>],
         _seed: Seed,
-        _readouts: &mut [BatchReadouts],
+        _readouts: &mut [BatchReadouts<QubitLimited>],
     ) -> Result<(), ExecuteError> {
         self.log.push("QubitRegister execute");
         Ok(())

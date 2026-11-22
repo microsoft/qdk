@@ -15,16 +15,17 @@ use std::task::Poll;
 
 use crate::prelude::*;
 use crate::tests::allocations;
+use crate::tests::example_sets::{BitReadout, ShotFlags};
 use crate::tests::example_sets::{
     CliffordT, ToffoliGate, TooFewQubits, WithToffoli, WithoutToffoli,
 };
 use crate::tests::fake_parts::{CliffordTRegister, Log, ReadThrice, ToffoliFree, ToffoliProgram};
 use crate::{
-    Batch, BatchReadouts, DriveError, ExecuteError, Lowered, PartId, ReadoutValue, Readouts,
-    RunError, RunRefusal, Seed, ShotConditions, ShotSet,
+    Batch, BatchReadouts, DriveError, ExecuteError, Lowered, PartId, Readouts, RunError,
+    RunRefusal, Seed, ShotSet,
 };
 
-use ReadoutValue::{One, Zero};
+use BitReadout::{One, Zero};
 use ToffoliGate::{Ccz, H, Mz};
 
 /// The outputs of the run of shots `shots` of `program`, lowered by
@@ -33,9 +34,9 @@ use ToffoliGate::{Ccz, H, Mz};
 fn run<L: Lowering<From = WithToffoli, To = WithoutToffoli> + 'static>(
     program: ToffoliProgram,
     lowering: L,
-    reading: &[ReadoutValue],
+    reading: &[BitReadout],
     shots: &ShotSet,
-) -> (Vec<(Vec<ReadoutValue>, ShotConditions)>, Log) {
+) -> (Vec<(Vec<BitReadout>, ShotFlags)>, Log) {
     let log = Log::default();
     let Ok(mut runner) = program
         .through(Lowered::new(lowering))
@@ -97,11 +98,7 @@ fn each_shot_keeps_its_conditions_once_lowered() {
     let conditions: Vec<_> = outputs.iter().map(|(_, conditions)| *conditions).collect();
     assert_eq!(
         conditions,
-        [
-            ShotConditions::NONE,
-            ShotConditions::REJECTED,
-            ShotConditions::NONE
-        ]
+        [ShotFlags::NONE, ShotFlags::REJECTED, ShotFlags::NONE]
     );
 }
 
@@ -299,7 +296,7 @@ impl Executor for Zeros {
         &mut self,
         _batches: &[Batch<'_, WithoutToffoli>],
         _seed: Seed,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<WithoutToffoli>],
     ) -> Result<(), ExecuteError> {
         for batch_readouts in readouts {
             for position in 0..batch_readouts.shots() {

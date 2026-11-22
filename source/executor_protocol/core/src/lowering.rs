@@ -20,7 +20,7 @@ mod lowered;
 
 pub use lowered::Lowered;
 
-use crate::{Binding, Capabilities, InstructionSet, NotReady, ReadoutValue};
+use crate::{Binding, Capabilities, InstructionSet, NotReady};
 
 /// Instructions of the set [`From`](Self::From) run as instructions of the
 /// set [`To`](Self::To), one instruction at a time, with their readouts
@@ -88,27 +88,20 @@ pub trait Lowering {
     /// [`lower`](Self::lower) gave it, in their order. Called for each shot
     /// and each instruction with a readout slot.
     ///
-    /// The default copies `lowered` into `into`: right for a lowering
-    /// whose instruction's readouts are those of its lowering, one for one,
-    /// such as a measurement rewritten as a measurement. A lowering whose
-    /// readouts differ in number writes its own, such as a logical readout
-    /// read as the majority of three physical ones; the default panics on
-    /// it, naming the lowering.
+    /// Such as a logical readout read as the majority of three physical
+    /// ones; a lowering whose readouts are its lowering's, one for one and
+    /// of the same type, copies them (`into.copy_from_slice(lowered)`).
     fn read(
         &self,
         instruction: &<Self::From as InstructionSet>::Instruction,
-        lowered: &[ReadoutValue],
-        into: &mut [ReadoutValue],
-    ) {
-        let _ = instruction;
-        assert!(
-            lowered.len() == into.len(),
-            "the lowering `{}` gives an instruction {} readout slots where it \
-             has {}, so it reads them itself (`Lowering::read`)",
-            std::any::type_name::<Self>(),
-            lowered.len(),
-            into.len()
-        );
-        into.copy_from_slice(lowered);
-    }
+        lowered: &[<Self::To as InstructionSet>::Readout],
+        into: &mut [<Self::From as InstructionSet>::Readout],
+    );
+
+    /// A shot's conditions above, from `lowered`, its conditions below.
+    /// Called for each shot of each batch.
+    fn read_conditions(
+        &self,
+        lowered: <Self::To as InstructionSet>::ShotConditions,
+    ) -> <Self::From as InstructionSet>::ShotConditions;
 }

@@ -34,7 +34,7 @@ pub struct Lowered<L: Lowering> {
     /// memory, from an earlier `adapt` of more batches.
     batches: Vec<LoweredBatch<L::To>>,
     /// The readouts of the batches sent below.
-    readouts: Readouts,
+    readouts: Readouts<L::To>,
 }
 
 impl<L: Lowering> Lowered<L> {
@@ -85,7 +85,7 @@ impl<L: Lowering> TranslatingAdapter for Lowered<L> {
         batches: &[Batch<'_, L::From>],
         seed: Seed,
         below: &mut impl Executor<Accepts = L::To>,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<L::From>],
     ) -> Result<(), ExecuteError> {
         let Self {
             lowering,
@@ -189,13 +189,13 @@ impl<S: InstructionSet> LoweredBatch<S> {
 
     /// Writes the readouts above, `above`, of `instructions`, which it
     /// lowered, from those below, `below`, row by row, each row with its
-    /// shot's conditions.
+    /// shot's conditions read as `lowering` reads them.
     fn read<L: Lowering<To = S>>(
         &self,
         lowering: &L,
         instructions: &[<L::From as InstructionSet>::Instruction],
-        below: &BatchReadouts,
-        above: &mut BatchReadouts,
+        below: &BatchReadouts<S>,
+        above: &mut BatchReadouts<L::From>,
     ) {
         for shot in 0..below.shots() {
             let (row_below, row_above) = (below.row(shot), above.row_mut(shot));
@@ -206,7 +206,7 @@ impl<S: InstructionSet> LoweredBatch<S> {
                     &mut row_above[read.above.clone()],
                 );
             }
-            above.set_conditions(shot, below.conditions(shot));
+            above.set_conditions(shot, lowering.read_conditions(below.conditions(shot)));
         }
     }
 }

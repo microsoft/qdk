@@ -8,6 +8,7 @@ use std::convert::Infallible;
 use std::error::Error;
 use std::fmt;
 
+use super::{BitReadout, ShotFlags};
 use crate::{BoundaryCompatible, Capabilities, Features, InstructionSet, ReadoutSlots, Resources};
 
 /// Gates named by string, each on one qubit, of which `mz` measures its
@@ -107,6 +108,9 @@ impl InstructionSet for Measuring {
     type Capabilities = NoCapabilities;
     type Requirement = ();
     type Fault = UnknownGate;
+    type Readout = BitReadout;
+    type ShotConditions = ShotFlags;
+    const UNWRITTEN_READOUT: BitReadout = BitReadout::Unwritten;
 
     fn unconstrained() -> &'static Capabilities<Self> {
         static UNCONSTRAINED: Capabilities<Measuring> = Capabilities::new(

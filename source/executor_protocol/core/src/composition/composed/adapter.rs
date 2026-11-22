@@ -81,7 +81,7 @@ impl<U: TranslatingAdapter, L: TranslatingAdapter<Accepts = U::Sends>> Translati
         batches: &[Batch<'_, U::Accepts>],
         seed: Seed,
         below: &mut impl Executor<Accepts = L::Sends>,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<U::Accepts>],
     ) -> Result<(), ExecuteError> {
         let (upper, lower, boundary) = self.halves();
         let mut rest = ChainBelow {

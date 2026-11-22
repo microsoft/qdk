@@ -157,7 +157,7 @@ pub trait Adapter {
         batches: &[Batch<'_, Self::Set>],
         seed: Seed,
         below: &mut impl Executor<Accepts = Self::Set>,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<Self::Set>],
     ) -> impl Future<Output = Result<(), ExecuteError>>;
 
     /// As [`Executor::end_shots`].
@@ -210,7 +210,7 @@ impl<A: Adapter + ?Sized> Adapter for &mut A {
         batches: &[Batch<'_, A::Set>],
         seed: Seed,
         below: &mut impl Executor<Accepts = A::Set>,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<A::Set>],
     ) -> impl Future<Output = Result<(), ExecuteError>> {
         (**self).adapt(batches, seed, below, readouts)
     }

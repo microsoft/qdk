@@ -8,10 +8,7 @@
 mod batch_readouts;
 mod shot_set;
 
-pub use batch_readouts::{
-    BatchReadouts, ReadoutFailure, ReadoutSlot, ReadoutSlots, ReadoutValue, Readouts,
-    ShotConditions,
-};
+pub use batch_readouts::{BatchReadouts, ReadoutSlot, ReadoutSlots, Readouts};
 pub use shot_set::{ShotId, ShotSet, ShotSetFault};
 
 use std::fmt;
@@ -94,7 +91,7 @@ impl<'a, S: InstructionSet> Batch<'a, S> {
     ///   its instructions, unreported;
     /// - readout slots misstated shape its readouts wrong. Too few, and the
     ///   receiver may panic writing past its rows. Too many, and the last
-    ///   values of each row stay `Missing(ReadoutFailure::Other)`, at the
+    ///   values of each row stay the set's `UNWRITTEN_READOUT`, at the
     ///   cost of their memory (shots × the stated slots values, allocated in
     ///   the sender's call); more than the memory holds, and the process may
     ///   end, as on an allocation that fails, rather than the run fail,

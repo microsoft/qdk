@@ -263,7 +263,7 @@ impl Adapter for Decomposer {
         _batches: &[Batch<'_, Measuring>],
         _seed: Seed,
         _below: &mut impl Executor<Accepts = Measuring>,
-        _readouts: &mut [BatchReadouts],
+        _readouts: &mut [BatchReadouts<Measuring>],
     ) -> Result<(), ExecuteError> {
         unreachable!("a declaration fake is never run")
     }

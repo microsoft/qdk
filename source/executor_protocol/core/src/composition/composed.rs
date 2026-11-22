@@ -194,7 +194,7 @@ impl<A: TranslatingAdapter, B: Executor<Accepts = A::Sends>> Executor for ChainB
         &mut self,
         batches: &[Batch<'_, A::Accepts>],
         seed: Seed,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<A::Accepts>],
     ) -> impl Future<Output = Result<(), ExecuteError>> {
         self.adapter
             .adapt(batches, seed, &mut *self.below, readouts)

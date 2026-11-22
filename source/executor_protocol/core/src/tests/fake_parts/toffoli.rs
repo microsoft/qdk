@@ -9,10 +9,11 @@
 
 use super::Log;
 use crate::prelude::*;
+use crate::tests::example_sets::{BitReadout, ShotFlags};
 use crate::tests::example_sets::{CliffordT, Qubits, ToffoliGate, WithToffoli, WithoutToffoli};
 use crate::{
-    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, Features, NotReady, ReadoutValue,
-    Resources, RunRequirement, Seed, ShotConditions, ShotSet,
+    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, Features, NotReady, Resources,
+    RunRequirement, Seed, ShotSet,
 };
 
 /// The capabilities of `S` on `qubits` qubits, and unconstrained
@@ -52,7 +53,7 @@ impl ToffoliProgram {
 
 impl Driver for ToffoliProgram {
     type Sends = WithToffoli;
-    type Output = (Vec<ReadoutValue>, ShotConditions);
+    type Output = (Vec<BitReadout>, ShotFlags);
 
     fn sends(&self) -> &WithToffoli {
         &WithToffoli
@@ -89,15 +90,15 @@ impl Driver for ToffoliProgram {
 /// An executor of [`WithoutToffoli`] on `qubits` qubits, which runs
 /// nothing: it logs each batch it receives, and writes `reading` into
 /// every row, as many of its values as the row has slots, and
-/// [`ShotConditions::REJECTED`] on every other shot, from the second.
+/// [`ShotFlags::REJECTED`] on every other shot, from the second.
 pub(crate) struct CliffordTRegister {
     provides: Capabilities<WithoutToffoli>,
-    reading: Vec<ReadoutValue>,
+    reading: Vec<BitReadout>,
     log: Log,
 }
 
 impl CliffordTRegister {
-    pub(crate) fn new(qubits: u32, reading: &[ReadoutValue], log: &Log) -> Self {
+    pub(crate) fn new(qubits: u32, reading: &[BitReadout], log: &Log) -> Self {
         Self {
             provides: on_qubits(qubits),
             reading: reading.to_vec(),
@@ -121,7 +122,7 @@ impl Executor for CliffordTRegister {
         &mut self,
         batches: &[Batch<'_, WithoutToffoli>],
         _seed: Seed,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<WithoutToffoli>],
     ) -> Result<(), ExecuteError> {
         for (batch, readouts) in batches.iter().zip(readouts) {
             self.log.push(format!(
@@ -134,7 +135,7 @@ impl Executor for CliffordTRegister {
                 let slots = row.len();
                 row.copy_from_slice(&self.reading[..slots]);
                 if shot % 2 == 1 {
-                    readouts.set_conditions(shot, ShotConditions::REJECTED);
+                    readouts.set_conditions(shot, ShotFlags::REJECTED);
                 }
             }
         }
@@ -248,6 +249,14 @@ impl Lowering for ToffoliFree {
             ToffoliGate::Ccz(a, b, c) => into.extend(Self::ccz(a, b, c)),
         }
     }
+
+    fn read(&self, _gate: &ToffoliGate, lowered: &[BitReadout], into: &mut [BitReadout]) {
+        into.copy_from_slice(lowered);
+    }
+
+    fn read_conditions(&self, lowered: ShotFlags) -> ShotFlags {
+        lowered
+    }
 }
 
 /// Each `mz` read three times below, its readout the majority of the
@@ -284,46 +293,16 @@ impl Lowering for ReadThrice {
         }
     }
 
-    fn read(&self, _gate: &ToffoliGate, lowered: &[ReadoutValue], into: &mut [ReadoutValue]) {
-        let ones = lowered.iter().filter(|value| **value == ReadoutValue::One);
+    fn read(&self, _gate: &ToffoliGate, lowered: &[BitReadout], into: &mut [BitReadout]) {
+        let ones = lowered.iter().filter(|value| **value == BitReadout::One);
         into[0] = if ones.count() >= 2 {
-            ReadoutValue::One
+            BitReadout::One
         } else {
-            ReadoutValue::Zero
+            BitReadout::Zero
         };
     }
-}
 
-/// Each `mz` read twice below, keeping the default `read`, which copies
-/// one readout for one: a lowering that forgot to read its own.
-pub(crate) struct ReadTwiceUnread;
-
-impl Lowering for ReadTwiceUnread {
-    type From = WithToffoli;
-    type To = WithoutToffoli;
-
-    fn accepts(&self) -> &WithToffoli {
-        &WithToffoli
-    }
-
-    fn sends(&self) -> &WithoutToffoli {
-        &WithoutToffoli
-    }
-
-    fn requires(&self, above: &Capabilities<WithToffoli>) -> Capabilities<WithoutToffoli> {
-        Capabilities::new(
-            *above.resources(),
-            *above.features(),
-            *above.set_capabilities(),
-        )
-    }
-
-    fn bind(&mut self, (): ()) {}
-
-    fn lower(&self, gate: &ToffoliGate, into: &mut Vec<CliffordT>) {
-        match *gate {
-            ToffoliGate::Mz(q) => into.extend([CliffordT::Mz(q); 2]),
-            other => ToffoliFree::new().lower(&other, into),
-        }
+    fn read_conditions(&self, lowered: ShotFlags) -> ShotFlags {
+        lowered
     }
 }

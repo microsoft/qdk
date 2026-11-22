@@ -9,6 +9,7 @@ use std::convert::Infallible;
 use std::error::Error;
 use std::fmt;
 
+use super::{BitReadout, ShotFlags};
 use crate::{BoundaryCompatible, Capabilities, Features, InstructionSet, ReadoutSlots, Resources};
 
 /// One gate, on one qubit: a receiver states the qubits it holds
@@ -65,6 +66,9 @@ impl InstructionSet for QubitLimited {
     type Capabilities = Qubits;
     type Requirement = u32;
     type Fault = QubitBeyond;
+    type Readout = BitReadout;
+    type ShotConditions = ShotFlags;
+    const UNWRITTEN_READOUT: BitReadout = BitReadout::Unwritten;
 
     fn unconstrained() -> &'static Capabilities<Self> {
         static UNCONSTRAINED: Capabilities<QubitLimited> = Capabilities::new(

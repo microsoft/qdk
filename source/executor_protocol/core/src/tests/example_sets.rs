@@ -15,12 +15,19 @@
 //!   a three-qubit `ccz`, the second without it. What the tests of a
 //!   lowering send.
 //!
-//! Each is built only from the crate's public items, as a user's set is.
+//! Each is built only from the crate's public items, as a user's set is,
+//! and all read back a [`BitReadout`] per readout slot and note
+//! [`ShotFlags`] on a shot.
 
+mod bit_readout;
 mod measuring;
 mod qubit_limited;
+mod shot_flags;
 mod with_toffoli;
 mod without_toffoli;
+
+pub(crate) use bit_readout::BitReadout;
+pub(crate) use shot_flags::ShotFlags;
 
 pub(crate) use measuring::{Gate, Measuring, NoCapabilities, UnacceptedNames, UnknownGate};
 pub(crate) use qubit_limited::{

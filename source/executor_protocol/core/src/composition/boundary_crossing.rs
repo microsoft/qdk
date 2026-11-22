@@ -85,7 +85,7 @@ impl<E: Executor> Executor for BoundaryCrossing<'_, E> {
         &mut self,
         batches: &[Batch<'_, E::Accepts>],
         seed: Seed,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<E::Accepts>],
     ) -> Result<(), ExecuteError> {
         assert_eq!(
             readouts.len(),

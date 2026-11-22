@@ -17,14 +17,21 @@ use crate::{Batch, InstructionSet};
 /// The readouts of a caller's `execute`s, kept from one to the next so
 /// that each reuses their memory: [`readouts_for`](Self::readouts_for)
 /// gives one [`BatchReadouts`] per batch, to pass to their `execute`.
-#[derive(Default)]
-pub struct Readouts {
+pub struct Readouts<S: InstructionSet> {
     /// One per batch: those of the last `execute` first, then any kept,
     /// with their memory, from an earlier `execute` of more batches.
-    batch_readouts: Vec<BatchReadouts>,
+    batch_readouts: Vec<BatchReadouts<S>>,
 }
 
-impl Readouts {
+impl<S: InstructionSet> Default for Readouts<S> {
+    fn default() -> Self {
+        Self {
+            batch_readouts: Vec::new(),
+        }
+    }
+}
+
+impl<S: InstructionSet> Readouts<S> {
     /// No readouts, and no memory yet.
     #[must_use]
     pub fn new() -> Self {
@@ -42,10 +49,7 @@ impl Readouts {
     /// [`BatchReadouts::new`]`(batch.shots.len(), batch.readout_slots())`
     /// for each batch instead.
     #[inline]
-    pub fn readouts_for<S: InstructionSet>(
-        &mut self,
-        batches: &[Batch<'_, S>],
-    ) -> &mut [BatchReadouts] {
+    pub fn readouts_for(&mut self, batches: &[Batch<'_, S>]) -> &mut [BatchReadouts<S>] {
         let count = batches.len();
         if self.batch_readouts.len() < count {
             self.batch_readouts

@@ -28,8 +28,7 @@ mod seed;
 mod tests;
 
 pub use batch::{
-    Batch, BatchReadouts, ReadoutFailure, ReadoutSlot, ReadoutSlots, ReadoutValue, Readouts,
-    ShotConditions, ShotId, ShotSet, ShotSetFault,
+    Batch, BatchReadouts, ReadoutSlot, ReadoutSlots, Readouts, ShotId, ShotSet, ShotSetFault,
 };
 pub use boundary_compatible::BoundaryCompatible;
 pub(crate) use capabilities::Boundary;

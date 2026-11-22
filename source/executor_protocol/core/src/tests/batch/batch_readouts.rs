@@ -3,34 +3,32 @@
 
 //! A batch's readouts hold a row per shot, by its position, of exactly one
 //! value per readout slot, with each shot's conditions, shaped unwritten
-//! and clear; `concat_from` joins the parts of one batch; conditions merge
-//! by union.
+//! and clear; `concat_from` joins the parts of one batch, and their
+//! conditions.
 
 use crate::tests::allocations;
 use crate::tests::example_sets::Measuring;
-use crate::{
-    Batch, BatchReadouts, ReadoutFailure, ReadoutSlot, ReadoutValue, Readouts, ShotConditions,
-    ShotSet,
-};
+use crate::tests::example_sets::{BitReadout, ShotFlags};
+use crate::{Batch, BatchReadouts, ReadoutSlot, Readouts, ShotSet};
 
-use ReadoutValue::{One, Zero};
+use BitReadout::{One, Zero};
 
 /// A lost value.
-const LOST: ReadoutValue = ReadoutValue::Missing(ReadoutFailure::Loss);
+const LOST: BitReadout = BitReadout::Lost;
 
 /// A value no part wrote.
-const UNWRITTEN: ReadoutValue = ReadoutValue::Missing(ReadoutFailure::Other);
+const UNWRITTEN: BitReadout = BitReadout::Unwritten;
 
 /// Readouts of `readout_slots` slots, holding `rows` with their
 /// conditions, each written as an executor writes its readouts.
-fn readouts(readout_slots: u32, rows: &[(&[ReadoutValue], ShotConditions)]) -> BatchReadouts {
-    let mut batch = BatchReadouts::new(rows.len(), readout_slots);
+fn readouts(readout_slots: u32, rows: &[(&[BitReadout], ShotFlags)]) -> BatchReadouts<Measuring> {
+    let mut batch = BatchReadouts::<Measuring>::new(rows.len(), readout_slots);
     fill(&mut batch, rows);
     batch
 }
 
 /// Writes `rows` into `batch`, with their conditions.
-fn fill(batch: &mut BatchReadouts, rows: &[(&[ReadoutValue], ShotConditions)]) {
+fn fill(batch: &mut BatchReadouts<Measuring>, rows: &[(&[BitReadout], ShotFlags)]) {
     for (position, (values, conditions)) in rows.iter().enumerate() {
         batch.row_mut(position).copy_from_slice(values);
         batch.set_conditions(position, *conditions);
@@ -39,13 +37,13 @@ fn fill(batch: &mut BatchReadouts, rows: &[(&[ReadoutValue], ShotConditions)]) {
 
 /// New readouts are shaped as the protocol shapes a batch's: a row per
 /// shot, of a value per readout slot, each
-/// `Missing(ReadoutFailure::Other)`, so that a value no part wrote reads
-/// as lost, and each shot clear; a batch with no readout slots, such as
+/// the set's unwritten value, so that a value no part wrote reads as
+/// none, and each shot clear; a batch with no readout slots, such as
 /// one that only applies gates, still has a row per shot, each clear.
 #[test]
 fn new_readouts_are_unwritten_and_clear() {
     for (shots, slots) in [(3, 2), (2, 0)] {
-        let batch = BatchReadouts::new(shots, slots);
+        let batch = BatchReadouts::<Measuring>::new(shots, slots);
         let row = format!("{shots} x {slots}");
         assert_eq!(batch.shots(), shots, "{row}");
         assert_eq!(batch.readout_slots(), slots, "{row}");
@@ -57,7 +55,7 @@ fn new_readouts_are_unwritten_and_clear() {
             );
             assert_eq!(
                 batch.conditions(position),
-                ShotConditions::NONE,
+                ShotFlags::NONE,
                 "{row}, shot {position}"
             );
         }
@@ -70,7 +68,7 @@ fn new_readouts_are_unwritten_and_clear() {
 #[test]
 #[should_panic(expected = "9223372036854775808 shots")]
 fn readouts_of_more_values_than_a_vec_holds_panic() {
-    let _ = BatchReadouts::new(usize::MAX / 2 + 1, 2);
+    let _ = BatchReadouts::<Measuring>::new(usize::MAX / 2 + 1, 2);
 }
 
 /// Each row comes back at the position it was written at, the batch's shot
@@ -81,18 +79,18 @@ fn rows_come_back_by_position_with_their_conditions() {
     let batch = readouts(
         2,
         &[
-            (&[Zero, Zero], ShotConditions::NONE),
-            (&[One, LOST], ShotConditions::UNRESOLVED),
-            (&[Zero, One], ShotConditions::NONE),
+            (&[Zero, Zero], ShotFlags::NONE),
+            (&[One, LOST], ShotFlags::UNRESOLVED),
+            (&[Zero, One], ShotFlags::NONE),
         ],
     );
     assert_eq!(batch.shots(), 3);
     assert_eq!(batch.row(0), [Zero, Zero]);
     assert_eq!(batch.row(1), [One, LOST]);
     assert_eq!(batch.row(2), [Zero, One]);
-    assert_eq!(batch.conditions(0), ShotConditions::NONE);
-    assert_eq!(batch.conditions(1), ShotConditions::UNRESOLVED);
-    assert_eq!(batch.conditions(2), ShotConditions::NONE);
+    assert_eq!(batch.conditions(0), ShotFlags::NONE);
+    assert_eq!(batch.conditions(1), ShotFlags::UNRESOLVED);
+    assert_eq!(batch.conditions(2), ShotFlags::NONE);
 }
 
 /// Two batches' readouts are equal when their rows and each shot's
@@ -104,23 +102,16 @@ fn rows_come_back_by_position_with_their_conditions() {
 /// or for readouts of no rows.
 #[test]
 fn readouts_are_equal_when_their_rows_and_conditions_are() {
-    let rows: [(&[ReadoutValue], ShotConditions); 2] = [
-        (&[One], ShotConditions::NONE),
-        (&[Zero], ShotConditions::REJECTED),
-    ];
-    let clear_rows: [(&[ReadoutValue], ShotConditions); 2] = [
-        (&[One], ShotConditions::NONE),
-        (&[Zero], ShotConditions::NONE),
-    ];
+    let rows: [(&[BitReadout], ShotFlags); 2] =
+        [(&[One], ShotFlags::NONE), (&[Zero], ShotFlags::REJECTED)];
+    let clear_rows: [(&[BitReadout], ShotFlags); 2] =
+        [(&[One], ShotFlags::NONE), (&[Zero], ShotFlags::NONE)];
     let mut cleared = readouts(1, &clear_rows);
-    cleared.set_conditions(0, ShotConditions::INCONSISTENT);
-    cleared.set_conditions(0, ShotConditions::NONE);
+    cleared.set_conditions(0, ShotFlags::INCONSISTENT);
+    cleared.set_conditions(0, ShotFlags::NONE);
     let flipped = readouts(
         1,
-        &[
-            (&[One], ShotConditions::NONE),
-            (&[One], ShotConditions::REJECTED),
-        ],
+        &[(&[One], ShotFlags::NONE), (&[One], ShotFlags::REJECTED)],
     );
     for (row, left, right, equal) in [
         (
@@ -138,14 +129,14 @@ fn readouts_are_equal_when_their_rows_and_conditions_are() {
         ),
         (
             "2 or 3 rows of no values",
-            BatchReadouts::new(2, 0),
-            BatchReadouts::new(3, 0),
+            BatchReadouts::<Measuring>::new(2, 0),
+            BatchReadouts::<Measuring>::new(3, 0),
             false,
         ),
         (
             "no rows, of 1 or 2 values",
-            BatchReadouts::new(0, 1),
-            BatchReadouts::new(0, 2),
+            BatchReadouts::<Measuring>::new(0, 1),
+            BatchReadouts::<Measuring>::new(0, 2),
             false,
         ),
     ] {
@@ -160,8 +151,8 @@ fn value_reads_one_slot_of_a_shots_row() {
     let batch = readouts(
         2,
         &[
-            (&[One, LOST], ShotConditions::NONE),
-            (&[Zero, One], ShotConditions::NONE),
+            (&[One, LOST], ShotFlags::NONE),
+            (&[Zero, One], ShotFlags::NONE),
         ],
     );
     assert_eq!(batch.value(0, ReadoutSlot::new(1)), LOST);
@@ -177,13 +168,13 @@ fn value_reads_one_slot_of_a_shots_row() {
 fn a_batchs_readouts_take_at_most_one_allocation_and_one_more_for_conditions() {
     for (conditioned, most) in [(false, 1), (true, 2)] {
         let count = allocations(|| {
-            let mut batch = BatchReadouts::new(100, 3);
+            let mut batch = BatchReadouts::<Measuring>::new(100, 3);
             for position in 0..100 {
                 batch.row_mut(position).copy_from_slice(&[One, Zero, LOST]);
                 let conditions = if conditioned && position >= 50 {
-                    ShotConditions::REJECTED
+                    ShotFlags::REJECTED
                 } else {
-                    ShotConditions::NONE
+                    ShotFlags::NONE
                 };
                 batch.set_conditions(position, conditions);
             }
@@ -214,7 +205,7 @@ fn readouts_kept_from_a_larger_round_take_a_later_one_without_allocating() {
         for batch_readouts in kept.readouts_for(&batches[..count]) {
             batch_readouts.shape(shots, slots);
             batch_readouts.row_mut(0).fill(One);
-            batch_readouts.set_conditions(shots - 1, ShotConditions::REJECTED);
+            batch_readouts.set_conditions(shots - 1, ShotFlags::REJECTED);
         }
     };
     round(5, 100, 3);
@@ -236,8 +227,8 @@ fn a_slot_beyond_the_rows_panics() {
     let batch = readouts(
         2,
         &[
-            (&[One, Zero], ShotConditions::NONE),
-            (&[Zero, One], ShotConditions::NONE),
+            (&[One, Zero], ShotFlags::NONE),
+            (&[Zero, One], ShotFlags::NONE),
         ],
     );
     let _ = batch.value(0, ReadoutSlot::new(2));
@@ -248,10 +239,10 @@ fn a_slot_beyond_the_rows_panics() {
 /// or two: each panics, naming the position and the rows.
 #[test]
 fn a_shot_beyond_the_rows_panics() {
-    type Call = Box<dyn FnOnce(&mut BatchReadouts)>;
-    let one_row = || readouts(0, &[(&[], ShotConditions::NONE)]);
-    let two_rows = || BatchReadouts::new(2, 0);
-    let panics: [(&str, BatchReadouts, Call, [&str; 2]); 5] = [
+    type Call = Box<dyn FnOnce(&mut BatchReadouts<Measuring>)>;
+    let one_row = || readouts(0, &[(&[], ShotFlags::NONE)]);
+    let two_rows = || BatchReadouts::<Measuring>::new(2, 0);
+    let panics: [(&str, BatchReadouts<Measuring>, Call, [&str; 2]); 5] = [
         (
             "row, of one row",
             one_row(),
@@ -273,7 +264,7 @@ fn a_shot_beyond_the_rows_panics() {
         (
             "set_conditions",
             two_rows(),
-            Box::new(|batch| batch.set_conditions(2, ShotConditions::NONE)),
+            Box::new(|batch| batch.set_conditions(2, ShotFlags::NONE)),
             ["position 2", "2 rows"],
         ),
         (
@@ -302,78 +293,65 @@ fn a_shot_beyond_the_rows_panics() {
 /// unchanged.
 #[test]
 fn concat_joins_each_shots_rows_in_order() {
-    let first = readouts(
-        1,
-        &[
-            (&[One], ShotConditions::NONE),
-            (&[Zero], ShotConditions::NONE),
-        ],
-    );
+    let first = readouts(1, &[(&[One], ShotFlags::NONE), (&[Zero], ShotFlags::NONE)]);
     let second = readouts(
         2,
         &[
-            (&[Zero, LOST], ShotConditions::NONE),
-            (&[One, One], ShotConditions::NONE),
+            (&[Zero, LOST], ShotFlags::NONE),
+            (&[One, One], ShotFlags::NONE),
         ],
     );
     let alone = readouts(
         2,
         &[
-            (&[One, LOST], ShotConditions::REJECTED),
-            (&[Zero, One], ShotConditions::NONE),
+            (&[One, LOST], ShotFlags::REJECTED),
+            (&[Zero, One], ShotFlags::NONE),
         ],
     );
     let two_parts = readouts(
         3,
         &[
-            (&[One, Zero, LOST], ShotConditions::NONE),
-            (&[Zero, One, One], ShotConditions::NONE),
+            (&[One, Zero, LOST], ShotFlags::NONE),
+            (&[Zero, One, One], ShotFlags::NONE),
         ],
     );
     for (row, parts, expected) in [
         ("two parts", vec![first, second], two_parts),
         ("one part", vec![alone.clone()], alone),
     ] {
-        let mut joined = BatchReadouts::new(2, expected.readout_slots());
+        let mut joined = BatchReadouts::<Measuring>::new(2, expected.readout_slots());
         joined.concat_from(&parts);
         assert_eq!(joined, expected, "{row}");
     }
 }
 
 /// A condition any part raised on a shot stays raised on the joined row,
-/// and none other: each shot's conditions are the union of its parts',
+/// and none other: each shot's conditions are its parts' joined (`|=`),
 /// whatever the joined readouts held. So a batch of no readout slots sent
 /// below in no part, as a splitter of its instructions sends one of no
 /// instructions, has its rows' conditions cleared: no part raised any.
 #[test]
 fn concat_unions_each_shots_conditions() {
-    let first = readouts(
-        0,
-        &[(&[], ShotConditions::REJECTED), (&[], ShotConditions::NONE)],
-    );
-    let second = readouts(
-        0,
-        &[
-            (&[], ShotConditions::UNRESOLVED),
-            (&[], ShotConditions::NONE),
-        ],
-    );
-    let mut held_inconsistent = BatchReadouts::new(2, 0);
-    held_inconsistent.set_conditions(1, ShotConditions::INCONSISTENT);
-    let held_rejected = readouts(
-        0,
-        &[(&[], ShotConditions::REJECTED), (&[], ShotConditions::NONE)],
-    );
+    let first = readouts(0, &[(&[], ShotFlags::REJECTED), (&[], ShotFlags::NONE)]);
+    let second = readouts(0, &[(&[], ShotFlags::UNRESOLVED), (&[], ShotFlags::NONE)]);
+    let mut held_inconsistent = BatchReadouts::<Measuring>::new(2, 0);
+    held_inconsistent.set_conditions(1, ShotFlags::INCONSISTENT);
+    let held_rejected = readouts(0, &[(&[], ShotFlags::REJECTED), (&[], ShotFlags::NONE)]);
     let union = readouts(
         0,
         &[
-            (&[], ShotConditions::REJECTED | ShotConditions::UNRESOLVED),
-            (&[], ShotConditions::NONE),
+            (&[], ShotFlags::REJECTED | ShotFlags::UNRESOLVED),
+            (&[], ShotFlags::NONE),
         ],
     );
     for (row, mut joined, parts, expected) in [
         ("two parts", held_inconsistent, vec![first, second], union),
-        ("no parts", held_rejected, vec![], BatchReadouts::new(2, 0)),
+        (
+            "no parts",
+            held_rejected,
+            vec![],
+            BatchReadouts::<Measuring>::new(2, 0),
+        ),
     ] {
         joined.concat_from(&parts);
         assert_eq!(joined, expected, "{row}");
@@ -385,16 +363,8 @@ fn concat_unions_each_shots_conditions() {
 /// the panic names both counts.
 #[test]
 fn concat_panics_on_parts_of_other_shots() {
-    let one = || readouts(1, &[(&[One], ShotConditions::NONE)]);
-    let two = || {
-        readouts(
-            1,
-            &[
-                (&[One], ShotConditions::NONE),
-                (&[Zero], ShotConditions::NONE),
-            ],
-        )
-    };
+    let one = || readouts(1, &[(&[One], ShotFlags::NONE)]);
+    let two = || readouts(1, &[(&[One], ShotFlags::NONE), (&[Zero], ShotFlags::NONE)]);
     for (row, parts, expected) in [
         (
             "a later part of more shots",
@@ -408,8 +378,10 @@ fn concat_panics_on_parts_of_other_shots() {
         ),
     ] {
         let shots = parts[0].shots();
-        let panic = std::panic::catch_unwind(|| BatchReadouts::new(shots, 2).concat_from(&parts))
-            .expect_err(row);
+        let panic = std::panic::catch_unwind(|| {
+            BatchReadouts::<Measuring>::new(shots, 2).concat_from(&parts);
+        })
+        .expect_err(row);
         let message = panic.downcast_ref::<String>().map(String::as_str);
         for said in expected {
             assert!(
@@ -426,7 +398,7 @@ fn concat_panics_on_parts_of_other_shots() {
 /// `u32::MAX` slots cost no memory: the panic names both counts.
 #[test]
 fn concat_panics_on_parts_of_other_summed_readout_slots() {
-    let part = |shots, slots| BatchReadouts::new(shots, slots);
+    let part = |shots, slots| BatchReadouts::<Measuring>::new(shots, slots);
     for (row, rows, parts, expected) in [
         (
             "fewer slots",
@@ -462,94 +434,12 @@ fn concat_panics_on_parts_of_other_summed_readout_slots() {
     }
 }
 
-/// Once raised, a condition stays raised: merging another, or none, keeps
-/// it.
-#[test]
-fn merging_conditions_keeps_every_one_raised() {
-    let mut conditions = ShotConditions::REJECTED;
-    conditions |= ShotConditions::NONE;
-    assert_eq!(conditions, ShotConditions::REJECTED);
-    conditions |= ShotConditions::INCONSISTENT;
-    assert!(conditions.contains(ShotConditions::REJECTED));
-    assert!(conditions.contains(ShotConditions::INCONSISTENT));
-    assert_eq!(
-        conditions | ShotConditions::NONE,
-        ShotConditions::REJECTED | ShotConditions::INCONSISTENT
-    );
-}
-
-/// `contains` holds when every condition asked for is raised, not any of
-/// them; asking for none holds for every shot, clear or not.
-#[test]
-fn contains_holds_when_every_condition_asked_is_raised() {
-    let rejected = ShotConditions::REJECTED;
-    for (row, raised, asked, holds) in [
-        (
-            "one raised, one not",
-            rejected,
-            ShotConditions::REJECTED | ShotConditions::UNRESOLVED,
-            false,
-        ),
-        (
-            "one not raised",
-            rejected,
-            ShotConditions::UNRESOLVED,
-            false,
-        ),
-        ("the one raised", rejected, ShotConditions::REJECTED, true),
-        (
-            "none, of a raised set",
-            rejected,
-            ShotConditions::NONE,
-            true,
-        ),
-        (
-            "none, of a clear set",
-            ShotConditions::NONE,
-            ShotConditions::NONE,
-            true,
-        ),
-    ] {
-        assert_eq!(raised.contains(asked), holds, "{row}");
-    }
-}
-
-/// Only a shot with no condition is clear.
-#[test]
-fn only_no_condition_is_empty() {
-    assert!(ShotConditions::NONE.is_empty());
-    assert!(ShotConditions::default().is_empty());
-    for raised in [
-        ShotConditions::REJECTED,
-        ShotConditions::INCONSISTENT,
-        ShotConditions::UNRESOLVED,
-    ] {
-        assert!(!raised.is_empty());
-    }
-}
-
-/// A failing test names the conditions raised.
-#[test]
-fn debug_names_the_conditions() {
-    assert_eq!(
-        format!("{:?}", ShotConditions::NONE),
-        "ShotConditions(NONE)"
-    );
-    assert_eq!(
-        format!(
-            "{:?}",
-            ShotConditions::UNRESOLVED | ShotConditions::REJECTED
-        ),
-        "ShotConditions(REJECTED | UNRESOLVED)"
-    );
-}
-
 /// A failing test shows the readouts by shot.
 #[test]
 fn debug_shows_the_rows_by_shot() {
-    let batch = readouts(1, &[(&[One], ShotConditions::INCONSISTENT)]);
+    let batch = readouts(1, &[(&[One], ShotFlags::INCONSISTENT)]);
     assert_eq!(
         format!("{batch:?}"),
-        "BatchReadouts { readout_slots: 1, rows: [([One], ShotConditions(INCONSISTENT))] }"
+        "BatchReadouts { readout_slots: 1, rows: [([One], ShotFlags(2))] }"
     );
 }

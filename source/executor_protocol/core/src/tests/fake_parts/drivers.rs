@@ -5,10 +5,11 @@
 
 use super::{BEYOND_THE_SET, Log, Values, batches_of, capabilities, coin_gate, coin_gates};
 use crate::prelude::*;
+use crate::tests::example_sets::{BitReadout, ShotFlags};
 use crate::tests::example_sets::{Gate, Measuring};
 use crate::{
-    Batch, Binding, Capabilities, DriveError, Features, NotReady, ReadoutValue, Readouts,
-    Resources, RunRequirement, Seed, ShotConditions, ShotSet,
+    Batch, Binding, Capabilities, DriveError, Features, NotReady, Readouts, Resources,
+    RunRequirement, Seed, ShotSet,
 };
 
 /// A coin tossed on qubit 0, copied onto qubit 1: a toss for every shot in
@@ -108,12 +109,12 @@ impl Driver for CoinCopy {
         below.execute(&toss, seed, tossed).await?;
         let coin = &tossed[0];
         let mut outputs: Vec<Values> = (0..shots.len()).map(|i| coin.row(i).to_vec()).collect();
-        let at = |value: ReadoutValue| -> Vec<usize> {
+        let at = |value: BitReadout| -> Vec<usize> {
             (0..shots.len())
                 .filter(|&i| coin.row(i) == [value])
                 .collect()
         };
-        let (heads, tails) = (at(ReadoutValue::One), at(ReadoutValue::Zero));
+        let (heads, tails) = (at(BitReadout::One), at(BitReadout::Zero));
         let sets: Vec<(&[usize], ShotSet, &[Gate], u32)> = [
             (&heads, &self.sequences[1], self.slots[1]),
             (&tails, &self.sequences[2], self.slots[2]),
@@ -307,7 +308,7 @@ impl Driver for Program {
         }
     }
 
-    type Output = (Values, ShotConditions);
+    type Output = (Values, ShotFlags);
 
     async fn drive(
         &mut self,

@@ -41,9 +41,8 @@
 //!   [`WithToffoli`](crate::tests::example_sets::WithToffoli) to
 //!   [`WithoutToffoli`](crate::tests::example_sets::WithoutToffoli):
 //!   [`ToffoliProgram`], a driver; [`CliffordTRegister`], an executor; and
-//!   the lowerings [`ToffoliFree`], which rewrites `ccz`, [`ReadThrice`],
-//!   which reads its own readouts, and [`ReadTwiceUnread`], which forgets
-//!   to.
+//!   the lowerings [`ToffoliFree`], which rewrites `ccz`, and
+//!   [`ReadThrice`], which reads its own readouts.
 //!
 //! Each part writes what it does to a shared [`Log`], which the test reads
 //! once the parts are composed.
@@ -57,10 +56,9 @@ use std::rc::Rc;
 use std::task::{Context, Poll};
 
 use crate::prelude::*;
+use crate::tests::example_sets::BitReadout;
 use crate::tests::example_sets::{Gate, Measuring, NoCapabilities};
-use crate::{
-    Batch, BatchReadouts, Capabilities, ExecuteError, Features, ReadoutValue, Resources, Seed,
-};
+use crate::{Batch, BatchReadouts, Capabilities, ExecuteError, Features, Resources, Seed};
 
 mod adapters;
 mod drivers;
@@ -80,9 +78,7 @@ pub(crate) use panics_in_drop::PanicsInDrop;
 pub(crate) use qubit_limited::{QubitNarrowing, QubitPassThrough, QubitProgram, QubitRegister};
 pub(crate) use renamed::Renamed;
 pub(crate) use sees_seeds::SeesSeeds;
-pub(crate) use toffoli::{
-    CliffordTRegister, ReadThrice, ReadTwiceUnread, ToffoliFree, ToffoliProgram,
-};
+pub(crate) use toffoli::{CliffordTRegister, ReadThrice, ToffoliFree, ToffoliProgram};
 
 /// `h`, `x` and `mz`: what every fake part accepts and sends, unless a
 /// test gives it another set.
@@ -181,7 +177,7 @@ async fn forward(
     batches: &[Batch<'_, Measuring>],
     seed: Seed,
     below: &mut impl Executor<Accepts = Measuring>,
-    readouts: &mut [BatchReadouts],
+    readouts: &mut [BatchReadouts<Measuring>],
     rewrite: impl FnMut(&Batch<'_, Measuring>) -> Vec<Gate>,
 ) -> Result<(), ExecuteError> {
     let sent: Vec<Vec<Gate>> = batches.iter().map(rewrite).collect();
@@ -202,7 +198,7 @@ fn bound(binding: Option<&Vec<u32>>) -> &[u32] {
 }
 
 /// Each shot's values, in the order it read them.
-pub(crate) type Values = Vec<ReadoutValue>;
+pub(crate) type Values = Vec<BitReadout>;
 
 /// Runs `$check` on the chain of the parts `[$d, …, $e]`, top to bottom,
 /// in each bracketing `through` and `on` make of them: 2 for three parts,

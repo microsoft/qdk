@@ -68,7 +68,7 @@ pub trait TranslatingAdapter {
         batches: &[Batch<'_, Self::Accepts>],
         seed: Seed,
         below: &mut impl Executor<Accepts = Self::Sends>,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<Self::Accepts>],
     ) -> impl Future<Output = Result<(), ExecuteError>>;
 
     /// As [`Adapter::end_shots`].
@@ -152,7 +152,7 @@ impl<A: Adapter> TranslatingAdapter for A {
         batches: &[Batch<'_, A::Set>],
         seed: Seed,
         below: &mut impl Executor<Accepts = A::Set>,
-        readouts: &mut [BatchReadouts],
+        readouts: &mut [BatchReadouts<A::Set>],
     ) -> impl Future<Output = Result<(), ExecuteError>> {
         Adapter::adapt(self, batches, seed, below, readouts)
     }
@@ -216,7 +216,7 @@ macro_rules! lent_translating_adapter {
                 batches: &[$crate::Batch<'_, Self::Accepts>],
                 seed: $crate::Seed,
                 below: &mut impl $crate::Executor<Accepts = Self::Sends>,
-                readouts: &mut [$crate::BatchReadouts],
+                readouts: &mut [$crate::BatchReadouts<Self::Accepts>],
             ) -> impl Future<Output = Result<(), $crate::ExecuteError>> {
                 <$ty as $crate::TranslatingAdapter>::adapt(&mut **self, batches, seed, below, readouts)
             }
