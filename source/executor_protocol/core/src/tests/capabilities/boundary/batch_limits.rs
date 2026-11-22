@@ -16,8 +16,8 @@ use crate::tests::example_sets::{
 };
 use crate::{
     Batch, BatchFault, BatchReadouts, Binding, BoundaryCompatible, Capabilities, DriveError,
-    ExecuteError, ExecuteRefusal, Failure, Features, InstructionSet, ReadoutValue, Readouts,
-    Resources, RunError, Seed, ShotId, ShotSet,
+    ExecuteError, ExecuteRefusal, Failure, Features, InstructionSet, ReadoutSlots, ReadoutValue,
+    Readouts, Resources, RunError, Seed, ShotId, ShotSet,
 };
 
 /// How a sender marks a new batch before it sends it.
@@ -338,13 +338,13 @@ impl InstructionSet for Wide {
         &UNCONSTRAINED
     }
 
-    fn readout_slots(&self, slots: &u32) -> u32 {
+    fn readout_slots(&self, slots: &u32) -> ReadoutSlots {
         *slots
     }
 
     fn requirement(&self, _required: &Nothing) {}
 
-    fn check(&self, slots: &u32, (): &()) -> Result<u32, Beyond> {
+    fn check(&self, slots: &u32, (): &()) -> Result<ReadoutSlots, Beyond> {
         if *slots == u32::MAX {
             Err(Beyond)
         } else {

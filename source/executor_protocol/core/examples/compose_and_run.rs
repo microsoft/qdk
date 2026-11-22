@@ -29,8 +29,8 @@ use std::fmt;
 
 use executor_protocol_core::prelude::*;
 use executor_protocol_core::{
-    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, Features, NotReady, ReadoutValue,
-    Readouts, Resources, Runner, Seed, ShotId, ShotSet,
+    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, Features, NotReady, ReadoutSlots,
+    ReadoutValue, Readouts, Resources, Runner, Seed, ShotId, ShotSet,
 };
 
 /// The seed of the runs: the same seed gives the same values.
@@ -151,7 +151,7 @@ impl InstructionSet for CoinGates {
         &UNCONSTRAINED
     }
 
-    fn readout_slots(&self, gate: &Gate) -> u32 {
+    fn readout_slots(&self, gate: &Gate) -> ReadoutSlots {
         u32::from(matches!(gate, Gate::Mz(_)))
     }
 
@@ -160,7 +160,7 @@ impl InstructionSet for CoinGates {
     }
 
     /// A gate on a qubit the shots hold; any other is refused.
-    fn check(&self, gate: &Gate, qubits: &u32) -> Result<u32, QubitBeyond> {
+    fn check(&self, gate: &Gate, qubits: &u32) -> Result<ReadoutSlots, QubitBeyond> {
         if gate.qubit() < *qubits {
             Ok(self.readout_slots(gate))
         } else {
@@ -505,7 +505,7 @@ impl Executor for Bits {
 
     /// Holds the qubits the parts above require.
     async fn ready(&mut self, above: &Capabilities<CoinGates>) -> Result<(), NotReady> {
-        self.qubits = above.instructions().0 as usize;
+        self.qubits = above.set_capabilities().0 as usize;
         Ok(())
     }
 

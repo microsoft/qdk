@@ -7,7 +7,7 @@
 use std::convert::Infallible;
 
 use super::{QubitBeyond, Qubits};
-use crate::{BoundaryCompatible, Capabilities, Features, InstructionSet, Resources};
+use crate::{BoundaryCompatible, Capabilities, Features, InstructionSet, ReadoutSlots, Resources};
 
 /// `h`, `cx`, `t`, `tdg` and `mz`, on the qubits a receiver states
 /// ([`Qubits`]): the set a lowering's tests lower to. Any two fit.
@@ -58,7 +58,7 @@ impl InstructionSet for WithoutToffoli {
         &UNCONSTRAINED
     }
 
-    fn readout_slots(&self, gate: &CliffordT) -> u32 {
+    fn readout_slots(&self, gate: &CliffordT) -> ReadoutSlots {
         u32::from(matches!(gate, CliffordT::Mz(_)))
     }
 
@@ -66,7 +66,7 @@ impl InstructionSet for WithoutToffoli {
         required.0
     }
 
-    fn check(&self, gate: &CliffordT, qubits: &u32) -> Result<u32, QubitBeyond> {
+    fn check(&self, gate: &CliffordT, qubits: &u32) -> Result<ReadoutSlots, QubitBeyond> {
         match gate.qubits().find(|qubit| qubit >= qubits) {
             Some(qubit) => Err(QubitBeyond {
                 qubit,

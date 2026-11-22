@@ -38,7 +38,7 @@ mod shot_conditions;
 use std::fmt;
 
 pub use readout_failure::ReadoutFailure;
-pub use readout_slot::ReadoutSlot;
+pub use readout_slot::{ReadoutSlot, ReadoutSlots};
 pub use readout_value::ReadoutValue;
 pub use readouts::Readouts;
 pub use shot_conditions::ShotConditions;
@@ -57,7 +57,7 @@ pub use shot_conditions::ShotConditions;
 #[derive(Clone)]
 pub struct BatchReadouts {
     /// The number of values in each row: its readout slots.
-    readout_slots: u32,
+    readout_slots: ReadoutSlots,
     /// How many rows there are.
     shots: usize,
     /// The rows, one after another: shot i's row is
@@ -104,7 +104,7 @@ impl BatchReadouts {
     /// holds.
     #[must_use]
     #[inline]
-    pub fn new(shots: usize, readout_slots: u32) -> Self {
+    pub fn new(shots: usize, readout_slots: ReadoutSlots) -> Self {
         let mut new = Self {
             readout_slots: 0,
             shots: 0,
@@ -118,7 +118,7 @@ impl BatchReadouts {
     /// Shapes it as [`new`](Self::new) does, keeping its memory: no
     /// allocation where its memory has the room.
     #[inline]
-    pub(crate) fn shape(&mut self, shots: usize, readout_slots: u32) {
+    pub(crate) fn shape(&mut self, shots: usize, readout_slots: ReadoutSlots) {
         let values = shots
             .checked_mul(readout_slots as usize)
             .unwrap_or_else(|| {
@@ -139,7 +139,7 @@ impl BatchReadouts {
     /// ([`Batch::readout_slots`](crate::Batch::readout_slots)).
     #[must_use]
     #[inline]
-    pub fn readout_slots(&self) -> u32 {
+    pub fn readout_slots(&self) -> ReadoutSlots {
         self.readout_slots
     }
 

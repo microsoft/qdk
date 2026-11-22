@@ -148,7 +148,7 @@ fn what_a_lowering_requires_below_is_fit_at_on() {
         fault.requirer,
         PartId::new(1, type_name::<Lowered<ToffoliFree>>())
     );
-    let mismatch = fault.mismatch.capabilities.instructions.as_ref();
+    let mismatch = fault.mismatch.capabilities.set_capabilities.as_ref();
     assert_eq!(
         mismatch.and_then(|mismatch| mismatch.downcast_ref()),
         Some(&TooFewQubits {

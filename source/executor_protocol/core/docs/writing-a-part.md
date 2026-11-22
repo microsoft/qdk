@@ -61,7 +61,7 @@ impl Executor for Bits {
 
     /// Holds the qubits the parts above require.
     async fn ready(&mut self, above: &Capabilities<CoinGates>) -> Result<(), NotReady> {
-        self.qubits = above.instructions().0 as usize;
+        self.qubits = above.set_capabilities().0 as usize;
         Ok(())
     }
 

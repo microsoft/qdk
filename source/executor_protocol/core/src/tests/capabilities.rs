@@ -48,7 +48,7 @@ fn every_kind_short() -> (Capabilities<QubitLimited>, Capabilities<QubitLimited>
 
 /// The set's own mismatch in `mismatch`, read as its type.
 fn qubits_short(mismatch: &CapabilitiesMismatch) -> Option<&TooFewQubits> {
-    (mismatch.instructions.as_ref())
+    (mismatch.set_capabilities.as_ref())
         .map(|mismatch| mismatch.downcast_ref().expect("the set's own mismatch"))
 }
 

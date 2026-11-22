@@ -9,7 +9,7 @@ use std::convert::Infallible;
 use std::error::Error;
 use std::fmt;
 
-use crate::{BoundaryCompatible, Capabilities, Features, InstructionSet, Resources};
+use crate::{BoundaryCompatible, Capabilities, Features, InstructionSet, ReadoutSlots, Resources};
 
 /// One gate, on one qubit: a receiver states the qubits it holds
 /// ([`Qubits`]), and refuses a gate on a qubit beyond them. Any two
@@ -75,7 +75,7 @@ impl InstructionSet for QubitLimited {
         &UNCONSTRAINED
     }
 
-    fn readout_slots(&self, _gate: &OnQubit) -> u32 {
+    fn readout_slots(&self, _gate: &OnQubit) -> ReadoutSlots {
         0
     }
 
@@ -83,7 +83,7 @@ impl InstructionSet for QubitLimited {
         required.0
     }
 
-    fn check(&self, gate: &OnQubit, qubits: &u32) -> Result<u32, QubitBeyond> {
+    fn check(&self, gate: &OnQubit, qubits: &u32) -> Result<ReadoutSlots, QubitBeyond> {
         if gate.0 < *qubits {
             Ok(0)
         } else {

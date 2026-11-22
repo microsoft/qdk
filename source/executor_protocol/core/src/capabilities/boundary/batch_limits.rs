@@ -19,7 +19,7 @@
 use std::error::Error;
 use std::fmt;
 
-use crate::{Capabilities, InstructionSet};
+use crate::{Capabilities, InstructionSet, ReadoutSlots};
 
 /// The limits a batch is checked against, per boundary: prepared once per
 /// run, not per batch.
@@ -42,7 +42,7 @@ impl<S: InstructionSet> BatchLimits<S> {
     ) -> Self {
         Self {
             max_instructions: provided.resources().instructions_per_batch,
-            requirement: accepted.requirement(required.instructions()),
+            requirement: accepted.requirement(required.set_capabilities()),
         }
     }
 
@@ -71,9 +71,9 @@ impl<S: InstructionSet> BatchLimits<S> {
         &self,
         set: &S,
         instructions: &[S::Instruction],
-        stated: u32,
+        stated: ReadoutSlots,
     ) -> Result<(), BatchFault> {
-        let mut slots: u32 = 0;
+        let mut slots: ReadoutSlots = 0;
         for (at, instruction) in instructions.iter().enumerate() {
             let its_slots = (set.check(instruction, &self.requirement)).map_err(|fault| {
                 BatchFault::Instruction {
@@ -135,9 +135,9 @@ pub enum BatchFault {
     /// readouts would have been shaped with.
     ReadoutSlotsMisstated {
         /// The readout slots its sender stated.
-        stated: u32,
+        stated: ReadoutSlots,
         /// The readout slots of its instructions.
-        counted: u32,
+        counted: ReadoutSlots,
     },
 }
 

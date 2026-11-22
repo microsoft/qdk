@@ -71,7 +71,7 @@ pub trait Driver {
     ///
     /// By default `run` itself: the driver passes the run below and states
     /// nothing of its own. Stating what its shots use, in its set's
-    /// capabilities ([`Capabilities::instructions`]), is the writer's job:
+    /// capabilities ([`Capabilities::set_capabilities`]), is the writer's job:
     /// a driver that does not lets `on` accept a chain whose executor
     /// cannot hold its shots, which then fails as it runs. A driver that
     /// handles part of a run itself, such as one that splits each run into

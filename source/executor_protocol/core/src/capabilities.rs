@@ -52,21 +52,21 @@ use crate::{BoundaryCompatible, InstructionSet};
 pub struct Capabilities<S: InstructionSet> {
     resources: Resources,
     features: Features,
-    instructions: S::Capabilities,
+    set_capabilities: S::Capabilities,
 }
 
 impl<S: InstructionSet> Capabilities<S> {
-    /// `resources`, `features`, and `instructions`, the set's own.
+    /// `resources`, `features`, and `set_capabilities`, the set's own.
     #[must_use]
     pub const fn new(
         resources: Resources,
         features: Features,
-        instructions: S::Capabilities,
+        set_capabilities: S::Capabilities,
     ) -> Self {
         Self {
             resources,
             features,
-            instructions,
+            set_capabilities,
         }
     }
 
@@ -84,8 +84,8 @@ impl<S: InstructionSet> Capabilities<S> {
 
     /// The instruction set's own capabilities stated.
     #[must_use]
-    pub fn instructions(&self) -> &S::Capabilities {
-        &self.instructions
+    pub fn set_capabilities(&self) -> &S::Capabilities {
+        &self.set_capabilities
     }
 
     /// These capabilities, with what `change` makes of their resources,
@@ -110,7 +110,7 @@ impl<S: InstructionSet> Capabilities<S> {
 
 impl<S: InstructionSet> Clone for Capabilities<S> {
     fn clone(&self) -> Self {
-        Self::new(self.resources, self.features, self.instructions.clone())
+        Self::new(self.resources, self.features, self.set_capabilities.clone())
     }
 }
 
@@ -118,7 +118,7 @@ impl<S: InstructionSet> PartialEq for Capabilities<S> {
     fn eq(&self, other: &Self) -> bool {
         self.resources == other.resources
             && self.features == other.features
-            && self.instructions == other.instructions
+            && self.set_capabilities == other.set_capabilities
     }
 }
 
@@ -127,7 +127,7 @@ impl<S: InstructionSet> fmt::Debug for Capabilities<S> {
         f.debug_struct("Capabilities")
             .field("resources", &self.resources)
             .field("features", &self.features)
-            .field("instructions", &self.instructions)
+            .field("set_capabilities", &self.set_capabilities)
             .finish()
     }
 }
@@ -143,7 +143,7 @@ impl<S: InstructionSet> BoundaryCompatible for Capabilities<S> {
         let short = CapabilitiesMismatch {
             resources: self.resources.mismatches(&provided.resources),
             features: self.features.mismatches(provided.features),
-            instructions: (self.instructions.fits(&provided.instructions).err())
+            set_capabilities: (self.set_capabilities.fits(&provided.set_capabilities).err())
                 .map(|mismatch| Box::new(mismatch) as Box<dyn Error + Send + Sync>),
         };
         if short.is_empty() { Ok(()) } else { Err(short) }
@@ -163,12 +163,12 @@ pub struct CapabilitiesMismatch {
     pub features: Vec<FeatureMismatch>,
     /// How the set's capabilities fall short: the set's own mismatch,
     /// which `downcast_ref` reads as its type.
-    pub instructions: Option<Box<dyn Error + Send + Sync>>,
+    pub set_capabilities: Option<Box<dyn Error + Send + Sync>>,
 }
 
 impl CapabilitiesMismatch {
     pub(crate) fn is_empty(&self) -> bool {
-        self.resources.is_empty() && self.features.is_empty() && self.instructions.is_none()
+        self.resources.is_empty() && self.features.is_empty() && self.set_capabilities.is_none()
     }
 }
 
@@ -177,8 +177,12 @@ impl fmt::Display for CapabilitiesMismatch {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let resources = self.resources.iter().map(|m| m as &dyn fmt::Display);
         let features = self.features.iter().map(|m| m as &dyn fmt::Display);
-        let instructions = self.instructions.iter().map(|m| m as &dyn fmt::Display);
-        for (i, mismatch) in resources.chain(features).chain(instructions).enumerate() {
+        let set_capabilities = (self.set_capabilities.iter()).map(|m| m as &dyn fmt::Display);
+        for (i, mismatch) in resources
+            .chain(features)
+            .chain(set_capabilities)
+            .enumerate()
+        {
             if i > 0 {
                 f.write_str("; ")?;
             }

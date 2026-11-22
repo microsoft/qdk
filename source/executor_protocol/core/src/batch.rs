@@ -9,7 +9,8 @@ mod batch_readouts;
 mod shot_set;
 
 pub use batch_readouts::{
-    BatchReadouts, ReadoutFailure, ReadoutSlot, ReadoutValue, Readouts, ShotConditions,
+    BatchReadouts, ReadoutFailure, ReadoutSlot, ReadoutSlots, ReadoutValue, Readouts,
+    ShotConditions,
 };
 pub use shot_set::{ShotId, ShotSet, ShotSetFault};
 
@@ -42,7 +43,7 @@ pub struct Batch<'a, S: InstructionSet> {
     pub instructions: &'a [S::Instruction],
     /// The readout slots of `instructions`, summed, as the sender states
     /// them: the readout slots of each row of its readouts.
-    readout_slots: u32,
+    readout_slots: ReadoutSlots,
     /// Whether the boundary that receives the batch checks it before it
     /// runs.
     checked: bool,
@@ -65,7 +66,7 @@ impl<'a, S: InstructionSet> Batch<'a, S> {
     pub const fn new(
         shots: &'a ShotSet,
         instructions: &'a [S::Instruction],
-        readout_slots: u32,
+        readout_slots: ReadoutSlots,
     ) -> Self {
         Self {
             shots,
@@ -137,7 +138,7 @@ impl<'a, S: InstructionSet> Batch<'a, S> {
     /// stated them in [`new`](Self::new): the readout slots of each row of
     /// its readouts.
     #[must_use]
-    pub const fn readout_slots(&self) -> u32 {
+    pub const fn readout_slots(&self) -> ReadoutSlots {
         self.readout_slots
     }
 

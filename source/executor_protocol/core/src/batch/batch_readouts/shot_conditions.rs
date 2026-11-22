@@ -39,8 +39,8 @@ impl ShotConditions {
     /// a code post-selects on. The driver chooses what to do with it: one
     /// that post-selects drops the shot.
     pub const REJECTED: Self = Self(1);
-    /// The shot's checks disagree with each other, such as parities that
-    /// cannot all hold, so its corrected results may be wrong.
+    /// The shot has checks that cannot all hold, so its corrected results
+    /// may be wrong.
     pub const INCONSISTENT: Self = Self(1 << 1);
     /// A value the shot depends on could not be determined, such as a
     /// value its instructions read, steering a later instruction, that

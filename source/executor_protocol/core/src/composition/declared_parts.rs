@@ -52,7 +52,7 @@ struct Sent<'a> {
     resources: Resources,
     features: Features,
     /// The set's capabilities it requires.
-    instructions: Box<dyn Any>,
+    set_capabilities: Box<dyn Any>,
 }
 
 impl<'a> DeclaredParts<'a> {
@@ -128,7 +128,7 @@ impl<'a> DeclaredParts<'a> {
         let CapabilitiesMismatch {
             resources,
             features,
-            instructions,
+            set_capabilities,
         } = mismatch;
         let mut split: BTreeMap<usize, CapabilitiesMismatch> = BTreeMap::new();
         for mismatch in resources {
@@ -147,12 +147,12 @@ impl<'a> DeclaredParts<'a> {
             });
             split.entry(at).or_default().features.push(mismatch);
         }
-        if let Some(mismatch) = instructions {
+        if let Some(mismatch) = set_capabilities {
             let at = origin(&|a, b| {
-                let a = a.instructions.downcast_ref::<S::Capabilities>();
-                a.is_some() && a == b.instructions.downcast_ref::<S::Capabilities>()
+                let a = a.set_capabilities.downcast_ref::<S::Capabilities>();
+                a.is_some() && a == b.set_capabilities.downcast_ref::<S::Capabilities>()
             });
-            split.entry(at).or_default().instructions = Some(mismatch);
+            split.entry(at).or_default().set_capabilities = Some(mismatch);
         }
         for (origin, mismatch) in split {
             let capabilities = &mut (faults.found.entry((origin, receiver)))
@@ -160,7 +160,7 @@ impl<'a> DeclaredParts<'a> {
                 .capabilities;
             capabilities.resources.extend(mismatch.resources);
             capabilities.features.extend(mismatch.features);
-            capabilities.instructions = mismatch.instructions;
+            capabilities.set_capabilities = mismatch.set_capabilities;
         }
     }
 
@@ -172,7 +172,7 @@ impl<'a> DeclaredParts<'a> {
                 sends,
                 resources: *required.resources(),
                 features: *required.features(),
-                instructions: Box::new(required.instructions().clone()),
+                set_capabilities: Box::new(required.set_capabilities().clone()),
             });
         }
     }

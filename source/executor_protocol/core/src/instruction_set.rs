@@ -7,7 +7,7 @@
 use std::error::Error;
 use std::fmt;
 
-use crate::{BoundaryCompatible, Capabilities};
+use crate::{BoundaryCompatible, Capabilities, ReadoutSlots};
 
 /// An instruction set, as the protocol sees it: the instructions a batch
 /// holds, when a sender's set fits a receiver's, the set's own
@@ -66,7 +66,7 @@ pub trait InstructionSet:
 
     /// The readout slots `instruction` writes: what a sender sums into a
     /// batch's [`readout_slots`](crate::Batch::readout_slots).
-    fn readout_slots(&self, instruction: &Self::Instruction) -> u32;
+    fn readout_slots(&self, instruction: &Self::Instruction) -> ReadoutSlots;
 
     /// What a checked batch's instructions are checked against, given
     /// `required`, the set's capabilities arriving at the receiver: built
@@ -84,7 +84,7 @@ pub trait InstructionSet:
         &self,
         instruction: &Self::Instruction,
         required: &Self::Requirement,
-    ) -> Result<u32, Self::Fault>;
+    ) -> Result<ReadoutSlots, Self::Fault>;
 }
 
 /// What a sender is given when its set fits the receiver's: the fit's

@@ -15,7 +15,7 @@ use crate::{
 
 /// What `part` logs once ready for `above`: the qubits it states.
 fn ready_for(part: &str, above: &Capabilities<QubitLimited>) -> String {
-    let Qubits(n) = above.instructions();
+    let Qubits(n) = above.set_capabilities();
     format!("{part} ready for {n} qubits")
 }
 

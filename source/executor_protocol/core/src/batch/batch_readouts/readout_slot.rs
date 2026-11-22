@@ -2,7 +2,14 @@
 // Licensed under the MIT License.
 
 //! A readout's slot in a batch's rows ([`ReadoutSlot`]): its position,
-//! the same on every shot.
+//! the same on every shot; and how many slots a batch's rows hold
+//! ([`ReadoutSlots`]).
+
+/// How many readout slots an instruction writes, or a batch's rows hold:
+/// what [`InstructionSet::readout_slots`](crate::InstructionSet::readout_slots)
+/// and [`InstructionSet::check`](crate::InstructionSet::check) give per
+/// instruction, and a [`Batch`](crate::Batch)'s sender sums.
+pub type ReadoutSlots = u32;
 
 /// A readout slot, by its position in a batch's rows, k: slot k is the same
 /// readout on every shot of the batch. It must be below the rows'

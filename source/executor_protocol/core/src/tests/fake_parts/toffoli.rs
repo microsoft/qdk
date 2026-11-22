@@ -194,7 +194,7 @@ impl Lowering for ToffoliFree {
     }
 
     fn requires(&self, above: &Capabilities<WithToffoli>) -> Capabilities<WithoutToffoli> {
-        let Qubits(qubits) = above.instructions();
+        let Qubits(qubits) = above.set_capabilities();
         Capabilities::new(
             *above.resources(),
             *above.features(),
@@ -231,7 +231,11 @@ impl Lowering for ReadThrice {
     }
 
     fn requires(&self, above: &Capabilities<WithToffoli>) -> Capabilities<WithoutToffoli> {
-        Capabilities::new(*above.resources(), *above.features(), *above.instructions())
+        Capabilities::new(
+            *above.resources(),
+            *above.features(),
+            *above.set_capabilities(),
+        )
     }
 
     fn bind(&mut self, (): ()) {}
@@ -270,7 +274,11 @@ impl Lowering for ReadTwiceUnread {
     }
 
     fn requires(&self, above: &Capabilities<WithToffoli>) -> Capabilities<WithoutToffoli> {
-        Capabilities::new(*above.resources(), *above.features(), *above.instructions())
+        Capabilities::new(
+            *above.resources(),
+            *above.features(),
+            *above.set_capabilities(),
+        )
     }
 
     fn bind(&mut self, (): ()) {}

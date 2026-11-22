@@ -8,7 +8,7 @@ use std::convert::Infallible;
 use std::error::Error;
 use std::fmt;
 
-use crate::{BoundaryCompatible, Capabilities, Features, InstructionSet, Resources};
+use crate::{BoundaryCompatible, Capabilities, Features, InstructionSet, ReadoutSlots, Resources};
 
 /// Gates named by string, each on one qubit, of which `mz` measures its
 /// qubit into one readout slot. An instruction names its gate by its
@@ -117,13 +117,13 @@ impl InstructionSet for Measuring {
         &UNCONSTRAINED
     }
 
-    fn readout_slots(&self, gate: &Gate) -> u32 {
+    fn readout_slots(&self, gate: &Gate) -> ReadoutSlots {
         u32::from(self.name(*gate) == Some("mz"))
     }
 
     fn requirement(&self, _required: &NoCapabilities) {}
 
-    fn check(&self, gate: &Gate, _required: &()) -> Result<u32, UnknownGate> {
+    fn check(&self, gate: &Gate, _required: &()) -> Result<ReadoutSlots, UnknownGate> {
         match self.name(*gate) {
             Some(_) => Ok(self.readout_slots(gate)),
             None => Err(UnknownGate { at: gate.at }),

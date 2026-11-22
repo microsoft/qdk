@@ -260,7 +260,7 @@ fn run_requirement<S: InstructionSet>(shots: usize, seeded: bool) -> Capabilitie
     Capabilities::new(
         Resources::unconstrained().with_shots(shots),
         features,
-        S::unconstrained().instructions().clone(),
+        S::unconstrained().set_capabilities().clone(),
     )
 }
 

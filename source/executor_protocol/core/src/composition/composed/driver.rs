@@ -140,7 +140,7 @@ fn run_above<S: InstructionSet, T: InstructionSet>(
         None => Cow::Owned(Capabilities::new(
             *run.resources(),
             *run.features(),
-            S::unconstrained().instructions().clone(),
+            S::unconstrained().set_capabilities().clone(),
         )),
     }
 }
