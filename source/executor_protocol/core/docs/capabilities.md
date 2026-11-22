@@ -34,7 +34,9 @@ executor that takes smaller ones, and its batches are refused as it runs.
 - **Requirement**: what a part requires of the part below it, given what
   arrives at it (`Adapter::requires(above)`); the driver's, given the run
   (`Driver::requires(run)`): the run's shots, and seeded runs when its seed
-  is fixed, which the runner states.
+  is fixed, which the runner states
+  ([`RunRequirement`](../src/capabilities/run_requirement.rs), of no
+  instruction set), with what its shots use of the set it sends.
 - **Provision**: a part's fixed limits on what arrives at it
   (`Adapter::provides`, `Executor::provides`). A field it does not state,
   it does not limit.
@@ -93,8 +95,8 @@ set's own capability, and its executor provides 64 qubits and at most
 noise between them states nothing:
 
 ```rust
-fn requires(&self, run: &Capabilities<CoinGates>) -> Capabilities<CoinGates> {
-    Capabilities::new(*run.resources(), *run.features(), Qubits(2))
+fn requires(&self, run: &RunRequirement) -> Capabilities<CoinGates> {
+    Capabilities::new(run.resources, run.features, Qubits(2))
 }
 ```
 

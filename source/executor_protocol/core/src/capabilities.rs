@@ -5,16 +5,19 @@
 //! amounts every chain states ([`Resources`]), its yes-or-no features
 //! ([`Features`]), and the instruction set's own, which
 //! [`fits`](BoundaryCompatible::fits) checks what arrives at a part
-//! against what the part provides, giving every [`CapabilitiesMismatch`].
+//! against what the part provides, giving every [`CapabilitiesMismatch`];
+//! and what a run requires, before any set's ([`RunRequirement`]).
 
 mod boundary;
 mod features;
 mod resources;
+mod run_requirement;
 
 pub use boundary::BatchFault;
 pub(crate) use boundary::Boundary;
 pub use features::{FeatureMismatch, Features};
 pub use resources::{ResourceMismatch, Resources};
+pub use run_requirement::RunRequirement;
 
 use std::error::Error;
 use std::fmt;
@@ -27,7 +30,8 @@ use crate::{BoundaryCompatible, InstructionSet};
 /// instruction set `S`, such as the qubits a shot holds.
 ///
 /// A requirement flows down the chain: the runner states a run's
-/// ([`Driver::requires`](crate::Driver::requires) gets it), and each part
+/// ([`RunRequirement`]), from which the driver states its own
+/// ([`Driver::requires`](crate::Driver::requires)), and each part
 /// passes below what it requires given what arrives
 /// ([`Adapter::requires`](crate::Adapter::requires)), by default what
 /// arrives. A provision is a part's fixed limits on what arrives at it
@@ -45,7 +49,8 @@ use crate::{BoundaryCompatible, InstructionSet};
 /// which compares a requirement with limits, and reads a field left
 /// unstated in the limits as no limit.
 ///
-/// Built by [`new`](Self::new), or from the set's
+/// Built by [`new`](Self::new), from a run's by
+/// [`from_run`](Self::from_run), or from the set's
 /// [`unconstrained`](InstructionSet::unconstrained), which states nothing,
 /// with [`map_resources`](Self::map_resources) and
 /// [`map_features`](Self::map_features).
@@ -68,6 +73,18 @@ impl<S: InstructionSet> Capabilities<S> {
             features,
             set_capabilities,
         }
+    }
+
+    /// `run`'s resources and features, with the set's capabilities that
+    /// state nothing: what a driver that states nothing of its own
+    /// requires ([`Driver::requires`](crate::Driver::requires)'s default).
+    #[must_use]
+    pub fn from_run(run: &RunRequirement) -> Self {
+        Self::new(
+            run.resources,
+            run.features,
+            S::unconstrained().set_capabilities().clone(),
+        )
     }
 
     /// The amounts stated.

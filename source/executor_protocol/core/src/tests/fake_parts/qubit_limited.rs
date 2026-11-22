@@ -10,7 +10,8 @@ use super::Log;
 use crate::prelude::*;
 use crate::tests::example_sets::{OnQubit, QubitLimited, Qubits, on_qubits};
 use crate::{
-    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, NotReady, Seed, ShotSet,
+    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, NotReady, RunRequirement, Seed,
+    ShotSet,
 };
 
 /// What `part` logs once ready for `above`: the qubits it states.
@@ -44,8 +45,8 @@ impl Driver for QubitProgram {
     }
 
     /// The run's, on `qubits` qubits.
-    fn requires(&self, run: &Capabilities<QubitLimited>) -> Capabilities<QubitLimited> {
-        Capabilities::new(*run.resources(), *run.features(), Qubits(self.qubits))
+    fn requires(&self, run: &RunRequirement) -> Capabilities<QubitLimited> {
+        Capabilities::new(run.resources, run.features, Qubits(self.qubits))
     }
 
     fn bind(&mut self, (): ()) {}

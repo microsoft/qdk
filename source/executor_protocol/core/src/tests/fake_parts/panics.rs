@@ -6,7 +6,9 @@
 use super::coin_gates;
 use crate::prelude::*;
 use crate::tests::example_sets::Measuring;
-use crate::{Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, Seed, ShotSet};
+use crate::{
+    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, RunRequirement, Seed, ShotSet,
+};
 
 /// When a [`Panics`] part panics.
 #[derive(Clone, Copy)]
@@ -34,8 +36,8 @@ impl Driver for Panics {
     }
 
     /// The run's, in batches of 1 instruction.
-    fn requires(&self, run: &Capabilities<Measuring>) -> Capabilities<Measuring> {
-        run.clone()
+    fn requires(&self, run: &RunRequirement) -> Capabilities<Measuring> {
+        Capabilities::from_run(run)
             .map_resources(|resources| resources.with_instructions_per_batch(1))
     }
 

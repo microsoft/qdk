@@ -8,7 +8,7 @@
 use super::composed::Composed;
 use super::{CompositionFaults, DeclaredParts};
 use crate::capabilities::Boundary;
-use crate::{Adapter, Driver, Executor, InstructionSet, Runner};
+use crate::{Adapter, Driver, Executor, RunRequirement, Runner};
 
 /// The joins of a driver with the part below it: [`through`](Self::through)
 /// an adapter, which gives a driver, and [`on`](Self::on) an executor,
@@ -61,7 +61,7 @@ pub trait DriverJoins: Driver + Sized {
         executor: E,
     ) -> Result<Runner<Self, E>, CompositionFaults> {
         let mut parts = DeclaredParts::listing_faults();
-        let required = self.declare(Self::Sends::unconstrained(), &mut parts);
+        let required = self.declare(&RunRequirement::unconstrained(), &mut parts);
         let executor_at = parts.len();
         executor.declare(&required, &mut parts);
         let ids = parts.ids();

@@ -21,7 +21,7 @@ use crate::tests::fake_parts::{
 use crate::{
     Batch, BatchReadouts, BoundaryCompatible, BoundaryMismatch, Capabilities, CapabilitiesMismatch,
     CompositionFault, CompositionFaults, ExecuteError, FeatureMismatch, Features, PartId,
-    ResourceMismatch, Resources, Seed,
+    ResourceMismatch, Resources, RunRequirement, Seed,
 };
 
 /// `h`, `x` and `mz` without `x`.
@@ -579,7 +579,7 @@ fn a_joined_part_requires_its_parts_requirements_in_turn_and_provides_its_top_pa
             "a driver through an encoding",
             read(&Driver::requires(
                 &program(2, replay()).through(Spread::new(7, &log).built_for(2)),
-                &unconstrained(),
+                &RunRequirement::unconstrained(),
             )),
             (batches_of(14), replay()),
         ),
@@ -605,7 +605,7 @@ fn a_joined_part_requires_its_parts_requirements_in_turn_and_provides_its_top_pa
             "a driver through an interleaver",
             read(&Driver::requires(
                 &program(2, Features::unconstrained()).through(Stating::interleaving(3, &log)),
-                &unconstrained(),
+                &RunRequirement::unconstrained(),
             )),
             (batches_of(3), Features::unconstrained()),
         ),

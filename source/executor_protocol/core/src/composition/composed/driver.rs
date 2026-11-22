@@ -3,8 +3,6 @@
 
 //! A driver through an adapter: a [`Composed`] in the driver's role.
 
-use std::any::Any;
-use std::borrow::Cow;
 use std::panic::resume_unwind;
 
 use super::{ChainBelow, Composed, boundary};
@@ -14,7 +12,7 @@ use crate::composition::part_panics::{PanicEndingShots, await_part, catch_panic}
 use crate::composition::unended_shots::UnendedShots;
 use crate::part_id::ChainPosition;
 use crate::{
-    Adapter, Binding, Capabilities, DriveError, Driver, Executor, InstructionSet, NotReady, Seed,
+    Adapter, Binding, Capabilities, DriveError, Driver, Executor, NotReady, RunRequirement, Seed,
     ShotSet,
 };
 
@@ -29,7 +27,7 @@ impl<U: Driver, L: Adapter<Accepts = U::Sends>> Composed<U, L, U::Sends> {
             },
         );
         let mut parts = DeclaredParts::checking();
-        upper.declare(U::Sends::unconstrained(), &mut parts);
+        upper.declare(&RunRequirement::unconstrained(), &mut parts);
         let upper_parts = parts.len();
         Self::new((upper, upper_parts), lower, fit)
     }
@@ -51,8 +49,8 @@ impl<U: Driver, L: Adapter<Accepts = U::Sends>> Driver for Composed<U, L, U::Sen
     }
 
     /// What the adapter requires, given what the driver requires.
-    fn requires(&self, run: &Capabilities<L::Sends>) -> Capabilities<L::Sends> {
-        self.lower.requires(&self.upper.requires(&run_above(run)))
+    fn requires(&self, run: &RunRequirement) -> Capabilities<L::Sends> {
+        self.lower.requires(&self.upper.requires(run))
     }
 
     fn bind(&mut self, below: Binding<L::Sends>) {
@@ -60,10 +58,7 @@ impl<U: Driver, L: Adapter<Accepts = U::Sends>> Driver for Composed<U, L, U::Sen
     }
 
     /// As [`ready_at`](Self::ready_at), at a position not known.
-    fn ready(
-        &mut self,
-        run: &Capabilities<L::Sends>,
-    ) -> impl Future<Output = Result<(), NotReady>> {
+    fn ready(&mut self, run: &RunRequirement) -> impl Future<Output = Result<(), NotReady>> {
         self.ready_at(run, ChainPosition::UNKNOWN)
     }
 
@@ -101,10 +96,10 @@ impl<U: Driver, L: Adapter<Accepts = U::Sends>> Driver for Composed<U, L, U::Sen
     /// The driver, then the adapter, given what the driver requires.
     fn declare<'a>(
         &'a self,
-        run: &Capabilities<L::Sends>,
+        run: &RunRequirement,
         parts: &mut DeclaredParts<'a>,
     ) -> Capabilities<L::Sends> {
-        let required = self.upper.declare(&run_above(run), parts);
+        let required = self.upper.declare(run, parts);
         self.lower.declare(&required, parts)
     }
 
@@ -115,32 +110,13 @@ impl<U: Driver, L: Adapter<Accepts = U::Sends>> Driver for Composed<U, L, U::Sen
     /// position, if `at` is known.
     async fn ready_at(
         &mut self,
-        run: &Capabilities<L::Sends>,
+        run: &RunRequirement,
         at: ChainPosition<'_>,
     ) -> Result<(), NotReady> {
-        let run = run_above(run);
-        let (lower, required, below, part) = self.start_run(|upper| upper.requires(&run), at)?;
+        let (lower, required, below, part) = self.start_run(|upper| upper.requires(run), at)?;
         await_part(lower.ready_at(required, below))
             .await
             .map_err(|not_ready| not_ready.answered_by(part))?;
-        await_part(self.upper.ready_at(&run, at)).await
-    }
-}
-
-/// `run`, as it arrives at the driver above a lowering, of the set `S` the
-/// driver sends: itself where `S` is `T`, the set the joined driver sends;
-/// else its shots and features, with `S`'s set part unconstrained, as the
-/// runner states every run's.
-fn run_above<S: InstructionSet, T: InstructionSet>(
-    run: &Capabilities<T>,
-) -> Cow<'_, Capabilities<S>> {
-    let any: &dyn Any = run;
-    match any.downcast_ref::<Capabilities<S>>() {
-        Some(run) => Cow::Borrowed(run),
-        None => Cow::Owned(Capabilities::new(
-            *run.resources(),
-            *run.features(),
-            S::unconstrained().set_capabilities().clone(),
-        )),
+        await_part(self.upper.ready_at(run, at)).await
     }
 }

@@ -8,7 +8,7 @@ use crate::prelude::*;
 use crate::tests::example_sets::{Gate, Measuring};
 use crate::{
     Batch, Binding, Capabilities, DriveError, Features, NotReady, ReadoutValue, Readouts,
-    Resources, Seed, ShotConditions, ShotSet,
+    Resources, RunRequirement, Seed, ShotConditions, ShotSet,
 };
 
 /// A coin tossed on qubit 0, copied onto qubit 1: a toss for every shot in
@@ -52,7 +52,7 @@ impl CoinCopy {
     }
 
     /// What it logs when it gets ready for a run that requires `run`.
-    pub(crate) fn ready_for(run: &Capabilities<Measuring>) -> String {
+    pub(crate) fn ready_for(run: &RunRequirement) -> String {
         format!("CoinCopy ready for {run:?}")
     }
 
@@ -73,8 +73,8 @@ impl Driver for CoinCopy {
     }
 
     /// The run's, in batches of 2 instructions, its longest.
-    fn requires(&self, run: &Capabilities<Measuring>) -> Capabilities<Measuring> {
-        run.clone()
+    fn requires(&self, run: &RunRequirement) -> Capabilities<Measuring> {
+        Capabilities::from_run(run)
             .map_resources(|resources| resources.with_instructions_per_batch(2))
     }
 
@@ -86,7 +86,7 @@ impl Driver for CoinCopy {
 
     type Output = Values;
 
-    async fn ready(&mut self, run: &Capabilities<Measuring>) -> Result<(), NotReady> {
+    async fn ready(&mut self, run: &RunRequirement) -> Result<(), NotReady> {
         if let Some(log) = &self.log {
             log.push(Self::ready_for(run));
         }
@@ -162,10 +162,7 @@ impl<D: Driver> Driver for PassesTheRun<D> {
 
     type Output = D::Output;
 
-    fn ready(
-        &mut self,
-        run: &Capabilities<D::Sends>,
-    ) -> impl Future<Output = Result<(), NotReady>> {
+    fn ready(&mut self, run: &RunRequirement) -> impl Future<Output = Result<(), NotReady>> {
         self.0.ready(run)
     }
 
@@ -285,13 +282,13 @@ impl Driver for Program {
 
     /// Its own resources and features, with the run's shots, and seeded
     /// runs if the run's seed is fixed.
-    fn requires(&self, run: &Capabilities<Measuring>) -> Capabilities<Measuring> {
+    fn requires(&self, run: &RunRequirement) -> Capabilities<Measuring> {
         let mut resources = self.resources;
-        if let Some(shots) = run.resources().shots {
+        if let Some(shots) = run.resources.shots {
             resources = resources.with_shots(shots);
         }
         let mut features = self.features;
-        if run.features().seeded_runs == Some(true) {
+        if run.features.seeded_runs == Some(true) {
             features = features.with_seeded_runs(true);
         }
         capabilities(resources, features)

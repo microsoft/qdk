@@ -32,8 +32,8 @@ use super::part_panics::{PanicEndingShots, await_part, catch_panic, panic_messag
 use super::unended_shots::UnendedShots;
 use crate::part_id::ChainPosition;
 use crate::{
-    Boundary, Capabilities, DriveError, Driver, Executor, Failure, Features, InstructionSet,
-    PartId, Resources, Seed, ShotSet,
+    Boundary, Capabilities, DriveError, Driver, Executor, Failure, Features, PartId, Resources,
+    RunRequirement, Seed, ShotSet,
 };
 
 pub use run_error::{RunError, RunRefusal};
@@ -218,10 +218,7 @@ impl<D: Driver, E: Executor<Accepts = D::Sends>> Runner<D, E> {
     /// What arrives at the executor on a run that requires `run`, if each
     /// part provides what arrives at it; else the refusal, which lists
     /// every part that does not.
-    fn required_below(
-        &self,
-        run: &Capabilities<D::Sends>,
-    ) -> Result<Capabilities<D::Sends>, RunRefusal> {
+    fn required_below(&self, run: &RunRequirement) -> Result<Capabilities<D::Sends>, RunRefusal> {
         let mut parts = DeclaredParts::checking();
         let required = self.driver.declare(run, &mut parts);
         self.executor.declare(&required, &mut parts);
@@ -237,7 +234,7 @@ impl<D: Driver, E: Executor<Accepts = D::Sends>> Runner<D, E> {
     /// cold, as the walk again, listing its faults.
     #[cold]
     #[inline(never)]
-    fn not_provided(&self, run: &Capabilities<D::Sends>) -> RunRefusal {
+    fn not_provided(&self, run: &RunRequirement) -> RunRefusal {
         let mut parts = DeclaredParts::listing_faults();
         let required = self.driver.declare(run, &mut parts);
         self.executor.declare(&required, &mut parts);
@@ -246,9 +243,8 @@ impl<D: Driver, E: Executor<Accepts = D::Sends>> Runner<D, E> {
 }
 
 /// What a run of `shots` shots requires: that many shots, and seeded runs
-/// if `seeded`, its seed being fixed; nothing of the set's capabilities,
-/// which the driver states.
-fn run_requirement<S: InstructionSet>(shots: usize, seeded: bool) -> Capabilities<S> {
+/// if `seeded`, its seed being fixed.
+fn run_requirement(shots: usize, seeded: bool) -> RunRequirement {
     // A run of more shots than a `u32` counts is checked as `u32::MAX`
     // shots, the most a part can state.
     let shots = u32::try_from(shots).unwrap_or(u32::MAX);
@@ -257,11 +253,10 @@ fn run_requirement<S: InstructionSet>(shots: usize, seeded: bool) -> Capabilitie
     } else {
         Features::unconstrained()
     };
-    Capabilities::new(
-        Resources::unconstrained().with_shots(shots),
+    RunRequirement {
+        resources: Resources::unconstrained().with_shots(shots),
         features,
-        S::unconstrained().set_capabilities().clone(),
-    )
+    }
 }
 
 /// A seed for a run that fixes none: from the standard library's random

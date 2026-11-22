@@ -9,7 +9,8 @@ use std::task::{Context, Poll};
 
 use crate::prelude::*;
 use crate::{
-    Batch, BatchReadouts, Binding, Capabilities, DriveError, ExecuteError, NotReady, Seed, ShotSet,
+    Batch, BatchReadouts, Binding, Capabilities, DriveError, ExecuteError, NotReady,
+    RunRequirement, Seed, ShotSet,
 };
 
 /// `part`, named as `part` is, whose futures of `drive`, `adapt` or
@@ -103,7 +104,7 @@ impl<P: Driver> Driver for PanicsInDrop<P> {
         self.part.sends()
     }
 
-    fn requires(&self, run: &Capabilities<P::Sends>) -> Capabilities<P::Sends> {
+    fn requires(&self, run: &RunRequirement) -> Capabilities<P::Sends> {
         self.part.requires(run)
     }
 
@@ -113,10 +114,7 @@ impl<P: Driver> Driver for PanicsInDrop<P> {
 
     type Output = P::Output;
 
-    fn ready(
-        &mut self,
-        run: &Capabilities<P::Sends>,
-    ) -> impl Future<Output = Result<(), NotReady>> {
+    fn ready(&mut self, run: &RunRequirement) -> impl Future<Output = Result<(), NotReady>> {
         Self::readying(self.in_ready, self.part.ready(run))
     }
 

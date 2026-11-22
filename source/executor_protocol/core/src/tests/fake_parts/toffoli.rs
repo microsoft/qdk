@@ -12,7 +12,7 @@ use crate::prelude::*;
 use crate::tests::example_sets::{CliffordT, Qubits, ToffoliGate, WithToffoli, WithoutToffoli};
 use crate::{
     Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, Features, ReadoutValue,
-    Resources, Seed, ShotConditions, ShotSet,
+    Resources, RunRequirement, Seed, ShotConditions, ShotSet,
 };
 
 /// The capabilities of `S` on `qubits` qubits, and unconstrained
@@ -59,8 +59,8 @@ impl Driver for ToffoliProgram {
     }
 
     /// The run's, on `qubits` qubits.
-    fn requires(&self, run: &Capabilities<WithToffoli>) -> Capabilities<WithToffoli> {
-        Capabilities::new(*run.resources(), *run.features(), Qubits(self.qubits))
+    fn requires(&self, run: &RunRequirement) -> Capabilities<WithToffoli> {
+        Capabilities::new(run.resources, run.features, Qubits(self.qubits))
     }
 
     fn bind(&mut self, (): ()) {}

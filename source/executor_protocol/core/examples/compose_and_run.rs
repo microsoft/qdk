@@ -30,7 +30,7 @@ use std::fmt;
 use executor_protocol_core::prelude::*;
 use executor_protocol_core::{
     Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, Features, NotReady, ReadoutSlots,
-    ReadoutValue, Readouts, Resources, Runner, Seed, ShotId, ShotSet,
+    ReadoutValue, Readouts, Resources, RunRequirement, Runner, Seed, ShotId, ShotSet,
 };
 
 /// The seed of the runs: the same seed gives the same values.
@@ -286,8 +286,8 @@ impl Driver for CoinCopy {
     }
 
     /// What the run requires, on 2 qubits.
-    fn requires(&self, run: &Capabilities<CoinGates>) -> Capabilities<CoinGates> {
-        Capabilities::new(*run.resources(), *run.features(), Qubits(2))
+    fn requires(&self, run: &RunRequirement) -> Capabilities<CoinGates> {
+        Capabilities::new(run.resources, run.features, Qubits(2))
     }
 
     /// Every part here encodes the gates alike: nothing to rewrite.

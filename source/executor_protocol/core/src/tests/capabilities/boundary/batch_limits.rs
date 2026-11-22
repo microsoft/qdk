@@ -17,7 +17,7 @@ use crate::tests::example_sets::{
 use crate::{
     Batch, BatchFault, BatchReadouts, Binding, BoundaryCompatible, Capabilities, DriveError,
     ExecuteError, ExecuteRefusal, Failure, Features, InstructionSet, ReadoutSlots, ReadoutValue,
-    Readouts, Resources, RunError, Seed, ShotId, ShotSet,
+    Readouts, Resources, RunError, RunRequirement, Seed, ShotId, ShotSet,
 };
 
 /// How a sender marks a new batch before it sends it.
@@ -43,7 +43,7 @@ impl<S: InstructionSet> Driver for Literal<S> {
         &self.sends
     }
 
-    fn requires(&self, _run: &Capabilities<S>) -> Capabilities<S> {
+    fn requires(&self, _run: &RunRequirement) -> Capabilities<S> {
         self.requires.clone()
     }
 

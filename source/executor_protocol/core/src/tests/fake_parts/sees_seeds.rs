@@ -7,8 +7,8 @@
 use crate::prelude::*;
 use crate::tests::fake_parts::Log;
 use crate::{
-    Batch, BatchReadouts, Binding, Capabilities, DriveError, ExecuteError, NotReady, Seed, ShotId,
-    ShotSet,
+    Batch, BatchReadouts, Binding, Capabilities, DriveError, ExecuteError, NotReady,
+    RunRequirement, Seed, ShotId, ShotSet,
 };
 
 /// `part`, which logs `"{label} got seed {stream}"` for each `drive`,
@@ -46,7 +46,7 @@ impl<P: Driver> Driver for SeesSeeds<P> {
         self.part.sends()
     }
 
-    fn requires(&self, run: &Capabilities<P::Sends>) -> Capabilities<P::Sends> {
+    fn requires(&self, run: &RunRequirement) -> Capabilities<P::Sends> {
         self.part.requires(run)
     }
 
@@ -56,10 +56,7 @@ impl<P: Driver> Driver for SeesSeeds<P> {
 
     type Output = P::Output;
 
-    fn ready(
-        &mut self,
-        run: &Capabilities<P::Sends>,
-    ) -> impl Future<Output = Result<(), NotReady>> {
+    fn ready(&mut self, run: &RunRequirement) -> impl Future<Output = Result<(), NotReady>> {
         self.part.ready(run)
     }
 

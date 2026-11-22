@@ -35,7 +35,7 @@ pub use boundary_compatible::BoundaryCompatible;
 pub(crate) use capabilities::Boundary;
 pub use capabilities::{
     BatchFault, Capabilities, CapabilitiesMismatch, FeatureMismatch, Features, ResourceMismatch,
-    Resources,
+    Resources, RunRequirement,
 };
 pub use composition::{
     AdapterJoins, BoundaryMismatch, CompositionFault, CompositionFaults, DriverJoins, RunError,

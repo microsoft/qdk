@@ -23,10 +23,9 @@ use crate::prelude::*;
 use crate::tests::example_sets::Measuring;
 use crate::tests::fake_parts::{
     BitFlip, Bits, CoinCopy, FromThread, Later, Log, NamesBelow, Profiler, Program, Renamed,
-    Splitter, Spread, Stating, Trap, Values, batches_of, capabilities, coin_gate,
-    in_each_bracketing,
+    Splitter, Spread, Stating, Trap, Values, batches_of, coin_gate, in_each_bracketing,
 };
-use crate::{Capabilities, CompositionFaults, Features, Resources, Runner, ShotSet};
+use crate::{CompositionFaults, Features, Resources, RunRequirement, Runner, ShotSet};
 
 const SEED: u64 = 7;
 
@@ -453,16 +452,16 @@ fn every_part_gets_ready_on_every_run_for_what_arrives_at_it() {
 
 /// What a run of `shots` shots requires, as its driver gets it: that many
 /// shots, and seeded runs if `seeded`, its seed being fixed.
-fn run_of(shots: u32, seeded: bool) -> Capabilities<Measuring> {
+fn run_of(shots: u32, seeded: bool) -> RunRequirement {
     let features = Features::unconstrained();
-    capabilities(
-        Resources::unconstrained().with_shots(shots),
-        if seeded {
+    RunRequirement {
+        resources: Resources::unconstrained().with_shots(shots),
+        features: if seeded {
             features.with_seeded_runs(true)
         } else {
             features
         },
-    )
+    }
 }
 
 /// What a logging [`CoinCopy`] at the top of `composed`, which must
