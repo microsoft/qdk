@@ -32,8 +32,13 @@
 //! (`parameter`), Pauli operators (`pauli`), what an instruction does
 //! (`meaning`), what each instruction's check compares (`layout`), the
 //! instructions a batch holds and their checks (`block_instruction`), the fit of one
-//! set to another (`fit`), and the translation of opcodes it gives
-//! (`opcode_map`).
+//! set to another (`fit`), the translation of opcodes it gives
+//! (`opcode_map`), the set's capabilities, the blocks of each type a shot
+//! holds and readout parities (`block_capabilities`), what the shots
+//! require of a receiver, as an instruction's check reads it
+//! (`block_requirement`), one readout's value or why it is lost
+//! (`readout_value`), and what a part found suspect in a shot
+//! (`shot_conditions`).
 //!
 //! The crate's `docs/instruction-sets.md` gives how a part declares its
 //! sets, and when two sets fit.

@@ -17,9 +17,9 @@ mod pauli;
 mod shot_conditions;
 
 use crate::{
-    Argument, Bit, BlockCapabilities, BlockInstruction, BlockInstructionSet, BlockOperand,
-    BlockType, DeclarationFault, InstructionDef, InstructionFault, Opcode, ParameterKind,
-    instruction_set,
+    Angle, Argument, Bit, BlockCapabilities, BlockInstruction, BlockInstructionSet, BlockOperand,
+    BlockType, DeclarationFault, InstructionDef, InstructionFault, Meaning, MeaningFault, Opcode,
+    ParameterKind, Pauli, instruction_set,
 };
 use executor_protocol_core::{BoundaryCompatible, InstructionSet};
 use smallvec::smallvec;
@@ -452,11 +452,25 @@ fn a_sets_readout_slots_of_instructions_sum_each_ones_outcomes_and_flags() {
 /// Whoever writes a set fixes it in one pass: faults of the set and of
 /// several instructions come together, in declaration order, and an
 /// instruction's in the order `BlockInstructionSet::new` lists them, its flags
-/// and its readout slots both refused when both overflow.
+/// and its readout slots both refused when both overflow, and its
+/// meaning's faults reported beside its operands' and its names'.
 #[test]
 fn every_declaration_fault_is_reported_at_once() {
     let mut flags: Vec<String> = (0..64).map(|k| format!("f{k}")).collect();
     flags.push("f0".into());
+    // A rotation on an undeclared `carbon` block, then on any number of
+    // qubits before one more, naming `theta` and `leak` twice, and
+    // rotating by a parameter it lacks.
+    let rotate = InstructionDef::new("rotate")
+        .acts_on([
+            BlockOperand::from(carbon()),
+            BlockOperand::variadic(BlockType::qubit()),
+            BlockOperand::from(BlockType::qubit()),
+        ])
+        .parameter("theta", ParameterKind::Number)
+        .parameter("theta", ParameterKind::Number)
+        .flags(["leak", "leak"])
+        .meaning(Meaning::declared().rotate(Pauli::z(0), Angle::Parameter(5)));
     let faults = BlockInstructionSet::new(
         "Gates",
         [(BlockType::qubit(), 1), (BlockType::qubit(), 1)],
@@ -464,6 +478,7 @@ fn every_declaration_fault_is_reported_at_once() {
             InstructionDef::new("m").flags(["leak", "leak"]),
             InstructionDef::new("h").acts_on([carbon()]),
             InstructionDef::new("m").outcomes(u32::MAX).flags(flags),
+            rotate,
         ],
     )
     .expect_err("a faulty declaration");
@@ -496,6 +511,28 @@ fn every_declaration_fault_is_reported_at_once() {
             DeclarationFault::RepeatedFlag {
                 mnemonic: "m".into(),
                 flag: "f0".into(),
+            },
+            DeclarationFault::UnknownBlockType {
+                mnemonic: "rotate".into(),
+                block_type: carbon(),
+            },
+            DeclarationFault::MisplacedVariadic {
+                mnemonic: "rotate".into(),
+            },
+            DeclarationFault::RepeatedParameter {
+                mnemonic: "rotate".into(),
+                parameter: "theta".into(),
+            },
+            DeclarationFault::RepeatedFlag {
+                mnemonic: "rotate".into(),
+                flag: "leak".into(),
+            },
+            DeclarationFault::Meaning {
+                mnemonic: "rotate".into(),
+                fault: MeaningFault::NotAParameter {
+                    step: 0,
+                    parameter: 5,
+                },
             },
         ]
     );

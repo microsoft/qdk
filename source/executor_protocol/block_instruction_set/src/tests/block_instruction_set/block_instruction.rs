@@ -589,13 +589,27 @@ fn pauli_argument_is_canonical() {
 
 /// One text per rule broken: nothing (whitespace alone included), a sign
 /// alone, a factor without its qubit, a qubit twice (`I_k` included), a
-/// letter or an index outside the grammar, a signed index, `i` twice, a
-/// comma between factors.
+/// letter or an index outside the grammar, a signed index, an index beyond
+/// a `u32`, two signs, `i` twice, a comma between factors.
 #[test]
 fn malformed_pauli_text_is_refused() {
     for text in [
-        "", " \t\n", "-", "Z", "X_0 Z_0", "I_0 X_0", "X_0 I_0", "I_1 I_1", "W_0", "X_a", "Z_",
-        "X_+1", "i i", "X_0,Z_1",
+        "",
+        " \t\n",
+        "-",
+        "Z",
+        "X_0 Z_0",
+        "I_0 X_0",
+        "X_0 I_0",
+        "I_1 I_1",
+        "W_0",
+        "X_a",
+        "Z_",
+        "X_+1",
+        "X_4294967296",
+        "+-X_0",
+        "i i",
+        "X_0,Z_1",
     ] {
         assert_eq!(
             Argument::pauli(text),
