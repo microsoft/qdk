@@ -451,10 +451,18 @@ _MEASURE_AND_RECORD = """
 @pytest.mark.parametrize(
     "call, message",
     [
+        # Since #4201, repeated static qubits fail before the run, as in run_qir.
         pytest.param(
             "call void @__quantum__qis__cnot__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 0 to %Qubit*))",
-            r"`cx`.*qubit 0",
+            r"qubits in invocation.*cnot.*are not unique",
             id="a gate on one qubit twice",
+        ),
+        pytest.param(
+            "%index = add i64 0, 0\n"
+            "  %qubit = inttoptr i64 %index to %Qubit*\n"
+            "  call void @__quantum__qis__cnot__body(%Qubit* %qubit, %Qubit* %qubit)",
+            r"`cx`.*qubit 0",
+            id="a gate on one qubit twice, the qubit computed at run time",
         ),
         pytest.param(
             "call void @__quantum__rt__readout_noise(double 0.1, double 0.1, %Result* inttoptr (i64 0 to %Result*))",
@@ -475,10 +483,11 @@ _MEASURE_AND_RECORD = """
 )
 def test_a_call_the_method_cannot_run_raises_value_error(engine, call, message):
     """A call the MPS simulation method does not run, named by its message:
-    a `cx` on one qubit twice, which no two-qubit matrix applies; readout
-    noise; a loss check. And a rotation by an angle that is not finite,
-    whose matrix the engine refuses: its message gives the refusal, not the
-    call, which the engine's refusal does not carry."""
+    a `cx` on one qubit twice, which no two-qubit matrix applies (refused
+    before the run where the qubit is a constant, during it where the qubit
+    is computed); readout noise; a loss check. And a rotation by an angle
+    that is not finite, whose matrix the engine refuses: its message gives
+    the refusal, not the call, which the engine's refusal does not carry."""
     qir = adaptive_qir(f"  {call}{_MEASURE_AND_RECORD}", qubits=1, results=1)
     with pytest.raises(ValueError, match=message):
         run(qir, [Sample(1)], engine=engine)
