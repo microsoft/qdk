@@ -3,7 +3,7 @@
 
 //! Which part of a chain a message is about: its [`PartId`]; and the
 //! position the roles' hidden `ready_at` is given, [`ChainPosition`],
-//! which builds one.
+//! which looks one up in the parts' list `on` made.
 
 mod chain_position;
 
@@ -17,7 +17,7 @@ pub use chain_position::ChainPosition;
 /// The position tells apart two parts of one name, such as two encodings
 /// of one type; the name is what the part answers, as each role answers
 /// it ([`Driver::name`](crate::Driver::name),
-/// [`Adapter::name`](crate::Adapter::name),
+/// [`TranslatingAdapter::name`](crate::TranslatingAdapter::name),
 /// [`Executor::name`](crate::Executor::name)), when the
 /// [`on`](crate::DriverJoins::on) that makes a runner reads it.
 #[derive(Clone, Debug, PartialEq, Eq)]

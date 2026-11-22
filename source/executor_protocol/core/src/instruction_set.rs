@@ -96,7 +96,7 @@ pub trait InstructionSet:
     /// # Errors
     ///
     /// The set's [`Fault`](Self::Fault) when the receiver does not accept
-    /// `instruction`.
+    /// `instruction`, or `required` does not allow it.
     fn check(
         &self,
         instruction: &Self::Instruction,

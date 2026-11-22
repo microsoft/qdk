@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 //! The position the roles' hidden `ready_at` is given: [`ChainPosition`],
-//! which names a part by the [`PartId`] it builds.
+//! which names a part by its [`PartId`] in the runner's list.
 
 use crate::PartId;
 

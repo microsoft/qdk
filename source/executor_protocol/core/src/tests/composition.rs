@@ -7,10 +7,12 @@
 //! what each part requires against what the parts below provide, is in
 //! `composition/driver_joins.rs`, running its shots in
 //! `composition/runner.rs`, the calls across its boundaries in
-//! `composition/boundary_crossing.rs`, and its parts' panics in
-//! `composition/part_panics.rs`.
+//! `composition/boundary_crossing.rs`, its parts' panics in
+//! `composition/part_panics.rs`, and the message of its faults in
+//! `composition/composition_faults.rs`.
 
 mod boundary_crossing;
+mod composition_faults;
 mod driver_joins;
 mod part_panics;
 mod runner;

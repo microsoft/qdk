@@ -130,8 +130,9 @@ pub trait Executor {
     /// ([`BatchReadouts`]). The executor fills each row
     /// ([`row_mut`](BatchReadouts::row_mut)) and each shot's conditions
     /// ([`set_conditions`](BatchReadouts::set_conditions)), and writes
-    /// every value: one it does not write stays missing, unreported, since
-    /// the protocol checks no value at run time. It keeps the shape of each
+    /// every value: one it does not write stays the set's
+    /// `UNWRITTEN_READOUT`, unreported, since the protocol checks no value
+    /// at run time. It keeps the shape of each
     /// batch's readouts, which the protocol does not check again once it
     /// answers: readouts replaced by others of another shape reach the
     /// caller as they are. A conformance kit, planned, will check both in

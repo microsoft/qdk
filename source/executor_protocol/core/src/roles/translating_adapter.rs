@@ -12,8 +12,8 @@ use crate::{
     NotReady, Seed, ShotSet,
 };
 
-/// An [`Adapter`] whose instructions below may be of another set type
-/// ([`Sends`](Self::Sends)) than those it receives
+/// A part between a driver and an executor whose instructions below may
+/// be of another set type ([`Sends`](Self::Sends)) than those it receives
 /// ([`Accepts`](Self::Accepts)), such as an encoding of logical gates into
 /// physical ones, or any part that holds an adapter of either kind. The
 /// joins and the runner take it; every [`Adapter`] is one, as is a

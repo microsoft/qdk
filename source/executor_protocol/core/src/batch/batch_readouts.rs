@@ -9,7 +9,8 @@
 //! A part that sends a batch must match each value it gets back to the
 //! readout it asked for, on each shot. Rows by position make that an index:
 //! the slots are each instruction's readouts in instruction order, so slot
-//! k is the same readout on every shot of the batch; and a lost value is a
+//! k is the same readout on every shot of the batch; and a value a part
+//! could not read (a lost qubit's, in a set that has them) is still a
 //! value of the set, never left out. So the protocol shapes each batch's
 //! readouts before the receiver's `execute` runs, from the batch: a row
 //! per shot, of a value per readout slot of its instructions, as its
@@ -46,8 +47,9 @@ use crate::InstructionSet;
 /// as [`Executor::execute`](crate::Executor::execute) says.
 ///
 /// Every row has exactly one value per readout slot it was shaped with;
-/// slot k is the same readout on every shot; and a lost value is a value
-/// of the set. A value no part wrote is
+/// slot k is the same readout on every shot; and a value a part could not
+/// read (a lost qubit's, in a set that has them) is still a value of the
+/// set, never left out. A value no part wrote is
 /// [`S::UNWRITTEN_READOUT`](InstructionSet::UNWRITTEN_READOUT). A shot is
 /// read by its position in the batch's shot set, as `row(i)`, and written
 /// as `row_mut(i)`.

@@ -33,9 +33,10 @@ use crate::{BoundaryCompatible, InstructionSet};
 /// ([`RunRequirement`]), from which the driver states its own
 /// ([`Driver::requires`](crate::Driver::requires)), and each part
 /// passes below what it requires given what arrives
-/// ([`Adapter::requires`](crate::Adapter::requires)), by default what
-/// arrives. A provision is a part's fixed limits on what arrives at it
-/// ([`Adapter::provides`](crate::Adapter::provides),
+/// ([`TranslatingAdapter::requires`](crate::TranslatingAdapter::requires)),
+/// an [`Adapter`](crate::Adapter), by default, what arrives. A provision
+/// is a part's fixed limits on what arrives at it
+/// ([`TranslatingAdapter::provides`](crate::TranslatingAdapter::provides),
 /// [`Executor::provides`](crate::Executor::provides)), by default none.
 /// What arrives at a part must [`fit`](BoundaryCompatible::fits) what it
 /// provides, as the crate's `docs/capabilities.md` says.
