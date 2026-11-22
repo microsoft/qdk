@@ -400,22 +400,23 @@ fn shape_mismatch_is_reported_before_a_one_sided_meaning() {
 
 /// A mismatch's message names what is at fault, for whoever builds the
 /// chain and must change a part: the instruction, by its mnemonic, which
-/// nothing else in the message says, with, for readouts, the sent counts
-/// before the word "accept" and the accepted ones after it, so a reader
-/// tells which side has which; and, for one mnemonic, each kind says
-/// something of its own, so the message tells what differs. A formatter
-/// that drops the mnemonic or a count, swaps the sides, or says the same
-/// for two kinds, fails.
+/// nothing else in the message says, and what differs, in the words of
+/// its kind (blocks, parameters, readouts, what it does, or the set),
+/// with, for readouts, the sent counts before the word "accept" and the
+/// accepted ones after it, so a reader tells which side has which; and
+/// for one mnemonic, no two kinds say the same. A formatter that drops
+/// the mnemonic, a count or what differs, says one kind's difference for
+/// another, swaps the sides, or says the same for two kinds, fails.
 #[test]
 fn a_mismatch_names_its_instruction_and_what_differs() {
     let cz = || "cz".to_owned();
     let rows = [
-        (missing("cz"), vec!["cz"], vec![]),
-        (blocks("cz"), vec!["cz"], vec![]),
+        (missing("cz"), vec!["cz", "not"], None),
+        (blocks("cz"), vec!["cz", "block"], None),
         (
             InstructionMismatch::Parameters { mnemonic: cz() },
-            vec!["cz"],
-            vec![],
+            vec!["cz", "parameter"],
+            None,
         ),
         (
             InstructionMismatch::Readouts {
@@ -423,21 +424,30 @@ fn a_mismatch_names_its_instruction_and_what_differs() {
                 sent: (3, 5),
                 accepted: (7, 9),
             },
-            vec!["cz", "3", "5"],
-            vec!["7", "9"],
+            vec!["cz", "outcome", "flag"],
+            Some((["3", "5"], ["7", "9"])),
         ),
         (
             InstructionMismatch::Meaning { mnemonic: cz() },
-            vec!["cz"],
-            vec![],
+            vec!["cz", "do"],
+            None,
         ),
-        (InstructionMismatch::OtherSet, vec![], vec![]),
+        (InstructionMismatch::OtherSet, vec!["set"], None),
     ];
     let messages: Vec<String> = rows
         .iter()
         .map(|(mismatch, ..)| mismatch.to_string())
         .collect();
-    for ((mismatch, sent, accepted), message) in rows.iter().zip(&messages) {
+    for ((mismatch, words, sides), message) in rows.iter().zip(&messages) {
+        for word in words {
+            assert!(
+                message.contains(word),
+                "{mismatch:?} says {word}: {message}"
+            );
+        }
+        let Some((sent, accepted)) = sides else {
+            continue;
+        };
         let (before, after) = message.split_once("accept").unwrap_or((message, ""));
         for word in sent {
             assert!(

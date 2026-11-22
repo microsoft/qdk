@@ -35,8 +35,10 @@ use crate::{
 ///
 /// What it accepts, sends and provides must not change once it is joined:
 /// the fits and `bind`'s map are made once, from them, and each batch
-/// sent to it is checked against what the join read. What it requires is
-/// asked again on each run, of what arrives then.
+/// sent to it is checked against what the join read, its count of
+/// instructions always, its instructions when the batch is marked
+/// checked. Each run's start reads what it provides again, to check what
+/// arrives at it, and asks what it requires again, of what arrives then.
 ///
 /// # Run
 ///
@@ -99,10 +101,10 @@ pub trait Adapter {
     /// translate each instruction it forwards or adds.
     fn bind(&mut self, below: OpcodeMap);
 
-    /// As [`Executor::ready`], for `required`, what arrives from the part
+    /// As [`Executor::ready`], for `above`, what arrives from the part
     /// above, such as for a layout of its logical qubits.
-    fn ready(&mut self, required: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
-        let _ = required;
+    fn ready(&mut self, above: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
+        let _ = above;
         async { Ok(()) }
     }
 
@@ -176,11 +178,11 @@ pub trait Adapter {
     #[doc(hidden)]
     fn ready_at(
         &mut self,
-        required: &Capabilities,
+        above: &Capabilities,
         at: ChainPosition<'_>,
     ) -> impl Future<Output = Result<(), NotReady>> {
         let _ = at;
-        self.ready(required)
+        self.ready(above)
     }
 }
 
@@ -212,8 +214,8 @@ impl<A: Adapter + ?Sized> Adapter for &mut A {
         (**self).bind(below);
     }
 
-    fn ready(&mut self, required: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
-        (**self).ready(required)
+    fn ready(&mut self, above: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
+        (**self).ready(above)
     }
 
     fn adapt(
@@ -236,9 +238,9 @@ impl<A: Adapter + ?Sized> Adapter for &mut A {
 
     fn ready_at(
         &mut self,
-        required: &Capabilities,
+        above: &Capabilities,
         at: ChainPosition<'_>,
     ) -> impl Future<Output = Result<(), NotReady>> {
-        (**self).ready_at(required, at)
+        (**self).ready_at(above, at)
     }
 }

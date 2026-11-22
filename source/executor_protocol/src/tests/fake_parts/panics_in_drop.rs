@@ -156,8 +156,8 @@ impl<P: Adapter> Adapter for PanicsInDrop<P> {
         self.part.bind(below);
     }
 
-    fn ready(&mut self, required: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
-        Self::readying(self.in_ready, self.part.ready(required))
+    fn ready(&mut self, above: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
+        Self::readying(self.in_ready, self.part.ready(above))
     }
 
     fn adapt(
@@ -193,8 +193,8 @@ impl<P: Executor> Executor for PanicsInDrop<P> {
         self.part.provides()
     }
 
-    fn ready(&mut self, required: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
-        Self::readying(self.in_ready, self.part.ready(required))
+    fn ready(&mut self, above: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
+        Self::readying(self.in_ready, self.part.ready(above))
     }
 
     fn execute(

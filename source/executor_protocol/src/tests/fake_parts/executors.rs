@@ -116,11 +116,8 @@ impl Executor for Bits {
         &self.provides
     }
 
-    async fn ready(&mut self, required: &Capabilities) -> Result<(), NotReady> {
-        let qubits = required
-            .resources()
-            .blocks(&BlockType::qubit())
-            .unwrap_or(0);
+    async fn ready(&mut self, above: &Capabilities) -> Result<(), NotReady> {
+        let qubits = above.resources().blocks(&BlockType::qubit()).unwrap_or(0);
         self.log.push(format!("Bits ready for {qubits} qubits"));
         // Each shot holds every qubit the bits provide, as a device's
         // register does, so that an encoding that does not state the
@@ -200,8 +197,8 @@ impl<E: Executor> Executor for Later<E> {
         self.0.provides()
     }
 
-    async fn ready(&mut self, required: &Capabilities) -> Result<(), NotReady> {
-        self.0.ready(required).await
+    async fn ready(&mut self, above: &Capabilities) -> Result<(), NotReady> {
+        self.0.ready(above).await
     }
 
     async fn execute(
@@ -228,8 +225,8 @@ impl<E: Executor> Executor for StatesNoLimits<E> {
         self.0.accepts()
     }
 
-    async fn ready(&mut self, required: &Capabilities) -> Result<(), NotReady> {
-        self.0.ready(required).await
+    async fn ready(&mut self, above: &Capabilities) -> Result<(), NotReady> {
+        self.0.ready(above).await
     }
 
     async fn execute(
@@ -287,8 +284,8 @@ impl<E: Executor> Executor for FromThread<E> {
         self.inner.provides()
     }
 
-    async fn ready(&mut self, required: &Capabilities) -> Result<(), NotReady> {
-        self.inner.ready(required).await
+    async fn ready(&mut self, above: &Capabilities) -> Result<(), NotReady> {
+        self.inner.ready(above).await
     }
 
     async fn execute(

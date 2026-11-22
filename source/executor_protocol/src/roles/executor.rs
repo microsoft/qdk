@@ -41,7 +41,9 @@ use crate::{
 ///
 /// What it accepts and provides must not change once it is joined: the
 /// fit is made once, from them, and each batch sent to it is checked
-/// against what the join read.
+/// against what the join read, its count of instructions always, its
+/// instructions when the batch is marked checked. Each run's start reads
+/// what it provides again, to check what arrives at it.
 ///
 /// # Run
 ///
@@ -87,7 +89,7 @@ pub trait Executor {
     }
 
     /// Gets this part ready for a run, before anything of the run runs, for
-    /// `required`, what arrives from the part above: each
+    /// `above`, what arrives from the part above: each
     /// [`Resource`](crate::Resource) and [`Feature`](crate::Feature) it
     /// states, such as the blocks of each type a shot holds at once, the most
     /// shots of a run, or whether a shot is run again alone. It takes what it
@@ -95,7 +97,7 @@ pub trait Executor {
     /// cannot take a run now, such as when its device is busy or its resources
     /// are not available, answers [`NotReady`], which refuses the run
     /// ([`RunRefusal::PartNotReady`](crate::RunRefusal::PartNotReady)). By
-    /// default `Ok`. `required` follows from the run's shots and whether its
+    /// default `Ok`. `above` follows from the run's shots and whether its
     /// seed is fixed, so work that depends only on it may be done once and
     /// kept for the runs that give the same.
     ///
@@ -104,8 +106,8 @@ pub trait Executor {
     /// that refuses: no part above it is asked, nor any part when the run
     /// is refused for what it requires, nor a part the run has not
     /// reached when its future is dropped, or is never polled.
-    fn ready(&mut self, required: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
-        let _ = required;
+    fn ready(&mut self, above: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
+        let _ = above;
         async { Ok(()) }
     }
 
@@ -213,11 +215,11 @@ pub trait Executor {
     #[doc(hidden)]
     fn ready_at(
         &mut self,
-        required: &Capabilities,
+        above: &Capabilities,
         at: ChainPosition<'_>,
     ) -> impl Future<Output = Result<(), NotReady>> {
         let _ = at;
-        self.ready(required)
+        self.ready(above)
     }
 }
 
@@ -237,8 +239,8 @@ impl<E: Executor + ?Sized> Executor for &mut E {
         (**self).provides()
     }
 
-    fn ready(&mut self, required: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
-        (**self).ready(required)
+    fn ready(&mut self, above: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
+        (**self).ready(above)
     }
 
     fn execute(
@@ -260,10 +262,10 @@ impl<E: Executor + ?Sized> Executor for &mut E {
 
     fn ready_at(
         &mut self,
-        required: &Capabilities,
+        above: &Capabilities,
         at: ChainPosition<'_>,
     ) -> impl Future<Output = Result<(), NotReady>> {
-        (**self).ready_at(required, at)
+        (**self).ready_at(above, at)
     }
 }
 

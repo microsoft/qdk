@@ -47,8 +47,8 @@ impl<U: Adapter, L: Executor> Executor for Composed<U, L> {
     }
 
     /// As [`ready_at`](Self::ready_at), at a position not known.
-    fn ready(&mut self, required: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
-        self.ready_at(required, ChainPosition::UNKNOWN)
+    fn ready(&mut self, above: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
+        self.ready_at(above, ChainPosition::UNKNOWN)
     }
 
     async fn execute(
@@ -85,18 +85,18 @@ impl<U: Adapter, L: Executor> Executor for Composed<U, L> {
     /// Refuses the run if the halves' instructions do not fit, or if what the
     /// adapter requires does not fit what the executor provides, with every
     /// mismatch at their boundary; else the executor first, for what the
-    /// adapter requires, then the adapter, for `required`. A refusal from the
+    /// adapter requires, then the adapter, for `above`. A refusal from the
     /// executor names it, at its position, if `at` is known.
     async fn ready_at(
         &mut self,
-        required: &Capabilities,
+        above: &Capabilities,
         at: ChainPosition<'_>,
     ) -> Result<(), NotReady> {
         let (lower, below_required, below, part) =
-            self.start_run(|upper| upper.requires(required), at)?;
+            self.start_run(|upper| upper.requires(above), at)?;
         await_part(lower.ready_at(below_required, below))
             .await
             .map_err(|not_ready| not_ready.answered_by(part))?;
-        await_part(self.upper.ready_at(required, at)).await
+        await_part(self.upper.ready_at(above, at)).await
     }
 }

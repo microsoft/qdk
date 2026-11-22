@@ -764,20 +764,22 @@ fn the_parts_are_asked_bottom_up_until_one_refuses() {
     );
 }
 
-/// The refusals of two runs on the chain `composed` gave, which must
-/// compose, and whether anything ran: the instructions `counted` saw and
-/// the shots' ends `log` saw.
-fn refused_twice<D: Driver, E: Executor>(
+/// The refusals of runs of `shots`, in turn, on the one runner of the
+/// chain `composed` gave, which must compose, and whether anything ran:
+/// the instructions `counted` saw and the shots' ends `log` saw.
+fn refused_in_turn<D: Driver, E: Executor>(
     composed: Result<Runner<D, E>, crate::CompositionFaults>,
+    shots: &[u32],
     counted: &Cell<usize>,
     log: &Log,
-) -> ([RunRefusal; 2], usize, Vec<String>)
+) -> (Vec<RunRefusal>, usize, Vec<String>)
 where
     D::Output: std::fmt::Debug,
 {
     let mut runner = runner(composed);
-    let shots = ShotSet::ids(0..4);
-    let refusals = [(); 2].map(|()| refused(runner.run(&shots, SEED)));
+    let refusals = (shots.iter())
+        .map(|&n| refused(runner.run(&ShotSet::ids(0..n), SEED)))
+        .collect();
     (refusals, counted.get(), ended(log))
 }
 
@@ -790,9 +792,11 @@ where
 /// reason; nothing runs, and no shot is ended on any part. Its halves'
 /// sets not fitting, it refuses every run; an executor whose lower part
 /// takes 3 shots a run, and a driver joined through a job queue of 3
-/// shots, refuse a run of 4; one whose lower part takes 3 shots and no
-/// `x` refuses a run of 4 with both mismatches in one `BoundaryMismatch`,
-/// not the instructions alone; and an interleaver joined with a decoder
+/// shots, refuse a run of 4; one whose inner join, under a repetition
+/// doubling the shots, has a lower part taking 3 shots and no `x`, refuses
+/// runs of 1, 2 and 1 shots with the instructions alone, then with the 4
+/// shots too, in one `BoundaryMismatch`, then the instructions alone
+/// again, each run checked anew; and an interleaver joined with a decoder
 /// limiting qubits to 4, under a program on 5, refuses every run, as the
 /// program's 5 qubits pass through the interleaver to the decoder.
 #[test]
@@ -802,13 +806,25 @@ fn a_wrapped_joined_part_refuses_each_run_its_inner_boundary_does_not_take() {
         instructions: CoinGates::set().fits(&no_x()).expect_err("no `x`"),
         ..BoundaryMismatch::default()
     };
-    let capabilities = |resources, features| BoundaryMismatch {
-        capabilities: CapabilitiesMismatch {
-            resources,
-            features,
-            ..CapabilitiesMismatch::default()
-        },
+    let resource = |key, required, provided| CapabilitiesMismatch {
+        resources: vec![ResourceMismatch {
+            key,
+            required,
+            provided,
+        }],
+        ..CapabilitiesMismatch::default()
+    };
+    let shots_fault = BoundaryMismatch {
+        capabilities: resource(Resource::Shots, 4, 3),
         ..BoundaryMismatch::default()
+    };
+    let qubits_fault = BoundaryMismatch {
+        capabilities: resource(Resource::Blocks(BlockType::qubit()), 5, 4),
+        ..BoundaryMismatch::default()
+    };
+    let no_x_and_shots = BoundaryMismatch {
+        capabilities: resource(Resource::Shots, 4, 3),
+        ..no_x_fault.clone()
     };
     let counted = Rc::new(Cell::new(0));
     let profiler = |set, log: &Log| Profiler::on(set, &counted, log);
@@ -817,31 +833,37 @@ fn a_wrapped_joined_part_refuses_each_run_its_inner_boundary_does_not_take() {
             "a driver through an adapter",
             0,
             "user's driver",
-            &no_x_fault,
+            vec![&no_x_fault; 2],
             {
                 let log = Log::default();
                 let held = Renamed::new(
                     CoinCopy::new().through(profiler(no_x(), &log)),
                     "user's driver",
                 );
-                refused_twice(held.on(Bits::accepting(no_x(), &log)), &counted, &log)
+                refused_in_turn(
+                    held.on(Bits::accepting(no_x(), &log)),
+                    &[4, 4],
+                    &counted,
+                    &log,
+                )
             },
         ),
         (
             "an adapter through an adapter",
             1,
             "user's adapter",
-            &no_x_fault,
+            vec![&no_x_fault; 2],
             {
                 let log = Log::default();
                 let held = Renamed::new(
                     profiler(CoinGates::set(), &log).through(profiler(no_x(), &log)),
                     "user's adapter",
                 );
-                refused_twice(
+                refused_in_turn(
                     CoinCopy::new()
                         .through(held)
                         .on(Bits::accepting(no_x(), &log)),
+                    &[4, 4],
                     &counted,
                     &log,
                 )
@@ -851,28 +873,21 @@ fn a_wrapped_joined_part_refuses_each_run_its_inner_boundary_does_not_take() {
             "an adapter on an executor",
             1,
             "user's executor",
-            &no_x_fault,
+            vec![&no_x_fault; 2],
             {
                 let log = Log::default();
                 let held = Renamed::new(
                     profiler(CoinGates::set(), &log).on(Bits::accepting(no_x(), &log)),
                     "user's executor",
                 );
-                refused_twice(CoinCopy::new().on(held), &counted, &log)
+                refused_in_turn(CoinCopy::new().on(held), &[4, 4], &counted, &log)
             },
         ),
         (
             "an adapter on an executor of 3 shots",
             1,
             "user's executor",
-            &capabilities(
-                vec![ResourceMismatch {
-                    key: Resource::Shots,
-                    required: 4,
-                    provided: 3,
-                }],
-                vec![],
-            ),
+            vec![&shots_fault; 2],
             {
                 let log = Log::default();
                 let held = Renamed::new(
@@ -880,65 +895,43 @@ fn a_wrapped_joined_part_refuses_each_run_its_inner_boundary_does_not_take() {
                         .on(Bits::new(&log).with_resources(qubits(64).with_shots(3))),
                     "user's executor",
                 );
-                refused_twice(CoinCopy::new().on(held), &counted, &log)
+                refused_in_turn(CoinCopy::new().on(held), &[4, 4], &counted, &log)
             },
         ),
         (
-            "an adapter on an executor of 3 shots and no `x`",
+            "a repetition on an adapter on an executor of 3 shots and no `x`",
             1,
             "user's executor",
-            &BoundaryMismatch {
-                capabilities: CapabilitiesMismatch {
-                    resources: vec![ResourceMismatch {
-                        key: Resource::Shots,
-                        required: 4,
-                        provided: 3,
-                    }],
-                    ..CapabilitiesMismatch::default()
-                },
-                ..no_x_fault.clone()
-            },
+            vec![&no_x_fault, &no_x_and_shots, &no_x_fault],
             {
                 let log = Log::default();
                 let bits = Bits::accepting(no_x(), &log).with_resources(qubits(64).with_shots(3));
-                let held =
-                    Renamed::new(profiler(CoinGates::set(), &log).on(bits), "user's executor");
-                refused_twice(CoinCopy::new().on(held), &counted, &log)
+                let held = Renamed::new(
+                    Stating::repeating_shots(2, &log).on(profiler(CoinGates::set(), &log).on(bits)),
+                    "user's executor",
+                );
+                refused_in_turn(CoinCopy::new().on(held), &[1, 2, 1], &counted, &log)
             },
         ),
         (
             "a driver through a queue of 3 shots",
             0,
             "user's driver",
-            &capabilities(
-                vec![ResourceMismatch {
-                    key: Resource::Shots,
-                    required: 4,
-                    provided: 3,
-                }],
-                vec![],
-            ),
+            vec![&shots_fault; 2],
             {
                 let log = Log::default();
                 let held = Renamed::new(
                     CoinCopy::new().through(Stating::queue(3, &log)),
                     "user's driver",
                 );
-                refused_twice(held.on(Bits::new(&log)), &counted, &log)
+                refused_in_turn(held.on(Bits::new(&log)), &[4, 4], &counted, &log)
             },
         ),
         (
             "an adapter through a decoder of 4 qubits",
             1,
             "user's adapter",
-            &capabilities(
-                vec![ResourceMismatch {
-                    key: Resource::Blocks(BlockType::qubit()),
-                    required: 5,
-                    provided: 4,
-                }],
-                vec![],
-            ),
+            vec![&qubits_fault; 2],
             {
                 let log = Log::default();
                 let held = Renamed::new(
@@ -949,13 +942,14 @@ fn a_wrapped_joined_part_refuses_each_run_its_inner_boundary_does_not_take() {
                     .with_resources(qubits(5))
                     .through(held)
                     .on(Bits::new(&log).with_resources(qubits(10)));
-                refused_twice(chain, &counted, &log)
+                refused_in_turn(chain, &[4, 4], &counted, &log)
             },
         ),
     ];
-    for (row, position, name, fault, (refusals, ran, ended)) in rows {
-        for refusal in refusals {
-            let RunRefusal::PartNotReady { part, not_ready } = &refusal else {
+    for (row, position, name, faults, (refusals, ran, ended)) in rows {
+        assert_eq!(refusals.len(), faults.len(), "{row}: one fault a run");
+        for (refusal, fault) in refusals.iter().zip(faults) {
+            let RunRefusal::PartNotReady { part, not_ready } = refusal else {
                 panic!("{row}: a part's refusal, not {refusal:?}");
             };
             assert_eq!(

@@ -95,9 +95,9 @@ impl<P: Adapter> Adapter for Renamed<P> {
         self.part.bind(below);
     }
 
-    fn ready(&mut self, required: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
+    fn ready(&mut self, above: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
         self.name = self.name_once_ready;
-        self.part.ready(required)
+        self.part.ready(above)
     }
 
     fn adapt(
@@ -128,9 +128,9 @@ impl<P: Executor> Executor for Renamed<P> {
         self.part.provides()
     }
 
-    fn ready(&mut self, required: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
+    fn ready(&mut self, above: &Capabilities) -> impl Future<Output = Result<(), NotReady>> {
         self.name = self.name_once_ready;
-        self.part.ready(required)
+        self.part.ready(above)
     }
 
     fn execute(

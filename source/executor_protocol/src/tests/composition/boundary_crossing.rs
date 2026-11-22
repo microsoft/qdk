@@ -881,9 +881,9 @@ impl Executor for RecordsWhatItFinds {
         coin_gates()
     }
 
-    async fn ready(&mut self, required: &Capabilities) -> Result<(), NotReady> {
+    async fn ready(&mut self, above: &Capabilities) -> Result<(), NotReady> {
         match &mut self.0 {
-            Some(bits) => bits.ready(required).await,
+            Some(bits) => bits.ready(above).await,
             None => Ok(()),
         }
     }
@@ -991,8 +991,8 @@ impl Executor for FailsFirst {
         Executor::provides(&self.0)
     }
 
-    async fn ready(&mut self, required: &Capabilities) -> Result<(), NotReady> {
-        self.0.ready(required).await
+    async fn ready(&mut self, above: &Capabilities) -> Result<(), NotReady> {
+        self.0.ready(above).await
     }
 
     async fn execute(

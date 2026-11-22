@@ -72,16 +72,18 @@ no more than another, as [`Capabilities`](../src/capabilities.rs) defines
 it, it requires no more than given the other. The protocol does not check
 either, and the checks rely on both:
 
-- monotone, because the `on` that makes a runner checks the chain with
-  nothing arriving at its top, which requires no more than any run: a part
-  short then is short on every run, so the chain is refused once, before
-  any run (the joins before it fit only the instructions);
-- deterministic, because each run's start calls each `requires` again, for
-  what arrives on that run, and checks it; a joined part, at `ready`,
-  calls its upper half's `requires` again for what arrives at its lower
-  half, which it checks and gets its lower half ready for; and a refused
-  run walks its chain again to list the faults: each must find what the
-  run's start checked.
+- monotone, because the `on` that makes a runner checks the chain it sees
+  with nothing arriving at its top, which requires no more than any run: a
+  part short then is short on every run, so the chain is refused once,
+  before any run (the joins before it fit only the instructions);
+- deterministic, because each run's start calls each `requires` of the
+  chain the `on` sees again, for what arrives on that run, and checks it,
+  and a run so refused walks that chain again to list the faults, which
+  must find what the start found; and each joined part, at `ready`, calls
+  its upper half's `requires` again for what arrives at its lower half,
+  checks it against what that half provides, and only if it fits gets
+  that half ready for it, which must be, where the start sees that half,
+  what the start checked.
 
 For instance, the example's driver requires the run on 2 qubits, and its
 executor provides 64 qubits, at most 1000 shots a run, and no readout
@@ -179,8 +181,10 @@ of what its upper part requires of `above`; its `provides()` gives its
 upper part's limits alone, since what its two parts take together is not
 one value. So a part of the user's that holds a joined part and forwards
 its role's public methods has the joined part's top limits checked by the
-`on`, and its inner ones on each run: the joined part refuses the run at
-`ready`, naming the user's part, with the mismatch. For instance an
+`on`, and its inner ones at its `ready`, on each run that reaches it: the
+joined part refuses the run, naming the user's part, with the mismatch of
+the first boundary inside it found not to fit, the one between its halves
+checked first. For instance an
 interleaver joined with a decoder taking 4 qubits, so wrapped, under a
 program on 5 qubits, composes over bits of 10, and refuses every run
 (from

@@ -163,7 +163,7 @@ impl Adapter for Profiler {
         self.below = Some(below);
     }
 
-    async fn ready(&mut self, _required: &Capabilities) -> Result<(), NotReady> {
+    async fn ready(&mut self, _above: &Capabilities) -> Result<(), NotReady> {
         self.log.push("Profiler ready");
         match self.busy {
             Some(why) => Err(NotReady::new(why)),
@@ -372,8 +372,8 @@ impl Adapter for Spread {
         self.below = Some(below);
     }
 
-    async fn ready(&mut self, required: &Capabilities) -> Result<(), NotReady> {
-        let qubits = qubits_of(required);
+    async fn ready(&mut self, above: &Capabilities) -> Result<(), NotReady> {
+        let qubits = qubits_of(above);
         self.log.push(format!("Spread ready for {qubits} qubits"));
         Ok(())
     }
@@ -538,8 +538,8 @@ impl Adapter for Stating {
         self.spread.bind(below);
     }
 
-    async fn ready(&mut self, required: &Capabilities) -> Result<(), NotReady> {
-        self.spread.ready(required).await
+    async fn ready(&mut self, above: &Capabilities) -> Result<(), NotReady> {
+        self.spread.ready(above).await
     }
 
     async fn adapt(

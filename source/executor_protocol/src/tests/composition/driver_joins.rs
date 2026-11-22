@@ -687,7 +687,9 @@ fn a_wrapped_joined_part_requires_what_its_parts_require() {
 /// included, with parts named by their types, or, as a part built at run
 /// time is, by what it was built from: each fault names its parts by
 /// those names, in its fields and in its message, beside each mismatch's
-/// own message, whose wording is pinned by its own type's tests.
+/// own message, whose wording is pinned by its own type's tests. A
+/// boundary's mismatch alone, as a joined part's `ready` refuses with it,
+/// says each of its mismatches, an instruction's and a resource's both.
 #[test]
 fn a_composition_fault_names_its_parts_and_every_mismatch() {
     let log = Log::default();
@@ -695,48 +697,65 @@ fn a_composition_fault_names_its_parts_and_every_mismatch() {
     let x = instructions(&CoinGates::set(), &no_x()).instructions[0].to_string();
     let nine_qubits = short_qubits(9, 8).capabilities.resources[0].to_string();
     let nine_over_four = short_qubits(9, 4).capabilities.resources[0].to_string();
+    let said = |faults: CompositionFaults| {
+        let named: Vec<_> = (faults.faults().iter())
+            .map(|fault| (fault.requirer.clone(), fault.provider.clone()))
+            .collect();
+        (named, faults.to_string())
+    };
     let rows = [
         (
             "an instruction",
-            faults(CoinCopy::new().on(Bits::accepting(no_x(), &log))),
+            said(faults(CoinCopy::new().on(Bits::accepting(no_x(), &log)))),
             vec![(part::<CoinCopy>(0), part::<Bits>(1))],
             vec![&x],
         ),
         (
             "qubits",
-            faults(program(9, Features::unconstrained()).on(bits_over(8, &log))),
+            said(faults(
+                program(9, Features::unconstrained()).on(bits_over(8, &log)),
+            )),
             vec![(part::<Program>(0), part::<Bits>(1))],
             vec![&nine_qubits],
         ),
         (
             "an instruction and qubits at one pair",
-            faults(
+            said(faults(
                 program(9, Features::unconstrained())
                     .on(Bits::accepting(no_x(), &log).with_resources(qubits(8))),
-            ),
+            )),
             vec![(part::<Program>(0), part::<Bits>(1))],
             vec![&x, &nine_qubits],
         ),
         (
             "parts built at run time",
-            faults(
+            said(faults(
                 Renamed::new(program(9, Features::unconstrained()), "h2 program")
                     .through(Renamed::new(Stating::capping(4, &log), "decoder"))
                     .on(Renamed::new(bits_over(8, &log), "qodec runtime")),
-            ),
+            )),
             vec![
                 (named(0, "h2 program"), named(1, "decoder")),
                 (named(0, "h2 program"), named(2, "qodec runtime")),
             ],
             vec![&nine_over_four, &nine_qubits],
         ),
+        (
+            "a boundary's instruction and qubits, alone",
+            (
+                vec![],
+                BoundaryMismatch {
+                    capabilities: short_qubits(9, 8).capabilities,
+                    ..instructions(&CoinGates::set(), &no_x())
+                }
+                .to_string(),
+            ),
+            vec![],
+            vec![&x, &nine_qubits],
+        ),
     ];
-    for (row, faults, parts, mismatches) in rows {
-        let named: Vec<_> = (faults.faults().iter())
-            .map(|fault| (fault.requirer.clone(), fault.provider.clone()))
-            .collect();
+    for (row, (named, message), parts, mismatches) in rows {
         assert_eq!(named, parts, "{row}");
-        let message = faults.to_string();
         let parts = parts
             .iter()
             .flat_map(|(requirer, provider)| [requirer, provider]);

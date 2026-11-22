@@ -257,8 +257,8 @@ sequenceDiagram
   participant E as Executor
   C->>R: run(shots, seed)
   Note over R: what the run's shots, and seeded runs if its seed is fixed, make arrive at each part, against its provision
-  R->>E: ready(required)
-  R->>A: ready(required)
+  R->>E: ready(above)
+  R->>A: ready(above)
   Note over R,A: the runner reaches an adapter through the joined part that holds it
   R->>D: ready(run)
   R->>D: drive(shots, seed, below)

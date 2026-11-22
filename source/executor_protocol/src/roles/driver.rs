@@ -36,8 +36,8 @@ use crate::{
 /// to run belongs to each run.
 ///
 /// What it sends must not change once it is joined: the fit and `bind`'s
-/// map are made once, from it. What it requires is asked again on each
-/// run, of that run.
+/// map are made once, from it. What it requires is asked again at each
+/// run's start, of that run, and checked down the chain.
 ///
 /// # Run
 ///
@@ -149,8 +149,9 @@ pub trait Driver {
     // by its position. Correctness does not depend on them: a
     // joined part they do not reach, such as one inside a part of the user's
     // that forwards only the public methods, checks its inner parts itself at
-    // `ready` (its halves' fit, and what arrives at each), and gives the same
-    // outputs; only when and how a fault is reported differs.
+    // `ready` (its halves' saved fit, and what arrives at its lower half),
+    // and gives the same outputs; a fault is then its refusal at `ready`, for
+    // the first boundary inside it found not to fit.
 
     /// Adds this part to `parts`, for a run that requires `run`, and gives
     /// what it requires of the part below. Only the crate overrides it, to
