@@ -26,10 +26,18 @@ use std::fmt;
 /// Every mismatch of a set's fit, in the sent set's order: why it does not
 /// fit the receiver's.
 #[derive(Debug, Clone, PartialEq)]
-pub struct InstructionMismatches(pub Vec<InstructionMismatch>);
+pub struct BlockInstructionSetMismatch(Vec<InstructionMismatch>);
+
+impl BlockInstructionSetMismatch {
+    /// Each sent instruction's mismatch, in the sent set's order.
+    #[must_use]
+    pub fn mismatches(&self) -> &[InstructionMismatch] {
+        &self.0
+    }
+}
 
 /// Each mismatch, joined by `; `.
-impl fmt::Display for InstructionMismatches {
+impl fmt::Display for BlockInstructionSetMismatch {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut separator = "";
         for mismatch in &self.0 {
@@ -40,11 +48,11 @@ impl fmt::Display for InstructionMismatches {
     }
 }
 
-impl std::error::Error for InstructionMismatches {}
+impl std::error::Error for BlockInstructionSetMismatch {}
 
 impl BoundaryCompatible for BlockInstructionSet {
     type Fit = OpcodeMap;
-    type Mismatch = InstructionMismatches;
+    type Mismatch = BlockInstructionSetMismatch;
 
     /// Whether the instructions of `self`, the set a part sends, fit
     /// `receiver`, the set the part below accepts: the receiver's opcode
@@ -75,7 +83,10 @@ impl BoundaryCompatible for BlockInstructionSet {
     /// two declares what it does and the other does not; else, both
     /// undeclared under sets of other names,
     /// [`OtherSet`](InstructionMismatch::OtherSet), given once.
-    fn fits(&self, receiver: &BlockInstructionSet) -> Result<OpcodeMap, InstructionMismatches> {
+    fn fits(
+        &self,
+        receiver: &BlockInstructionSet,
+    ) -> Result<OpcodeMap, BlockInstructionSetMismatch> {
         let same_name = self.name == receiver.name;
         let mut opcodes = Vec::with_capacity(self.instructions.len());
         let mut by_mnemonic = Vec::new();
@@ -101,7 +112,7 @@ impl BoundaryCompatible for BlockInstructionSet {
         if mismatches.is_empty() {
             Ok(OpcodeMap::new(opcodes, by_mnemonic))
         } else {
-            Err(InstructionMismatches(mismatches))
+            Err(BlockInstructionSetMismatch(mismatches))
         }
     }
 }

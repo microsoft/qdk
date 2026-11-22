@@ -63,6 +63,8 @@ fn instruction_holds_its_arguments_in_parameter_order() {
     assert_eq!(u.select, None);
 }
 
+/// A program naming `t`, which the device's gates lack, is refused when it
+/// builds the instruction.
 #[test]
 fn unknown_mnemonic_is_refused() {
     assert_eq!(
@@ -71,6 +73,8 @@ fn unknown_mnemonic_is_refused() {
     );
 }
 
+/// A program giving `h` an angle, as if it were `u`, is refused rather
+/// than run with the angle silently dropped.
 #[test]
 fn argument_for_no_parameter_is_refused() {
     assert_eq!(
@@ -82,6 +86,8 @@ fn argument_for_no_parameter_is_refused() {
     );
 }
 
+/// A program giving `u` two values of `theta` is refused rather than run
+/// with one of them chosen for it.
 #[test]
 fn argument_given_twice_is_refused() {
     let arguments = [
@@ -409,15 +415,20 @@ fn readout_parities_are_equal_exactly_when_their_readouts_and_flip_are() {
     }
 }
 
-/// A parity in a failing test's output prints as its readouts and flip,
+/// A parity in a failing test's output names its readouts and flip,
 /// whether held inline or not.
 #[test]
-fn a_readout_parity_prints_as_its_readouts_and_flip() {
+fn a_readout_parity_prints_its_readouts_and_flip() {
     for back in PARITY_READOUTS {
         for flip in [false, true] {
-            assert_eq!(
-                format!("{:?}", parity_of(back, flip)),
-                format!("ReadoutParity {{ flip: {flip}, back: {back:?} }}"),
+            let printed = format!("{:?}", parity_of(back, flip));
+            assert!(
+                printed.contains(&format!("{back:?}")),
+                "{printed} names the readouts {back:?}"
+            );
+            assert!(
+                printed.contains(&flip.to_string()),
+                "{printed} names the flip {flip}"
             );
         }
     }
@@ -495,6 +506,8 @@ fn empty_select_pattern_matches_every_shots_flags() {
     }
 }
 
+/// A decoder post-selecting on an `erasure` flag that `m` does not give
+/// is refused rather than matched against a flag no shot sets.
 #[test]
 fn select_on_a_flag_the_instruction_lacks_is_refused() {
     assert_eq!(
@@ -506,6 +519,8 @@ fn select_on_a_flag_the_instruction_lacks_is_refused() {
     );
 }
 
+/// A pattern asking `leak` to be both 0 and 1 is refused rather than read
+/// as one of the two.
 #[test]
 fn select_naming_a_flag_twice_in_one_pattern_is_refused() {
     assert_eq!(
@@ -517,6 +532,8 @@ fn select_naming_a_flag_twice_in_one_pattern_is_refused() {
     );
 }
 
+/// A pattern asking a flag for 2, which no flag bit holds, is refused
+/// rather than read as 0 or 1.
 #[test]
 fn select_value_other_than_a_bit_is_refused() {
     assert_eq!(

@@ -67,7 +67,7 @@ impl ReadoutParity {
     }
 }
 
-/// As `ReadoutParity { flip, back }` would print, whether inline or shared.
+/// Names its flip and its readouts, whether inline or shared.
 impl fmt::Debug for ReadoutParity {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ReadoutParity")

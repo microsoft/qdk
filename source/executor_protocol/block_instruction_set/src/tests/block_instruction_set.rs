@@ -577,6 +577,7 @@ fn check_rows(
 /// require readout parities; a bit known when written, whatever they
 /// require.
 #[test]
+#[expect(clippy::too_many_lines, reason = "a table, one row per scene")]
 fn an_instruction_its_set_does_not_take_is_refused() {
     let set = device();
     let mut beyond = literal(&set, "h", &[0]);
@@ -665,6 +666,15 @@ fn an_instruction_its_set_does_not_take_is_refused() {
             "`cond_x` on the parity of no readout, requiring none",
             cond_x(Argument::parity([], true)),
             qubit(),
+            Err(InstructionFault::ParityNotRequired {
+                mnemonic: "cond_x".into(),
+                parameter: "c".into(),
+            }),
+        ),
+        (
+            "`cond_x` on the parity of no readout, shots stating parities `false`",
+            cond_x(Argument::parity([], true)),
+            qubit().with_readout_parity(false),
             Err(InstructionFault::ParityNotRequired {
                 mnemonic: "cond_x".into(),
                 parameter: "c".into(),

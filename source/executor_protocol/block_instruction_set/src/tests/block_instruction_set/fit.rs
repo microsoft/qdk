@@ -43,7 +43,7 @@ fn instructions_the_receiver_lacks_are_each_missing_in_order() {
     let sent = set_of("Gates", 1, vec![gate("h"), gate("t"), gate("x"), gate("s")]);
     let accepted = set_of("Gates", 1, vec![gate("x"), gate("h")]);
     assert_eq!(
-        sent.fits(&accepted).map_err(|m| m.0),
+        sent.fits(&accepted).map_err(|m| m.mismatches().to_vec()),
         Err(vec![missing("t"), missing("s")])
     );
 }
@@ -118,7 +118,7 @@ fn undeclared_instructions_of_sets_of_other_names_are_refused_once() {
     let sent = set_of("Gates", 1, vec![gate("x"), gate("h")]);
     let accepted = set_of("Device", 1, vec![gate("x"), gate("h")]);
     assert_eq!(
-        sent.fits(&accepted).map_err(|m| m.0),
+        sent.fits(&accepted).map_err(|m| m.mismatches().to_vec()),
         Err(vec![InstructionMismatch::OtherSet])
     );
 }
@@ -255,7 +255,9 @@ fn an_instruction_fits_only_one_of_the_same_shape() {
         ),
     ] {
         assert_eq!(
-            sent.fits(&accepted).map(|_| ()).map_err(|m| m.0),
+            sent.fits(&accepted)
+                .map(|_| ())
+                .map_err(|m| m.mismatches().to_vec()),
             fit,
             "{row}"
         );
@@ -320,7 +322,7 @@ fn each_shape_difference_is_reported() {
         vec![InstructionDef::new("u").acts_on([BlockType::qubit(), BlockType::qubit()])],
     );
     assert_eq!(
-        sent.fits(&accepted).map_err(|m| m.0),
+        sent.fits(&accepted).map_err(|m| m.mismatches().to_vec()),
         Err(vec![
             blocks("u"),
             InstructionMismatch::Parameters {
@@ -353,7 +355,7 @@ fn declared_instruction_with_no_namesake_nor_one_doing_the_same_on_its_blocks_is
         ("a `had` on other blocks", set_of("Gates", 1, vec![had])),
     ] {
         assert_eq!(
-            sent.fits(&accepted).map_err(|m| m.0),
+            sent.fits(&accepted).map_err(|m| m.mismatches().to_vec()),
             Err(vec![missing("h")]),
             "{row}"
         );
@@ -374,7 +376,7 @@ fn mnemonic_declared_to_do_something_else_is_refused() {
         ],
     );
     assert_eq!(
-        sent.fits(&accepted).map_err(|m| m.0),
+        sent.fits(&accepted).map_err(|m| m.mismatches().to_vec()),
         Err(vec![InstructionMismatch::Meaning {
             mnemonic: "h".into()
         }])
@@ -389,8 +391,18 @@ fn meaning_declared_on_one_side_only_is_refused() {
     let meaning = Err(vec![InstructionMismatch::Meaning {
         mnemonic: "h".into(),
     }]);
-    assert_eq!(declared.fits(&undeclared).map_err(|m| m.0), meaning);
-    assert_eq!(undeclared.fits(&declared).map_err(|m| m.0), meaning);
+    assert_eq!(
+        declared
+            .fits(&undeclared)
+            .map_err(|m| m.mismatches().to_vec()),
+        meaning
+    );
+    assert_eq!(
+        undeclared
+            .fits(&declared)
+            .map_err(|m| m.mismatches().to_vec()),
+        meaning
+    );
 }
 
 /// The shape is compared before a one-sided meaning: a declared `h` on
@@ -409,7 +421,9 @@ fn shape_mismatch_is_reported_before_a_one_sided_meaning() {
     );
     let undeclared = set_of("Gates", 1, vec![gate("h")]);
     assert_eq!(
-        declared.fits(&undeclared).map_err(|m| m.0),
+        declared
+            .fits(&undeclared)
+            .map_err(|m| m.mismatches().to_vec()),
         Err(vec![blocks("h")])
     );
 }

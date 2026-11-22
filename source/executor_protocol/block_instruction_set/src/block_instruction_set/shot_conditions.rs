@@ -26,9 +26,8 @@ use std::ops::{BitOr, BitOrAssign};
 /// with no operation that clears one.
 ///
 /// One byte, behind a private field, so that a condition can be added
-/// without breaking any part. Its `Debug` names the conditions, as
-/// `ShotConditions(REJECTED | UNRESOLVED)`; its `Default` is
-/// [`NONE`](Self::NONE).
+/// without breaking any part. Its `Debug` names the conditions raised, or
+/// `NONE`; its `Default` is [`NONE`](Self::NONE).
 #[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct ShotConditions(u8);
 
@@ -85,7 +84,7 @@ impl BitOrAssign for ShotConditions {
 }
 
 impl fmt::Debug for ShotConditions {
-    /// `ShotConditions(NONE)`, or the conditions raised, joined by ` | `.
+    /// Names the conditions raised, or `NONE` for none.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("ShotConditions(")?;
         if self.is_empty() {

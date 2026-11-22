@@ -109,13 +109,14 @@ impl Lowering for Repetition3 {
         &self.provides
     }
 
-    /// What arrives, on three physical qubits for each logical one.
+    /// What arrives, on three physical qubits for each logical one, or
+    /// the most a count holds where three times as many do not fit.
     fn requires(
         &self,
         above: &Capabilities<BlockInstructionSet>,
     ) -> Capabilities<BlockInstructionSet> {
         let blocks = match above.set_capabilities().blocks(&BlockType::qubit()) {
-            Some(logical) => BlockCapabilities::NONE.with_qubits(3 * logical),
+            Some(logical) => BlockCapabilities::NONE.with_qubits(logical.saturating_mul(3)),
             None => BlockCapabilities::NONE,
         };
         Capabilities::new(*above.resources(), *above.features(), blocks)
@@ -240,7 +241,7 @@ mod tests {
     /// The receiver runs `cx` on logical qubits 0 and 1 as three `cx`, one
     /// on each pair of their physical qubits, in its own opcode.
     #[test]
-    fn each_logical_instruction_is_three_physical_ones_on_its_qubits_blocks() {
+    fn each_logical_instruction_is_three_physical_ones_one_per_copy_of_its_qubits() {
         let receiver: BlockInstructionSet = PhysicalGates::set();
         for (mnemonic, physical, qubits, expected) in [
             (
@@ -304,6 +305,11 @@ mod tests {
             ([lost, Zero, One], lost),
             ([lost, lost, One], lost),
             ([lost, Missing(ReadoutFailure::Other), Zero], lost),
+            ([One, lost, Zero], lost),
+            (
+                [Zero, Missing(ReadoutFailure::Other), lost],
+                Missing(ReadoutFailure::Other),
+            ),
         ] {
             let mut into = [Zero];
             if logical == Zero {
@@ -316,7 +322,8 @@ mod tests {
 
     /// Built for 2 logical qubits, the code takes at most 2, and the shots
     /// above it reaching 2 require 6 physical qubits below; shots stating
-    /// no qubits require none.
+    /// no qubits require none, and shots stating more than a third of the
+    /// most a count holds require the most.
     #[test]
     fn each_logical_qubit_requires_three_physical_ones() {
         let repetition = Repetition3::new(2);
@@ -342,6 +349,11 @@ mod tests {
                 "no qubits stated",
                 BlockCapabilities::NONE,
                 BlockCapabilities::NONE,
+            ),
+            (
+                "more logical qubits than a third of the most a count holds",
+                BlockCapabilities::NONE.with_qubits(u32::MAX / 3 + 1),
+                BlockCapabilities::NONE.with_qubits(u32::MAX),
             ),
         ] {
             assert_eq!(

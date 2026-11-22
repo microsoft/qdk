@@ -71,18 +71,21 @@ fn only_no_condition_is_empty() {
     }
 }
 
-/// A failing test names the conditions raised.
+/// A failing test names the conditions raised on a shot, and only those.
 #[test]
 fn debug_names_the_conditions() {
-    assert_eq!(
-        format!("{:?}", ShotConditions::NONE),
-        "ShotConditions(NONE)"
+    let none = format!("{:?}", ShotConditions::NONE);
+    assert!(none.contains("NONE"), "{none} names no condition");
+    let raised = format!(
+        "{:?}",
+        ShotConditions::UNRESOLVED | ShotConditions::REJECTED
     );
-    assert_eq!(
-        format!(
-            "{:?}",
-            ShotConditions::UNRESOLVED | ShotConditions::REJECTED
-        ),
-        "ShotConditions(REJECTED | UNRESOLVED)"
-    );
+    for (name, named) in [
+        ("REJECTED", true),
+        ("UNRESOLVED", true),
+        ("INCONSISTENT", false),
+        ("NONE", false),
+    ] {
+        assert_eq!(raised.contains(name), named, "{raised} and {name}");
+    }
 }

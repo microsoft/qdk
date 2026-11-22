@@ -62,7 +62,7 @@ pub use block_instruction::{
 pub use block_operand::BlockOperand;
 pub use block_requirement::BlockRequirement;
 pub use block_type::BlockType;
-pub use fit::{InstructionMismatch, InstructionMismatches};
+pub use fit::{BlockInstructionSetMismatch, InstructionMismatch};
 pub use instruction_def::InstructionDef;
 pub use meaning::{Angle, Guard, Meaning, MeaningFault, Observable};
 pub use opcode::Opcode;
