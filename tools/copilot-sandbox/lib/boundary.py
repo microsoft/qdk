@@ -366,7 +366,18 @@ def verify_mount_table(
     devices = {target: device for target, device, *_ in entries}
     for target, device, root, filesystem, options in entries:
         prefix = "/proc" if target.startswith("/proc/") else "/sys"
-        if filesystem in _CONTAINER_FILESYSTEMS and target not in _CONTAINER_FILES:
+        # Newer crun masks directories with a read-only bind of an empty directory on the host's runtime tmpfs.
+        crun_masked = (
+            target.startswith(("/proc/", "/sys/"))
+            and filesystem == "tmpfs"
+            and root == "/crun/.empty-directory"
+            and "ro" in options
+        )
+        if (
+            filesystem in _CONTAINER_FILESYSTEMS
+            and target not in _CONTAINER_FILES
+            and not crun_masked
+        ):
             _require(
                 device not in host_devices,
                 f"{role} shares a host filesystem at {target}",
@@ -394,6 +405,7 @@ def verify_mount_table(
                 # or a read-only rebind of the container's own /proc or /sys.
                 (filesystem == "devtmpfs" and root == "/null")
                 or (filesystem == "tmpfs" and root == "/" and "ro" in options)
+                or crun_masked
                 or (
                     filesystem in ("proc", "sysfs")
                     and device == devices.get(prefix)
