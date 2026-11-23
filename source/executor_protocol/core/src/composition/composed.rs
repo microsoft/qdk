@@ -177,8 +177,9 @@ impl<U, L, S: InstructionSet> Composed<U, L, S> {
     /// # Panics
     ///
     /// Unless the last `ready` polled on this part answered `Ok`, before
-    /// either half is called, naming this part and `call`: a part is called
-    /// only once a run got it ready, as its role says. So it panics before
+    /// either half's `drive`, `adapt` or `execute`, naming `call` and this
+    /// part, whose name it reads from the upper half: a part is called only
+    /// once a run got it ready, as its role says. So it panics before
     /// any `ready`, after one that a half or the boundary refused or that
     /// was dropped before it answered, and always where the halves do not
     /// fit, which every `ready` refuses.

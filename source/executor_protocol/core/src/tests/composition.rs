@@ -585,11 +585,11 @@ fn a_joined_part_is_named_for_its_top_part() {
 /// after one that succeeded and a later one that its upper half, its lower
 /// half or the boundary between them refused, or that was dropped before
 /// it answered. Once polled, its `execute`, `drive` or `adapt` panics
-/// before either half is called, so that neither half does any work,
-/// naming the part and the call, and saying that each run gets a part
-/// ready before calling it; whether its halves fit or not, and whether its
-/// upper half would send anything below or answer by itself, as a trap
-/// does.
+/// before either half's `drive`, `adapt` or `execute`, so that neither half
+/// does any work, naming the part and the call, and saying that each run
+/// gets a part ready before calling it; whether its halves fit or not, and
+/// whether its upper half would send anything below or answer by itself,
+/// as a trap does.
 #[test]
 #[expect(
     clippy::too_many_lines,

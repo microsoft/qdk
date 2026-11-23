@@ -140,11 +140,12 @@ pub trait Driver {
     // type seals takes a `Sealed`, which no other crate can make. A joined
     // part they do not reach, such as one inside a part of the user's that
     // forwards only the public methods, is readied through its public
-    // `ready`: it checks its halves itself (their saved fit, and what
-    // arrives at its lower half, from a part above that states nothing) and
-    // readies each through its public `ready`, so a chain of parts stating
-    // no limits gives the same outputs, and a part stating limits refuses
-    // the run, naming itself, rather than run with its limits unread.
+    // `ready`: it checks its halves itself (their sets, as its join found
+    // them, and what arrives at its lower half, from a part above that
+    // states nothing) and readies each through its public `ready`, so a
+    // chain of parts stating no limits gives the same outputs, and a part
+    // stating limits refuses the run, naming itself, rather than run with
+    // its limits unread.
 
     /// What it requires of the part below on a run that requires `run`
     /// ([`DriverReadings::required`]): by default
