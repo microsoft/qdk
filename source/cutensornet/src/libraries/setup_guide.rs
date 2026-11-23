@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 //! [`SetupGuide`]: what the setup check tells a user about one library, as
-//! the library's module declares it in its [`LibrarySetupGuide`].
+//! the library's module declares it in its `LibrarySetupGuide`.
 //!
 //! The setup check shows each library and advises what to fix, and names
 //! none: each library's module implements `LibrarySetupGuide` beside its
