@@ -45,10 +45,10 @@ pub const TRUNCATION_TOLERANCE: f64 = 1e-3;
 pub struct MpsRunReport {
     /// The largest bond a state held where a sequence of gates ended,
     /// before the measurements after it
-    /// ([`MpsShape::largest_bond`](tensornet::MpsShape::largest_bond)):
-    /// what the run's costliest gates paid for. One when no shot applied a
-    /// gate. Above [`max_bond_dimension`](Self::max_bond_dimension) only on
-    /// an engine that does not truncate.
+    /// ([`MpsShape::largest_bond`](tensornet::MpsShape::largest_bond)).
+    /// One when no shot applied a gate. Above
+    /// [`max_bond_dimension`](Self::max_bond_dimension) only on an engine
+    /// that does not truncate.
     pub largest_bond: usize,
     /// The least weight a shot's state kept through the engine's
     /// truncations, read when the shot ended: 1 when the run was exact, to

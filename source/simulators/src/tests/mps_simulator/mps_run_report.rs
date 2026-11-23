@@ -37,14 +37,15 @@ fn run_once<E: tensornet::MpsEngine>(resumer: &mut MpsResumer<E>, program: &QirP
         .expect("the program runs");
 }
 
-/// The report gives the largest bond any state of the run reached. Each
-/// row is a program and the bond it reports: a GHZ state's bond of 2, read
-/// before the readout projects it back to one; a Bell pair's bond of 2,
-/// read before its first qubit is measured, not the bond of 1 a later gate
-/// on the second qubit ends with; and a Bell pair made after the shot's
-/// last measurement, and never read.
+/// The report gives the largest bond read where a sequence of gates ends,
+/// before the measurements after it. Each row is a program and the bond it
+/// reports: a GHZ state's bond of 2, read before the readout projects it
+/// back to one; a Bell pair's bond of 2, read before its first qubit is
+/// measured, not the bond of 1 a later gate on the second qubit ends with;
+/// and a Bell pair made after the shot's last measurement, its qubits never
+/// measured, its bond read as the shot's context ends.
 #[test]
-fn the_largest_bond_is_the_largest_any_state_reached() {
+fn the_largest_bond_is_the_largest_read_where_a_gate_sequence_ends() {
     let rows = [
         ("a GHZ state, read", ghz(4)),
         (
@@ -238,26 +239,44 @@ fn a_failed_run_does_not_report_the_cost_of_the_run_before() {
     }
 }
 
-/// A run of no shots reports what a run that prepared no state reports,
-/// not the cost of the run before it: a caller that runs an empty batch
-/// after a truncated run reads no stale warning.
+/// A run of no shots, and a max bond dimension set after a run, leave what
+/// a run that prepared no state reports, not the cost of the run before:
+/// a caller that runs an empty batch, or sets χ for the next run, after a
+/// truncated run reads no stale warning. Each scene follows a run that lost
+/// 1% of its weight at the default χ: a run of no shots, which reports that
+/// χ; and χ set to 16, which reports 16.
 #[test]
-fn a_run_of_no_shots_reports_that_no_state_was_prepared() {
-    let mut resumer = MpsResumer::new(ReferenceSpy::retaining(Weight::Fixed(0.99)), 7);
-    run_once(&mut resumer, &ghz(4));
-    assert!(
-        resumer.last_run().truncation_warning().is_some(),
-        "the first run lost 1% of its weight"
-    );
-    expect_ready(resumer.run(&QirMachine::new(&ghz(4)), &[])).expect("no shot fails");
-    assert_eq!(
-        *resumer.last_run(),
-        MpsRunReport {
-            largest_bond: 1,
-            least_retained_weight: 1.0,
-            max_bond_dimension: DEFAULT_MAX_BOND_DIMENSION.get(),
-        }
-    );
+fn no_shots_or_a_new_max_bond_dimension_report_that_no_state_was_prepared() {
+    let lossy = || {
+        let mut resumer = MpsResumer::new(ReferenceSpy::retaining(Weight::Fixed(0.99)), 7);
+        run_once(&mut resumer, &ghz(4));
+        assert!(
+            resumer.last_run().truncation_warning().is_some(),
+            "the first run lost 1% of its weight"
+        );
+        resumer
+    };
+    let mut no_shots = lossy();
+    expect_ready(no_shots.run(&QirMachine::new(&ghz(4)), &[])).expect("no shot fails");
+    let new_chi = lossy().with_max_bond_dimension(NonZeroUsize::new(16).expect("not zero"));
+    for (scene, report, max_bond_dimension) in [
+        (
+            "no shots",
+            *no_shots.last_run(),
+            DEFAULT_MAX_BOND_DIMENSION.get(),
+        ),
+        ("χ set to 16", *new_chi.last_run(), 16),
+    ] {
+        assert_eq!(
+            report,
+            MpsRunReport {
+                largest_bond: 1,
+                least_retained_weight: 1.0,
+                max_bond_dimension,
+            },
+            "{scene}"
+        );
+    }
 }
 
 /// A run whose shots apply no gate reports a largest bond of one: a
@@ -319,11 +338,11 @@ fn the_report_gives_the_max_bond_dimension_set_even_before_a_run() {
 
 /// A run warns when its shots lost more weight to truncation than the
 /// tolerance, giving the weight lost (not the weight kept) and the max bond
-/// dimension, and only then (the message the warning gives:
-/// `mps_run_report/truncation_warning.rs`). Each row is a run's report,
-/// and the weight lost it warns of: an exact run, which keeps all its
-/// weight, none; a run that lost 1%, 1%; and a loss of exactly the
-/// tolerance, none.
+/// dimension the run was given, and only then (the message the warning
+/// gives: `mps_run_report/truncation_warning.rs`). Each row is a run's
+/// report, and the weight lost and χ it warns of: an exact run, which keeps
+/// all its weight, none; a run at χ = 16 that lost 1%, 1% at 16; and a
+/// loss of exactly the tolerance, none.
 #[test]
 fn a_run_warns_only_when_it_lost_more_than_the_tolerance() {
     let mut exact = MpsResumer::new(ExactReference::new(), 7);
@@ -332,7 +351,8 @@ fn a_run_warns_only_when_it_lost_more_than_the_tolerance() {
         (exact.last_run().least_retained_weight - 1.0).abs() < 1e-12,
         "an exact run keeps all its weight"
     );
-    let mut lossy = MpsResumer::new(ReferenceSpy::retaining(Weight::Fixed(0.99)), 7);
+    let mut lossy = MpsResumer::new(ReferenceSpy::retaining(Weight::Fixed(0.99)), 7)
+        .with_max_bond_dimension(NonZeroUsize::new(16).expect("not zero"));
     run_once(&mut lossy, &ghz(3));
     let at_tolerance = MpsRunReport {
         largest_bond: 1,
@@ -341,23 +361,23 @@ fn a_run_warns_only_when_it_lost_more_than_the_tolerance() {
     };
     let rows = [
         ("an exact run", *exact.last_run(), None),
-        ("a run that lost 1%", *lossy.last_run(), Some(0.01)),
+        (
+            "a run at χ = 16 that lost 1%",
+            *lossy.last_run(),
+            Some((0.01, 16)),
+        ),
         ("a loss of exactly the tolerance", at_tolerance, None),
     ];
-    for (scene, report, lost_weight) in rows {
+    for (scene, report, warns_of) in rows {
         let warning = report.truncation_warning();
         assert_eq!(
             warning.is_some(),
-            lost_weight.is_some(),
+            warns_of.is_some(),
             "{scene}: {warning:?}"
         );
-        if let (Some(warning), Some(lost_weight)) = (warning, lost_weight) {
+        if let (Some(warning), Some((lost_weight, max_bond_dimension))) = (warning, warns_of) {
             assert!((warning.lost_weight - lost_weight).abs() < 1e-15, "{scene}");
-            assert_eq!(
-                warning.max_bond_dimension,
-                DEFAULT_MAX_BOND_DIMENSION.get(),
-                "{scene}"
-            );
+            assert_eq!(warning.max_bond_dimension, max_bond_dimension, "{scene}");
         }
     }
 }

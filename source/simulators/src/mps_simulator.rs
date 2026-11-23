@@ -109,7 +109,9 @@ impl<E: MpsEngine> MpsResumer<E> {
 
     /// The resumer preparing each state with bonds of at most
     /// `max_bond_dimension` (χ): an engine that truncates keeps its chain
-    /// within it, losing the weight its report gives.
+    /// within it, losing the weight its report gives. Set before the runs
+    /// it applies to: the [`last_run`](Self::last_run) it leaves is that of
+    /// a run that prepared no state at the new χ.
     #[must_use]
     pub fn with_max_bond_dimension(mut self, max_bond_dimension: NonZeroUsize) -> Self {
         self.max_bond_dimension = max_bond_dimension;
@@ -146,7 +148,9 @@ impl<E: MpsEngine> MpsResumer<E> {
     /// ([`MpsRunReport::truncation_warning`]). After a failed run, what it
     /// read until it stopped: groups holding a shot before the failing one
     /// run on after the failure, and what they read counts too. Before any
-    /// run, and after a run of no shot, that of a run that prepared no state.
+    /// run, after a run of no shot, and once the max bond dimension is set
+    /// ([`with_max_bond_dimension`](Self::with_max_bond_dimension)), that of
+    /// a run that prepared no state at the resumer's χ.
     #[must_use]
     pub fn last_run(&self) -> &MpsRunReport {
         &self.last_run
