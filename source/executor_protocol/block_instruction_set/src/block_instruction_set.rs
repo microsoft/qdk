@@ -40,8 +40,9 @@
 //! (`readout_value`), and what a part found suspect in a shot
 //! (`shot_conditions`).
 //!
-//! The crate's `docs/instruction-sets.md` gives how a part declares its
-//! sets, and when two sets fit.
+//! What the protocol asks of an instruction set, and when it asks, is in
+//! the core's (`executor_protocol_core`) `docs/instruction-sets.md`; when
+//! two of these sets fit is in `fit`.
 
 mod block_capabilities;
 mod block_instruction;
