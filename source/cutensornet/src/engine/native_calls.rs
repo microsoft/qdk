@@ -2,14 +2,11 @@
 // Licensed under the MIT License.
 
 //! [`NativeCalls`]: the calls to the CUDA Runtime and cuTensorNet that a
-//! canonical MPS on the GPU needs, and the two implementations that answer
-//! them.
+//! canonical MPS on the GPU needs.
 //!
 //! The code that makes these calls must run where it is tested, and CI has
-//! no GPU. So it makes each native call through these traits, and two
-//! implementations answer them: the loaded libraries, on a GPU host, and
-//! fake libraries that simulate them on the CPU and enforce cuTensorNet's
-//! call order, in the host tests. The calling code is the same with either.
+//! no GPU. So it makes each native call through these traits, and is the
+//! same whichever implementation answers them.
 //!
 //! ```text
 //! NativeCalls            all three traits, which each implementation has
@@ -18,8 +15,6 @@
 //!   └─ tensor_calls.rs   TensorCalls: tensor descriptors, gate splits,
 //!                        QRs, pairwise contractions
 //! the values passed      OpaqueHandle, Stream, complex.rs (Complex64Abi)
-//! the implementations    loaded_libraries.rs, loaded_libraries/ (Linux x86-64)
-//!                        fake_libraries.rs, fake_libraries/ (tests only)
 //! ```
 //!
 //! Each implementation has one file per trait. A new native call is a

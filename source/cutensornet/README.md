@@ -146,8 +146,9 @@ A caller can rely on each from the step named, whatever the method:
 - **At the opening** (`CudaAlgebra::new`, `CudaMpsEngine::try_from`):
   `CudaAlgebraError::NoDevice` on a host without device 0, before any
   device is selected; a failed opening releases what it had made.
-- **At each method:** another engine's tensor refused before the device
-  is selected; a tensor shorter than the call reads, an upload or a
+- **At each method:** on a poisoned algebra, `CudaAlgebraError::Poisoned`
+  before any other check; otherwise, another engine's tensor refused before
+  the device is selected; a tensor shorter than the call reads, an upload or a
   duplicate of no element, or extents whose product overflows, refused
   before any native object; the
   inputs left unchanged; a return with the device idle; on a failure, the

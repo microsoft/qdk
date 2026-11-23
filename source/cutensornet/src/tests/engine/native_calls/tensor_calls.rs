@@ -7,9 +7,10 @@
 
 use super::*;
 
-/// A tensor descriptor is checked when it is created: one extent per mode,
-/// each at least 1, and an element count a buffer could hold. The overflow
-/// case runs on the fake alone: no GPU has the memory to reach it. So does
+/// A tensor descriptor's modes are checked when it is created: one extent
+/// per mode, each at least 1. Its element count is checked when a call uses
+/// it: a count no buffer could hold is refused. The overflow case runs on
+/// the fake alone: no GPU has the memory to reach it. So does
 /// the repeated-mode case: cuTensorNet 2.13 on an A100 creates a
 /// descriptor that names one mode twice, and its documentation says
 /// nothing of it, but the fake's dense tensors give each label one mode,

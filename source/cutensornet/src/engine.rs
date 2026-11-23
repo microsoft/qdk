@@ -72,7 +72,9 @@ pub use cuda_algebra_error::CudaAlgebraError;
 /// Its states' sites are its algebra's tensors, which another algebra
 /// refuses: a method given another engine's state that passes its sites to
 /// the algebra (a fork, for instance) returns
-/// `CanonicalMpsError::Algebra(CudaAlgebraError::ForeignTensor)`.
+/// `CanonicalMpsError::Algebra(CudaAlgebraError::ForeignTensor)`, unless
+/// this engine's algebra is poisoned, when it returns `Poisoned`, as every
+/// method then does.
 ///
 /// It runs only where its libraries do, so this example is compiled on
 /// Linux x86-64, and run by no test:

@@ -13,7 +13,9 @@ use std::{fmt, rc::Rc};
 /// complex doubles on the algebra's CUDA device, laid out as
 /// `canonical_mps`'s algebra says, which the algebra's calls read and
 /// write. Only the algebra makes one, and only the algebra that made it
-/// accepts it: another refuses it with [`CudaAlgebraError::ForeignTensor`].
+/// accepts it: another refuses it with [`CudaAlgebraError::ForeignTensor`],
+/// unless that algebra is poisoned and so refuses every call with
+/// `Poisoned`.
 ///
 /// It keeps the algebra's session alive, so it may outlive the algebra.
 /// Dropping it frees its buffer; a failed free is not returned, as `Drop`

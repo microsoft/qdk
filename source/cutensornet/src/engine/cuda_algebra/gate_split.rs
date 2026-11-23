@@ -45,12 +45,11 @@ use crate::engine::native_calls::tensor_calls::{
 use canonical_mps::site_algebra::{CentreSide, GateSplitCall};
 use num_complex::Complex64;
 
-/// What a gate split returned, before its buffers become tensors: U and V
-/// hold `capacity` values of the bond, packed at the `bond` kept.
+/// What a gate split returned, before its buffers become tensors: U and V,
+/// allocated for `k` values of the bond and packed at the `bond` kept.
 pub(super) struct SplitFactors {
     pub(super) left: OpaqueHandle,
     pub(super) right: OpaqueHandle,
-    pub(super) capacity: usize,
     pub(super) bond: usize,
     pub(super) retained_fraction: f64,
 }
@@ -134,7 +133,6 @@ pub(super) fn gate_split(
     Ok(SplitFactors {
         left: u.data,
         right: v.data,
-        capacity: k,
         bond,
         retained_fraction: 1.0 - discarded_weight,
     })

@@ -51,7 +51,9 @@
 //! follows.
 //!
 //! Every call refuses a tensor another algebra made, before any native
-//! call ([`CudaAlgebraError::ForeignTensor`]; `device_tensor.rs` says why).
+//! call ([`CudaAlgebraError::ForeignTensor`]; `device_tensor.rs` says why),
+//! unless the algebra is poisoned: then every call returns
+//! [`CudaAlgebraError::Poisoned`] before any other check.
 
 mod algebra_session;
 mod call_scope;
@@ -97,7 +99,8 @@ use std::{borrow::Cow, cell::RefCell, rc::Rc, sync::Arc};
 /// its tensors keep the session alive and free their own buffers. A
 /// poisoned algebra frees nothing the device may still use until a wait
 /// for it succeeds (`algebra_session.rs`). It accepts only the tensors it
-/// made, refusing another algebra's with [`CudaAlgebraError::ForeignTensor`].
+/// made, refusing another algebra's with [`CudaAlgebraError::ForeignTensor`]
+/// while it is not poisoned.
 pub struct CudaAlgebra {
     session: Rc<AlgebraSession>,
     resources: RefCell<AlgebraResources>,
@@ -249,12 +252,14 @@ impl SiteAlgebra for CudaAlgebra {
         let split = self.in_call_scope(&[call.left, call.right], |scope| {
             gate_split::gate_split(scope, call)
         })?;
-        // The buffers' capacities: each factor is packed at the kept bond.
-        let k = split.capacity;
+        // Each factor holds its site packed at the bond kept, the first
+        // elements of a buffer allocated for the largest bond the split
+        // could keep: a read past the site is refused.
+        let k = split.bond;
         Ok(GateSplitOutcome {
             left: self.tensor(split.left, call.left_extent * 2 * k),
             right: self.tensor(split.right, k * 2 * call.right_extent),
-            bond: split.bond,
+            bond: k,
             retained_fraction: split.retained_fraction,
         })
     }
