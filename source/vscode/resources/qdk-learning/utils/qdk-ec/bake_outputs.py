@@ -1,15 +1,22 @@
 """Execute and bake outputs across all QDK-EC course unit notebooks."""
 
-from pathlib import Path
+import asyncio
 import json
+from pathlib import Path
+import subprocess
+import sys
+
 import nbformat
 from nbclient import NotebookClient
 
-COURSE = Path(__file__).resolve().parents[2] / "courses" / "qdk-ec"
-manifest = json.loads((COURSE / "course.json").read_text(encoding="utf-8"))
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-for unit in manifest["units"]:
-    unit_dir = COURSE / unit["dir"]
+COURSE = Path(__file__).resolve().parents[2] / "courses" / "qdk-ec"
+
+
+def _bake_single_unit(unit_dir_name: str, *, check_only: bool = False) -> None:
+    unit_dir = COURSE / unit_dir_name
     nb_path = next(p for p in unit_dir.glob("*.ipynb") if not p.name.endswith(".workbook.ipynb"))
     nb = nbformat.read(nb_path, as_version=4)
 
@@ -30,6 +37,9 @@ for unit in manifest["units"]:
         resources={"metadata": {"path": str(unit_dir)}},
     )
     client.execute()
+    if check_only:
+        print(f"[EXEC CHECK OK] {unit_dir_name}/{nb_path.name}", flush=True)
+        return
 
     for idx, src in orig_sources.items():
         nb.cells[idx].source = src
@@ -42,4 +52,18 @@ for unit in manifest["units"]:
             cell.execution_count = None
 
     nbformat.write(nb, nb_path)
-    print(f"[BAKED OK] {unit['dir']}/{nb_path.name}", flush=True)
+    print(f"[BAKED OK] {unit_dir_name}/{nb_path.name}", flush=True)
+
+
+if __name__ == "__main__":
+    check_only = "--check-only" in sys.argv
+    clean_args = [a for a in sys.argv[1:] if a != "--check-only"]
+    if len(clean_args) == 2 and clean_args[0] == "--unit":
+        _bake_single_unit(clean_args[1], check_only=check_only)
+    else:
+        manifest = json.loads((COURSE / "course.json").read_text(encoding="utf-8"))
+        for unit in manifest["units"]:
+            cmd = [sys.executable, str(Path(__file__).resolve()), "--unit", unit["dir"]]
+            if check_only:
+                cmd.append("--check-only")
+            subprocess.run(cmd, check=True)

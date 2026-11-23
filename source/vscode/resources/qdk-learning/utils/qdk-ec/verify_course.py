@@ -1,4 +1,4 @@
-"""Verify QDK-EC course structure, exercise wiring, and embedded SVG source.
+"""Verify the generated v2 QDK-EC course, authoring-guide compliance, and content hygiene.
 
 Usage:  python verify_course.py [course-directory] [--allow-outputs]
 """
@@ -9,6 +9,7 @@ import json
 import re
 import runpy
 import sys
+import xml.etree.ElementTree as ET
 from collections import Counter
 from pathlib import Path
 
@@ -33,7 +34,14 @@ AUTHORING_KINDS = {
 REGISTER_CALLS = {"register_exercise", "register_value_exercise"}
 EXPECTED_INLINE_SVGS = {
     "tutorial_qec_workflow.svg",
+    "tutorial_qodec_layers.svg",
+    "tutorial_gadget_boundary.svg",
+    "tutorial_parity_references.svg",
+    "tutorial_fault_spreading.svg",
+    "tutorial_interleaved_syndrome.svg",
+    "tutorial_hswap_geometry.svg",
 }
+BANNED_TERMS = ("magne", "qunorth", "yb-171", "ytterbium", "qubraid")
 VERSION_CASES = {
     "1.32.9": False,
     "1.33.0": True,
@@ -48,7 +56,6 @@ VERSION_CASES = {
 
 
 def exercise_names(source: str) -> list[str]:
-    """Return functions decorated with ``@exercise`` in one cell."""
     try:
         tree = ast.parse(source)
     except SyntaxError:
@@ -65,7 +72,6 @@ def exercise_names(source: str) -> list[str]:
 
 
 def registered_names(path: Path) -> set[str]:
-    """Return exercise names registered by a unit helper."""
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     names = set()
     for node in ast.walk(tree):
@@ -82,7 +88,6 @@ def registered_names(path: Path) -> set[str]:
 
 
 def version_check_problems(path: Path) -> list[str]:
-    """Check the dependency-free QDK version policy."""
     namespace = runpy.run_path(str(path))
     is_supported = namespace["_is_supported_qdk"]
     problems = []
@@ -97,10 +102,16 @@ manifest_path = COURSE / "course.json"
 if not manifest_path.is_file():
     sys.exit(f"no course.json under {COURSE}")
 
-manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+manifest_raw = manifest_path.read_text(encoding="utf-8")
+manifest = json.loads(manifest_raw)
 print(f"{manifest['title']}  ({len(manifest['units'])} units)")
 
 failed = False
+for term in BANNED_TERMS:
+    if term in manifest_raw.lower():
+        print(f"  [FAIL] course.json contains banned term '{term}'")
+        failed = True
+
 totals = Counter(units=len(manifest["units"]))
 seen_inline_svgs: set[str] = set()
 for problem in version_check_problems(COURSE / "_check_env.py"):
@@ -128,6 +139,11 @@ for unit in manifest["units"]:
         problems.append(f"expected 1 notebook, found {len(notebooks)}")
 
     if len(notebooks) == 1:
+        raw_nb_text = notebooks[0].read_text(encoding="utf-8")
+        for term in BANNED_TERMS:
+            if term in raw_nb_text.lower():
+                problems.append(f"notebook contains banned term '{term}'")
+
         notebook = nbformat.read(notebooks[0], as_version=4)
         try:
             nbformat.validate(notebook)
@@ -154,23 +170,40 @@ for unit in manifest["units"]:
             tags = set(cell.get("metadata", {}).get("tags", []))
             source = cell.source
             authoring_tag = next(
-                (
-                    tag
-                    for tag in ("hint", "solution", "explanation")
-                    if tag in tags
-                ),
+                (tag for tag in ("hint", "solution", "explanation") if tag in tags),
                 None,
             )
             if cell.cell_type == "code" and authoring_tag is None:
                 current_exercise = None
-            counts["sections"] += any(tag.startswith("section:") for tag in tags)
+
+            if any(tag.startswith("section:") for tag in tags):
+                counts["sections"] += 1
+                first_line = source.splitlines()[0] if source.splitlines() else ""
+                if not first_line.startswith("## "):
+                    problems.append(f"{cell.id}: section cell must start with '## '")
+                elif any(ch in first_line for ch in ("$", "`", "[", "]")):
+                    problems.append(f"{cell.id}: section heading contains non-plain-text characters: {first_line}")
+
+            if cell.cell_type == "markdown":
+                for summary_body in re.findall(r"<summary[^>]*>(.*?)</summary>", source, flags=re.DOTALL):
+                    if "`" in summary_body or "$" in summary_body:
+                        problems.append(f"{cell.id}: <summary> contains unrendered markdown/LaTeX")
+                for link_label, link_url in re.findall(r"\[([^\]]+)\]\((https?://[^)]+)\)", source):
+                    if "↗" not in link_label:
+                        problems.append(f"{cell.id}: external link [{link_label}]({link_url}) missing '↗'")
+
             counts["quizzes"] += source.count("<details>")
-            for svg, name in re.findall(
-                r'(<svg\b[^>]+data-asset="([^"]+)"[^>]*>.*?</svg>)',
-                source,
-                re.DOTALL,
-            ):
+            for svg_match in re.finditer(r'(<svg[^>]+data-asset="([^"]+)"[^>]*>.*?</svg>)', source, flags=re.DOTALL):
+                svg_text, name = svg_match.group(1), svg_match.group(2)
                 counts["inline_svgs"] += 1
+                if "\n" in svg_text:
+                    problems.append(f"{cell.id}: inline SVG {name} spans multiple lines")
+                if "*" in svg_text:
+                    problems.append(f"{cell.id}: inline SVG {name} contains '*' (Markdown emphasis hazard)")
+                try:
+                    ET.fromstring(svg_text)
+                except ET.ParseError as exc:
+                    problems.append(f"{cell.id}: invalid SVG XML in {name}: {exc}")
                 if name not in EXPECTED_INLINE_SVGS:
                     problems.append(f"{cell.id}: unexpected inline SVG {name}")
                 elif name in seen_inline_svgs:
@@ -179,25 +212,21 @@ for unit in manifest["units"]:
                     asset = Path(__file__).with_name(name)
                     if not asset.is_file():
                         problems.append(f"{cell.id}: missing SVG authoring source {name}")
-                    elif svg != asset.read_text(encoding="utf-8").rstrip("\r\n"):
+                    elif svg_text != asset.read_text(encoding="utf-8").rstrip("\r\n"):
                         problems.append(f"{cell.id}: inline SVG differs from {name}")
                 seen_inline_svgs.add(name)
 
             for tag, expected_kind in AUTHORING_KINDS.items():
                 if tag in tags and cell.cell_type != expected_kind:
                     problems.append(
-                        f'{cell.id}: "{tag}" must be a {expected_kind} cell, '
-                        f"found {cell.cell_type}"
+                        f'{cell.id}: "{tag}" must be a {expected_kind} cell, found {cell.cell_type}'
                     )
 
             if "exercise" in tags:
                 counts["exercises"] += 1
                 names = exercise_names(source)
                 if len(names) != 1:
-                    problems.append(
-                        f"{cell.id}: exercise cell must define exactly one "
-                        "@exercise function"
-                    )
+                    problems.append(f"{cell.id}: exercise cell must define exactly one @exercise function")
                     current_exercise = None
                 else:
                     current_exercise = names[0]
@@ -213,25 +242,21 @@ for unit in manifest["units"]:
                     continue
                 counts[total_name] += 1
                 if current_exercise is None:
-                    problems.append(
-                        f'{cell.id}: "{tag}" cell does not follow an exercise'
-                    )
+                    problems.append(f'{cell.id}: "{tag}" cell does not follow an exercise')
                 else:
                     exercise_authoring[current_exercise][tag] += 1
 
             if cell.cell_type == "code":
                 counts["code_cells"] += 1
                 uses_unit_module |= "_unit" in source
-                allow_cell_output = args.allow_outputs and not (
-                    tags & AUTHORING_KINDS.keys()
-                )
+                for line_no, code_line in enumerate(source.splitlines(), start=1):
+                    if len(code_line) > 105:
+                        problems.append(f"{cell.id}: line {line_no} exceeds 105 chars ({len(code_line)})")
+                allow_cell_output = args.allow_outputs and not (tags & AUTHORING_KINDS.keys()) and "check_env" not in source
                 if cell.get("outputs") and not allow_cell_output:
-                    problems.append(f"{cell.id}: code cell ships output")
-                if (
-                    cell.get("execution_count") is not None
-                    and not allow_cell_output
-                ):
-                    problems.append(f"{cell.id}: code cell has an execution count")
+                    problems.append(f"{cell.id}: code cell ships unexpected output")
+                if cell.get("execution_count") is not None and not allow_cell_output:
+                    problems.append(f"{cell.id}: code cell has an unexpected execution count")
 
         unit_helper = directory / "_unit.py"
         if uses_unit_module and not unit_helper.is_file():
@@ -240,36 +265,22 @@ for unit in manifest["units"]:
             registered = registered_names(unit_helper)
             defined = set(exercise_authoring)
             if registered != defined:
-                problems.append(
-                    "checker mismatch: "
-                    f"registered={sorted(registered)}, exercises={sorted(defined)}"
-                )
+                problems.append(f"checker mismatch: registered={sorted(registered)}, exercises={sorted(defined)}")
 
         for name, authoring in exercise_authoring.items():
             for tag in ("hint", "solution", "explanation"):
                 if authoring[tag] != 1:
-                    problems.append(
-                        f"{exercise_ids[name]}: {name} has "
-                        f"{authoring[tag]} {tag} cells, expected 1"
-                    )
+                    problems.append(f"{exercise_ids[name]}: {name} has {authoring[tag]} {tag} cells, expected 1")
 
     totals.update(
         {
             name: counts[name]
-            for name in (
-                "cells",
-                "exercises",
-                "hints",
-                "solutions",
-                "explanations",
-                "quizzes",
-                "inline_svgs",
-            )
+            for name in ("cells", "exercises", "hints", "solutions", "explanations", "quizzes", "inline_svgs")
         }
     )
     status = "FAIL" if problems else "ok"
     print(
-        f"  [{status}] {unit['title']:<44} "
+        f"  [{status}] {unit['title']:<46} "
         f"{counts['cells']:>2} cells  {counts['sections']:>2} sections  "
         f"{counts['exercises']} exercises"
     )

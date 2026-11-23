@@ -91,6 +91,8 @@ def check() -> None:
             "Environment check failed. See output above for details."
         )
 
+    _ensure_arm64_fallbacks()
+
 
 def _can_import(module_name: str) -> bool:
     """Check whether *module_name* is importable without raising."""
@@ -157,3 +159,14 @@ def _render(results: list[tuple[str, str, bool]], errors: list[str]) -> None:
 
 if __name__ == "__main__":
     check()
+
+
+def _ensure_arm64_fallbacks() -> None:
+    """Register pure-Python Stim/HiGHS fallbacks when native wheels are absent (e.g., Windows Arm64)."""
+    if importlib.util.find_spec("highspy") is None or importlib.util.find_spec("stim") is None:
+        if _can_import("qdk") and _can_import("qodec"):
+            import _walkthrough_simulation
+            _walkthrough_simulation.ensure_stim_parser()
+
+
+_ensure_arm64_fallbacks()
