@@ -12,21 +12,21 @@
 //! Today the crate holds:
 //!
 //! - the engine: [`MpsEngine`], what a library that holds matrix product
-//!   states does for a simulation method; [`checks`], which makes each
-//!   refusal of the arguments once, for every engine; [`sampling`], an
-//!   engine's `sample` from its conditional probabilities, written once for
-//!   every engine; and `reference::ExactReference`, the exact engine every
-//!   other one is checked against, for an engine's tests (feature
-//!   `conformance`);
+//!   states does for a simulation method; [`MpsEngineError`], which an
+//!   engine's error implements to tell a refusal from its own failure;
+//!   [`checks`], which makes each refusal of the arguments once, for every
+//!   engine; [`sampling`], an engine's `sample` from its conditional
+//!   probabilities, written once for every engine; and
+//!   `reference::ExactReference`, the exact engine every other one is
+//!   checked against, for an engine's tests (feature `conformance`);
 //! - the chain's shape: [`MpsShape`], the shape of a chain of site tensors
 //!   by the extents of its sites alone (the capacity a caller asks for, and
 //!   the chain an engine holds, which is what the run pays for), and
 //!   [`MpsShapeError`];
 //! - the observables: [`PauliSum`], of [`PauliTerm`]s of [`Pauli`] factors,
 //!   on sites, and [`PauliSumError`];
-//! - the refusals: [`Refusal`], why a call whose arguments break the
-//!   contract was refused, and [`MpsEngineError`], how an engine's own error
-//!   exposes it.
+//! - the refusals: [`Refusal`], why an engine refused a call: its arguments
+//!   break the contract, or name an outcome of probability zero.
 //!
 //! A Bell pair on the reference (feature `conformance`), read three ways:
 //!

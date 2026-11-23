@@ -170,10 +170,10 @@ answers to rounding.
 - **A shared algorithm.** `MpsShape` is a description, and `MpsEngine`
   states what an engine answers, not how it builds or truncates a chain:
   engines differ too widely there for a shared implementation to be
-  discovered rather than invented. Sampling is the exception, because it
-  was discovered: the reference and a CPU engine drew their samples from
-  their conditional probabilities by the same code, so `sampling` holds it,
-  and an engine keeps only its probability call.
+  discovered rather than invented. Sampling is the exception: every engine
+  that draws its values from its conditional probabilities draws them the
+  same way, so `sampling` holds that code, and such an engine writes only
+  its probability call.
 
 - **Truncation settings.** Libraries express approximation in incompatible
   ways (a max bond dimension and a discarded weight; an SVD algorithm with

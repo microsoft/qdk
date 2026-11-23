@@ -12,8 +12,7 @@
 //! the state's site count in place of the state, and returns the refusal
 //! of a fault it finds. Which refusal a call with several faults gets is
 //! unspecified, but for `apply`, whose function states the order it checks
-//! in: no caller may rely on it for the other methods. An engine passes the
-//! refusal on with `?`:
+//! in. An engine passes the refusal on with `?`:
 //!
 //! ```
 //! use num_complex::Complex64;
@@ -72,8 +71,8 @@ pub fn prepare(capacity: &MpsShape) -> Result<(), Refusal> {
 /// A matrix `M` is unitary when the entries of `M·M† − I` sum, in
 /// magnitude, to at most [`UNITARITY_TOLERANCE`]: the sparse simulator's
 /// rule for Q#'s `Apply` (`qsc_eval`'s `backend.rs`), so that both refuse
-/// the same matrices. A sum that is NaN (a matrix with a NaN or an infinite
-/// entry) is refused too, which the sparse simulator's rule does not.
+/// the same matrices; a sum that is not finite (a matrix with a NaN or an
+/// infinite entry) is refused by both.
 ///
 /// # Errors
 ///

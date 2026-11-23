@@ -590,26 +590,20 @@ fn a_sample_of_more_values_than_memory_holds_fails() {
     assert_eq!(error.refusal(), None);
 }
 
-/// Zero shots are no fault, but they do not excuse a site out of range.
+/// Zero shots are no fault, but they do not excuse a site out of range, nor
+/// a repeated site, even one that does not repeat its neighbour.
 #[test]
-fn zero_shots_of_a_site_out_of_range_are_refused() {
-    assert_eq!(
-        ENGINE.sample(&bell(2), &[0, 2], 0, 1),
-        Err(ReferenceError::Refused(Refusal::SiteOutOfRange {
-            site: 2,
-            sites: 2
-        }))
-    );
-}
-
-/// Zero shots are no fault, but they do not excuse a repeated site, even
-/// one that does not repeat its neighbour.
-#[test]
-fn zero_shots_of_a_repeated_site_are_refused() {
-    assert_eq!(
-        ENGINE.sample(&bell(2), &[1, 0, 1], 0, 1),
-        Err(ReferenceError::Refused(Refusal::RepeatedSite { site: 1 }))
-    );
+fn zero_shots_do_not_excuse_a_site_out_of_range_or_repeated() {
+    let cases = [
+        (vec![0, 2], Refusal::SiteOutOfRange { site: 2, sites: 2 }),
+        (vec![1, 0, 1], Refusal::RepeatedSite { site: 1 }),
+    ];
+    for (sites, refusal) in cases {
+        assert_eq!(
+            ENGINE.sample(&bell(2), &sites, 0, 1),
+            Err(ReferenceError::Refused(refusal))
+        );
+    }
 }
 
 /// Basis states past the last one, to the largest index, have amplitude
@@ -719,12 +713,28 @@ fn rank_of_product_state_off_by(delta: f64) -> Option<usize> {
     shape.bond_dim(0)
 }
 
-/// A product state whose amplitudes carry an error of rounding's size, as
-/// gates that entangle and then disentangle leave: the pivot it leaves is
-/// about 1e-12, below 1e-10, so the rank at the cut stays 1.
+/// The rank at a cut counts the pivots elimination leaves at or above the
+/// threshold of 1e-10. On the product state off by `delta`: an error of
+/// rounding's size, as gates that entangle and then disentangle leave
+/// (a pivot of about 1e-12), and a pivot of 0.9e-10, just below the
+/// threshold, count as zero; a pivot of 1.1e-10, just above, counts. And
+/// amplitudes 1 on |00⟩ and 1e-10 on |11⟩ leave a pivot of exactly 1e-10,
+/// which counts, since only a pivot below the threshold counts as zero.
 #[test]
-fn a_rounding_error_does_not_raise_the_rank() {
-    assert_eq!(rank_of_product_state_off_by(1e-12), Some(1));
+fn the_rank_counts_the_pivots_at_or_above_its_threshold() {
+    for (delta, rank) in [(1e-12, 1), (0.9e-10 / 0.75, 1), (1.1e-10 / 0.75, 2)] {
+        assert_eq!(
+            rank_of_product_state_off_by(delta),
+            Some(rank),
+            "delta {delta}"
+        );
+    }
+    let at_threshold =
+        ReferenceState::from_amplitudes(&[c(1.0, 0.0), c(0.0, 0.0), c(0.0, 0.0), c(1e-10, 0.0)]);
+    let shape = ENGINE
+        .shape(&at_threshold)
+        .expect("the reference reports its chain");
+    assert_eq!(shape.bond_dim(0), Some(2), "a pivot of exactly 1e-10");
 }
 
 /// A state whose amplitudes are all zero has rank 0 at its cut, and the
@@ -736,31 +746,6 @@ fn the_zero_state_has_a_bond_of_one() {
         .shape(&state)
         .expect("the reference reports its chain");
     assert_eq!(shape.bond_dim(0), Some(1));
-}
-
-/// A pivot of 0.9e-10, just below the threshold of 1e-10, counts as zero.
-#[test]
-fn a_pivot_just_below_the_rank_threshold_does_not_raise_the_rank() {
-    assert_eq!(rank_of_product_state_off_by(0.9e-10 / 0.75), Some(1));
-}
-
-/// A pivot of 1.1e-10, just above the threshold of 1e-10, counts.
-#[test]
-fn a_pivot_just_above_the_rank_threshold_raises_the_rank() {
-    assert_eq!(rank_of_product_state_off_by(1.1e-10 / 0.75), Some(2));
-}
-
-/// Amplitudes 1 on |00⟩ and 1e-10 on |11⟩: elimination at the cut leaves a
-/// pivot of exactly 1e-10, the threshold, which counts, since only a pivot
-/// below it counts as zero.
-#[test]
-fn a_pivot_at_the_rank_threshold_raises_the_rank() {
-    let state =
-        ReferenceState::from_amplitudes(&[c(1.0, 0.0), c(0.0, 0.0), c(0.0, 0.0), c(1e-10, 0.0)]);
-    let shape = ENGINE
-        .shape(&state)
-        .expect("the reference reports its chain");
-    assert_eq!(shape.bond_dim(0), Some(2));
 }
 
 /// A gate of a random circuit: one-site gates on a site, and controlled

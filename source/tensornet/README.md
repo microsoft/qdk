@@ -42,6 +42,9 @@ Today the crate holds:
   [The engine](#the-engine). It speaks in tensor terms (sites, matrices,
   probabilities and seeds); the method keeps its instructions, its shots
   and its generator. Beside it:
+  - [`MpsEngineError`](src/engine/mps_engine_error.rs) is the bound of an
+    engine's error: its `refusal` method tells a refusal from the engine's
+    own failure;
   - [`checks`](src/engine/checks.rs) is one function per method that can
     refuse a call, which makes the refusals of its arguments;
   - [`sampling`](src/engine/sampling.rs) is what every engine's `sample`
@@ -65,10 +68,8 @@ Today the crate holds:
   coefficient times `Pauli` factors on distinct sites. `PauliSumError` says
   why a term or a sum was not built.
 - **The refusals.** [`Refusal`](src/refusal.rs) is why an engine refused a
-  call whose arguments break the contract, the same on every engine; each
-  engine's error exposes it through the `refusal` method of
-  [`MpsEngineError`](src/engine/mps_engine_error.rs), the bound of an
-  engine's error, which tells a refusal from the engine's own failure.
+  call, the same on every engine: its arguments break the contract, or name
+  an outcome of probability zero.
 
 A Bell pair on the reference, read three ways (the crate's doctest in
 [`src/lib.rs`](src/lib.rs), which every `cargo test` runs):
@@ -158,8 +159,8 @@ Before a call changes the state, its arguments are checked: a call whose
 arguments break the contract is refused, the same way on every engine
 ([`src/refusal.rs`](src/refusal.rs),
 [`src/engine/checks.rs`](src/engine/checks.rs)), and the refusal leaves the
-state unchanged. After, an engine may fail on its own: the state is then
-unspecified, and the caller drops it. The module doc of
+state unchanged. Any other error is the engine's own failure: the state is
+then unspecified, and the caller drops it. The module doc of
 [`src/engine.rs`](src/engine.rs) says how the method draws values, and the
 three ways' promises.
 
@@ -176,9 +177,9 @@ its sampler and a default `conditional_probability_of_one`:
   engine refuses;
 - where the engine draws the values itself from its conditional
   probabilities, build `sample` on
-  [`sample_by_conditionals`](src/engine/sampling.rs), with an `Error` built
-  from `TooManyValues` too (`From`), which keeps its promises of
-  reproducibility, layout and memory;
+  [`sample_by_conditionals`](src/engine/sampling.rs), which keeps `sample`'s
+  promises of reproducibility, layout and memory, with an `Error` built from
+  `TooManyValues` too (`From`);
 - keep the trait's default `conditional_probability_of_one`, which forks
   the state and projects the fork, or override it where the library can
   contract with projected sites;
@@ -202,7 +203,8 @@ its sampler and a default `conditional_probability_of_one`:
 ## Tests
 
 The crate's tests are in [`src/tests/`](src/tests/), one file per module
-with run-time behaviour: each check refuses each fault and accepts its
+with run-time behaviour, the sampler's covering its generator: each check
+refuses each fault and accepts its
 edges, the shared sampler draws the published `SplitMix64` stream, and the
 reference's chain has the Schmidt ranks a singular value decomposition
 gives on random circuits.
@@ -221,5 +223,5 @@ gives on random circuits.
 | `src/mps_shape.rs`                  | `MpsShape`, the shape of a chain, and `MpsShapeError`                                                                                     |
 | `src/pauli_sum.rs`                  | `PauliSum`, `PauliTerm`, `Pauli` and `PauliSumError`: the observables of `expectation`                                                    |
 | `src/refusal.rs`                    | `Refusal`, why a call was refused                                                                                                         |
-| `src/tests/`                        | the crate's tests, one file per module with run-time behaviour, in the same folders                                                       |
+| `src/tests/`                        | the crate's tests, one file per module with run-time behaviour (the sampler's covering its generator), in the same folders                |
 | `design.md`                         | why a chain is described by its extents, refusals versus failures, what libraries offer, the reference's arithmetic, and what is left out |

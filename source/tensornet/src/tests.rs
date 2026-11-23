@@ -1,7 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The crate's tests, one module per module with run-time behaviour.
+//! The crate's tests, one module per module with run-time behaviour, the
+//! sampler's covering its generator.
 
 mod engine;
 mod mps_shape;

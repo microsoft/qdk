@@ -6,9 +6,9 @@
 //!
 //! It validates the chain's shape (ranks by position, bonds that agree, no
 //! outer bonds) and compares shapes with [`MpsShape::fits_within`]; it holds
-//! no tensor elements and no strides, and it does not build or truncate a
-//! chain (an engine does that). Every error is raised while describing,
-//! before any engine is involved, so no message carries vendor vocabulary.
+//! no tensor elements, and it does not build or truncate a chain (an engine
+//! does that). Every error is raised while describing, before any engine is
+//! involved, so no message carries vendor vocabulary.
 
 /// The shape of a matrix product state: a chain of site tensors, described
 /// by the extents of its sites alone.
@@ -18,14 +18,12 @@
 /// and this type says how large it may grow (a capacity, given to
 /// [`MpsEngine::prepare`](crate::MpsEngine::prepare)) or the bonds an engine
 /// holds now (read back with [`MpsEngine::shape`](crate::MpsEngine::shape)):
-/// what the run pays for, at most the capacity on an engine that truncates,
-/// and not the state's exact Schmidt ranks after a measurement.
+/// what the run pays for, at most the capacity on an engine that truncates
+/// (which [`MpsShape::fits_within`] checks), and not the state's exact
+/// Schmidt ranks after a measurement.
 ///
-/// A capacity a caller asks for and the shape an engine realized are both
-/// shapes: after truncation the realized shape is bounded by the requested
-/// one, which is what [`MpsShape::fits_within`] checks. It holds extents and
-/// never strides, which belong to a buffer; the crate's `design.md`
-/// says why.
+/// It holds extents and never strides, which belong to a buffer; the
+/// crate's `design.md` says why.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MpsShape {
     sites: Vec<Vec<usize>>,

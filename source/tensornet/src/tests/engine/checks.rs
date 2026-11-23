@@ -62,38 +62,24 @@ fn prepare_accepts_a_chain_of_qubits() {
     assert_eq!(checks::prepare(&capacity), Ok(()));
 }
 
-/// A qutrit between qubits: an engine of qubits meets it before it lays
-/// out any site.
+/// A site that is not exactly two-level, refused before an engine lays out
+/// any site: a qutrit between qubits; a one-level site, so two levels
+/// exactly, not at most; and a lone qutrit, whose physical axis is its
+/// only one, the case a lone-qubit program meets.
 #[test]
 fn prepare_refuses_a_site_that_is_not_two_level() {
-    let capacity = MpsShape::new(vec![vec![2, 1], vec![1, 3, 1], vec![1, 2]])
-        .expect("a qutrit between qubits is a chain");
-    assert_eq!(
-        checks::prepare(&capacity),
-        Err(Refusal::NotTwoLevel { site: 1, levels: 3 })
-    );
-}
-
-/// A site of one level is no qubit either: two levels exactly, not at most.
-#[test]
-fn prepare_refuses_a_site_of_one_level() {
-    let capacity = MpsShape::new(vec![vec![2, 1], vec![1, 1]])
-        .expect("a qubit beside a one-level site is a chain");
-    assert_eq!(
-        checks::prepare(&capacity),
-        Err(Refusal::NotTwoLevel { site: 1, levels: 1 })
-    );
-}
-
-/// A lone site's physical axis is its only one, the case a lone-qubit
-/// program meets.
-#[test]
-fn prepare_refuses_a_lone_site_that_is_not_two_level() {
-    let capacity = MpsShape::new(vec![vec![3]]).expect("a lone qutrit is a chain");
-    assert_eq!(
-        checks::prepare(&capacity),
-        Err(Refusal::NotTwoLevel { site: 0, levels: 3 })
-    );
+    let cases = [
+        (vec![vec![2, 1], vec![1, 3, 1], vec![1, 2]], 1, 3),
+        (vec![vec![2, 1], vec![1, 1]], 1, 1),
+        (vec![vec![3]], 0, 3),
+    ];
+    for (sites, site, levels) in cases {
+        let capacity = MpsShape::new(sites).expect("each case is a chain");
+        assert_eq!(
+            checks::prepare(&capacity),
+            Err(Refusal::NotTwoLevel { site, levels })
+        );
+    }
 }
 
 /// A CNOT on two of three sites, given in reverse order, as a simulator
@@ -240,10 +226,13 @@ fn apply_refuses_a_two_site_matrix_deviating_in_its_last_row() {
 }
 
 /// M = [[1, 2], [0, 0]]: M·M† − I = [[4, 0], [0, −1]] sums to 5, while
-/// M†·M − I = [[0, 2], [2, 3]] sums to 7. The sparse simulator computes
-/// the first.
+/// M†·M − I = [[0, 2], [2, 3]] sums to 7.
 #[test]
 fn apply_measures_the_deviation_of_m_times_its_adjoint() {
+    // COMPATIBILITY NOTE: this behavior was present in the sparse
+    // simulator's rule for Q#'s `Apply` (`qsc_eval`'s `backend.rs`), which
+    // measures M·M† − I, hence we measure it too, so that both refuse the
+    // same matrices.
     let m = [c(1.0, 0.0), c(2.0, 0.0), c(0.0, 0.0), c(0.0, 0.0)];
     assert_eq!(
         checks::apply(1, &[0], &m),
@@ -262,20 +251,15 @@ fn apply_takes_a_matrix_within_the_tolerance_as_unitary() {
     ));
 }
 
-/// A NaN deviation compares false with every bound, so a check written as
-/// "refuse above the tolerance" would let it through.
+/// A NaN or an infinite entry makes the deviation NaN or infinite, and a
+/// NaN compares false with every bound, so a check written as "refuse
+/// above the tolerance" would let it through.
 #[test]
-fn apply_refuses_a_matrix_with_a_nan_entry() {
+fn apply_refuses_a_matrix_with_a_non_finite_entry() {
     assert!(matches!(
         checks::apply(1, &[0], &diagonal(f64::NAN, 1.0)),
         Err(Refusal::NotUnitary { deviation }) if deviation.is_nan()
     ));
-}
-
-/// An infinite entry makes the deviation infinite or NaN; either is
-/// refused.
-#[test]
-fn apply_refuses_a_matrix_with_an_infinite_entry() {
     assert!(matches!(
         checks::apply(1, &[0], &diagonal(f64::INFINITY, 1.0)),
         Err(Refusal::NotUnitary { .. })

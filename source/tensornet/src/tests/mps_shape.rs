@@ -220,18 +220,13 @@ fn an_unbounded_qubit_chain_of_more_than_63_sites_overflows() {
 }
 
 /// A state truncated below its capacity's bonds, which an engine's
-/// buffers still hold.
+/// buffers still hold, and a state at its capacity, which an untruncated
+/// run reaches.
 #[test]
-fn a_chain_with_smaller_bonds_fits_its_capacity() {
+fn a_chain_with_bonds_at_most_its_capacity_fits_it() {
     let capacity = MpsShape::qubit_chain(4, 8).expect("four sites form a chain");
-    let realized = shape(vec![vec![2, 2], vec![2, 2, 1], vec![1, 2, 2], vec![2, 2]]);
-    assert!(realized.fits_within(&capacity));
-}
-
-/// A state at its capacity, which an untruncated run reaches.
-#[test]
-fn a_chain_fits_itself() {
-    let capacity = MpsShape::qubit_chain(4, 8).expect("four sites form a chain");
+    let truncated = shape(vec![vec![2, 2], vec![2, 2, 1], vec![1, 2, 2], vec![2, 2]]);
+    assert!(truncated.fits_within(&capacity));
     assert!(capacity.fits_within(&capacity));
 }
 

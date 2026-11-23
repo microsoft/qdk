@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! [`Refusal`]: why an engine refused a call whose arguments break the
-//! contract, the same on every engine.
+//! [`Refusal`]: why an engine refused a call, the same on every engine: its
+//! arguments break the contract, or name an outcome of probability zero.
 //!
 //! A refusal leaves the state unchanged, and a refusal of the arguments is
 //! a bug in the caller; an engine's error exposes a refusal through
@@ -10,7 +10,8 @@
 //! tells it apart from the engine's own failures.
 
 /// Why an engine refused a call: its arguments break the contract of
-/// [`MpsEngine`](crate::MpsEngine). Each variant names the methods that
+/// [`MpsEngine`](crate::MpsEngine), or name an outcome of probability
+/// zero. Each variant names the methods that
 /// make it, and the method's `# Errors` section names the variants.
 ///
 /// Every engine makes the refusals of the arguments with

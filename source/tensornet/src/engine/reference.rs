@@ -24,6 +24,10 @@
 //! found by an elimination that counts a pivot below 1e-10 as zero. It
 //! holds up to [`ExactReference::MAX_SITES`] sites.
 //!
+//! A capacity is accepted whatever its bonds: the reference never truncates,
+//! so a state whose exact chain outgrows its capacity is reported by
+//! [`shape`](MpsEngine::shape), for the caller to check.
+//!
 //! Its arithmetic is its own, with no library beneath it, so its answers do
 //! not depend on a library's version, and it runs wherever the crate
 //! builds, with no GPU:
@@ -42,10 +46,6 @@
 //!   lose weight.
 //!
 //! [`UNITARITY_TOLERANCE`]: crate::checks::UNITARITY_TOLERANCE
-//!
-//! A capacity is accepted whatever its bonds: the reference never truncates,
-//! so a state whose exact chain outgrows its capacity is reported by
-//! [`shape`](MpsEngine::shape), for the caller to check.
 
 use crate::sampling::{self, TooManyValues};
 use crate::{MpsEngine, MpsEngineError, MpsShape, Pauli, PauliSum, Refusal, checks};

@@ -33,24 +33,21 @@ fn applied(paulis: &[Pauli]) -> [num_complex::Complex64; 2] {
     [state.amplitude(0), state.amplitude(1)]
 }
 
+/// Each Pauli on |0⟩ and on |1⟩, the amplitudes of |0⟩ and |1⟩ after it.
 /// Y|0⟩ = i|1⟩ and Y|1⟩ = −i|0⟩, so in `M[out][in]` the entry M[1][0] is
 /// i and M[0][1] is −i, and the transposed layout would swap them.
 #[test]
-fn the_y_matrix_is_row_major_out_by_in() {
-    assert_eq!(on_zero(Pauli::Y), [c(0.0, 0.0), c(0.0, 1.0)]);
-    assert_eq!(on_one(Pauli::Y), [c(0.0, -1.0), c(0.0, 0.0)]);
-}
-
-#[test]
-fn the_x_matrix_flips_zero_and_one() {
-    assert_eq!(on_zero(Pauli::X), [c(0.0, 0.0), c(1.0, 0.0)]);
-    assert_eq!(on_one(Pauli::X), [c(1.0, 0.0), c(0.0, 0.0)]);
-}
-
-#[test]
-fn the_z_matrix_keeps_zero_and_negates_one() {
-    assert_eq!(on_zero(Pauli::Z), [c(1.0, 0.0), c(0.0, 0.0)]);
-    assert_eq!(on_one(Pauli::Z), [c(0.0, 0.0), c(-1.0, 0.0)]);
+fn each_pauli_matrix_is_row_major_out_by_in() {
+    let (o, l) = (c(0.0, 0.0), c(1.0, 0.0));
+    let cases = [
+        (Pauli::X, [o, l], [l, o]),
+        (Pauli::Y, [o, c(0.0, 1.0)], [c(0.0, -1.0), o]),
+        (Pauli::Z, [l, o], [o, c(-1.0, 0.0)]),
+    ];
+    for (pauli, zero, one) in cases {
+        assert_eq!(on_zero(pauli), zero, "{pauli:?} on |0⟩");
+        assert_eq!(on_one(pauli), one, "{pauli:?} on |1⟩");
+    }
 }
 
 #[test]
@@ -61,28 +58,24 @@ fn a_term_needs_a_factor() {
     );
 }
 
+/// The first site named a second time is the one reported, and every
+/// earlier factor is compared, not only the previous one (site 1 named
+/// again after another site).
 #[test]
 fn a_term_refuses_the_first_site_named_a_second_time() {
-    assert_eq!(
-        PauliTerm::new(
-            c(1.0, 0.0),
-            vec![(1, Pauli::X), (2, Pauli::Y), (2, Pauli::Z), (1, Pauli::Z)]
+    let cases = [
+        (
+            vec![(1, Pauli::X), (2, Pauli::Y), (2, Pauli::Z), (1, Pauli::Z)],
+            2,
         ),
-        Err(PauliSumError::RepeatedSite { site: 2 })
-    );
-}
-
-/// Site 1 is named again after another site: every earlier factor is
-/// compared, not only the previous one.
-#[test]
-fn a_term_refuses_a_site_named_again_after_another() {
-    assert_eq!(
-        PauliTerm::new(
-            c(1.0, 0.0),
-            vec![(1, Pauli::X), (2, Pauli::Y), (1, Pauli::Z)]
-        ),
-        Err(PauliSumError::RepeatedSite { site: 1 })
-    );
+        (vec![(1, Pauli::X), (2, Pauli::Y), (1, Pauli::Z)], 1),
+    ];
+    for (factors, site) in cases {
+        assert_eq!(
+            PauliTerm::new(c(1.0, 0.0), factors),
+            Err(PauliSumError::RepeatedSite { site })
+        );
+    }
 }
 
 #[test]
