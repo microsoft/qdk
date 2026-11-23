@@ -2,8 +2,8 @@
 
 The details behind [the CUDA algebra](../README.md#the-mps-engine) of the
 crate's README: the native calls each of its
-[phases](../README.md#the-algebras-phases) makes, in order, and how its
-gate split and move of the centre lay out and truncate their tensors.
+[phases](../README.md#the-algebras-phases) makes, in order, what follows a
+failure, and the numerics of its gate split and move of the centre.
 
 ## Native calls of each phase
 
@@ -94,6 +94,8 @@ buffer (`cudaFree`), unless the algebra is poisoned (below), which keeps
 the buffer, or the bind fails, which leaks it, since its free needs that
 device.
 
+### When a method or a release fails
+
 When a method fails, the release phase first waits for the device
 (`cudaStreamSynchronize`, and on the legacy stream too if the method
 copied), since the failed work may still write the call's buffers, and
@@ -120,18 +122,12 @@ the refusal as a `Drop` reports any (stderr, in debug builds).
 
 Every tensor holds complex doubles (`CUDA_C_64F`), its first mode fastest,
 as `SiteAlgebra`'s layout says, and every call computes in double
-precision (`CUTENSORNET_COMPUTE_64F`). A pair of sites is $A$, of extents
-$[l, 2, m]$, and $B$, of extents $[m, 2, r]$.
+precision (`CUTENSORNET_COMPUTE_64F`).
 
-**A gate split** is one `GateSplit`, with cuTensorNet's reduced algorithm
-(it factors $A$ and $B$ by QR and splits only the small core), into $U$ of
-extents $[l, 2, k]$ and $V$ of extents $[k, 2, r]$, allocated at
-
-$$k = \min(e,\ 2l,\ 2r,\ 4m),$$
-
-with $e$ the call's `max_extent`: the gated pair $\theta$ is a
-$2l \times 2r$ matrix of rank at most $4m$, and the reduced algorithm
-accepts no larger $k$. The SVD's settings, each a
+**A gate split** is one `GateSplit`, with cuTensorNet's reduced algorithm,
+into $U$ and $V$ allocated at the largest bond $k$ the split may keep;
+[`gate_split.rs`](../src/engine/cuda_algebra/gate_split.rs) gives the
+algorithm, the tensors' extents and $k$. The SVD's settings, each a
 `CUTENSORNET_TENSOR_SVD_…` value of cuTensorNet's SVD configuration:
 
 - `ALGO_GESVD`, cuSOLVER's `gesvd`
@@ -156,13 +152,12 @@ report it just below 0. The upper end is strict: the split keeps at least
 the largest singular value, so a true $w$ is at most $1 - 1/n$ for $n$
 values.
 
-**A move of the centre** is exact. To the right, $A$, with the one-site
-gate applied to its qubit if there is one, is factored by one `TensorQR`
-as $A = Q R$, with $Q$ of extents $[l, 2, k]$ and $R$ of extents $[k, m]$,
-$k = \min(m, 2l)$; $Q$ is the new left site, and the contraction $R B$ the
-new centre. To the left, $B$ is factored with $Q$ of extents $[k, 2, r]$,
-$k = \min(m, 2r)$, and $A R$ is the new centre. The gate and the product
-with $R$ are pairwise contractions; each contraction network is prepared
+**A move of the centre** is exact: the site the centre leaves, gated
+first if the call says so, is factored by one `TensorQR`, and its small
+factor contracted into the other site, the new centre;
+[`qr_move.rs`](../src/engine/cuda_algebra/qr_move.rs) gives the tensors'
+extents. The gate and the product with the small factor are pairwise
+contractions; each contraction network is prepared
 once per shape (its inputs' extents and the three tensors' mode labels)
 and kept, up to the bound of
 [`policy.rs`](../src/engine/cuda_algebra/policy.rs), beyond which all are

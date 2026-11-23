@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The CUDA algebra's native calls on the loaded libraries: `SessionCalls`,
+//! The native calls on the loaded libraries: `SessionCalls`,
 //! `MemoryCalls` and `TensorCalls`, implemented for `LoadedLibraries`
 //! (`crate::libraries`) through the function tables discovery looked up,
 //! one file per trait (`loaded_libraries/session_calls.rs`,
@@ -13,8 +13,8 @@
 //! so it is where every foreign-function obligation is kept: each `unsafe`
 //! call says what makes it sound (the handles live, the buffers large enough
 //! and kept alive, the values in the audited representation). It owns nothing:
-//! `DeviceSession` and `CudaAlgebra` create the streams, handles, objects
-//! and buffers, and release them. Discovery has checked the versions, so
+//! its callers create the streams, handles, objects and buffers, and
+//! release them. Discovery has checked the versions, so
 //! this code assumes cuTensorNet 2.13 and the CUDA Runtime 12.9. It
 //! compiles only on Linux x86-64, and no host test reaches it; a new native
 //! call needs its function's row in its library's table first

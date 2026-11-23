@@ -20,10 +20,10 @@
 //! so the algebra and its tensors do too. It makes its native calls through
 //! `SessionCalls` (`native_calls/session_calls.rs`).
 
-use super::cuda_algebra_error::{
+use crate::engine::cuda_algebra_error::{
     CudaAlgebraError, combine_execution_and_cleanup, first_failure, report_failed_release,
 };
-use super::native_calls::{OpaqueHandle, Stream, session_calls::SessionCalls};
+use crate::engine::native_calls::{NativeCalls, OpaqueHandle, Stream};
 use std::{marker::PhantomData, rc::Rc, sync::Arc};
 
 /// The CUDA algebra's stream and cuTensorNet handle on one device, created
@@ -34,19 +34,22 @@ use std::{marker::PhantomData, rc::Rc, sync::Arc};
 /// shared `AlgebraSession`, so it is released after the last of them. The
 /// `PhantomData<Rc<()>>` keeps it `!Send` and `!Sync` whatever the handles'
 /// type.
-pub(crate) struct DeviceSession<Calls: SessionCalls + ?Sized> {
-    calls: Arc<Calls>,
+pub(super) struct DeviceSession {
+    calls: Arc<dyn NativeCalls>,
     device_ordinal: i32,
     stream: Option<Stream>,
     handle: Option<OpaqueHandle>,
     _bound_to_its_thread: PhantomData<Rc<()>>,
 }
 
-impl<Calls: SessionCalls + ?Sized> DeviceSession<Calls> {
+impl DeviceSession {
     /// Selects device `device_ordinal`, then creates the stream and the
     /// handle on it. A host with no such device is `NoDevice`, refused
     /// before any selection; a failed creation releases what was created.
-    pub(crate) fn new(calls: Arc<Calls>, device_ordinal: i32) -> Result<Self, CudaAlgebraError> {
+    pub(super) fn new(
+        calls: Arc<dyn NativeCalls>,
+        device_ordinal: i32,
+    ) -> Result<Self, CudaAlgebraError> {
         let device_count = calls.device_count()?;
         if device_ordinal < 0 || device_ordinal >= device_count {
             return Err(CudaAlgebraError::NoDevice);
@@ -69,22 +72,22 @@ impl<Calls: SessionCalls + ?Sized> DeviceSession<Calls> {
         Ok(session)
     }
 
-    pub(crate) fn calls(&self) -> &Calls {
+    pub(super) fn calls(&self) -> &dyn NativeCalls {
         self.calls.as_ref()
     }
 
     /// Selects the session's device on the calling thread, as every call of
     /// the algebra does first: CUDA's current device is per thread.
-    pub(crate) fn bind_device(&self) -> Result<(), CudaAlgebraError> {
+    pub(super) fn bind_device(&self) -> Result<(), CudaAlgebraError> {
         self.calls.set_device(self.device_ordinal)
     }
 
-    pub(crate) fn stream(&self) -> Stream {
+    pub(super) fn stream(&self) -> Stream {
         self.stream
             .expect("a live session always owns its CUDA stream")
     }
 
-    pub(crate) fn handle(&self) -> OpaqueHandle {
+    pub(super) fn handle(&self) -> OpaqueHandle {
         self.handle
             .expect("a live session always owns its cuTensorNet handle")
     }
@@ -121,7 +124,7 @@ impl<Calls: SessionCalls + ?Sized> DeviceSession<Calls> {
     }
 }
 
-impl<Calls: SessionCalls + ?Sized> Drop for DeviceSession<Calls> {
+impl Drop for DeviceSession {
     fn drop(&mut self) {
         report_failed_release("the device session", self.release());
     }

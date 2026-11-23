@@ -6,6 +6,7 @@
 //! hides its own, and that it never writes a tensor it reads.
 
 use super::*;
+use crate::engine::native_calls::memory_calls::WorkspaceSlot;
 
 /// A failed duplicate whose wait for its copy failed: the call waits for
 /// the copy again before it returns, so that the tensor it copied may be
@@ -93,7 +94,7 @@ fn an_allocation_returning_an_input_tensors_buffer_is_refused() {
         let (a, b) = random_pair(2, 3, 2, 5);
         let (left, right) = (upload(&algebra, &a), upload(&algebra, &b));
         if case == "a split's grown scratch" {
-            libraries.set_workspace_bytes(1 << 16);
+            libraries.set_workspace_slot_bytes(WorkspaceSlot::DeviceScratch, 1 << 16);
         }
         libraries.alias_allocation(occurrence);
         let moved = |gate| Move {

@@ -1,24 +1,25 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The CUDA and cuTensorNet calls that open and close the algebra's
-//! session: select the device, and create, synchronize and release its
+//! The CUDA and cuTensorNet calls that open and close a session on a
+//! device: select the device, and create, synchronize and release its
 //! stream and its cuTensorNet handle.
 
 use super::{OpaqueHandle, Stream};
 use crate::engine::CudaAlgebraError;
 
-/// The native calls a `DeviceSession` makes: CUDA's device selection and
-/// stream, and cuTensorNet's handle.
+/// The calls that select a CUDA device and own a session on it: CUDA's
+/// device selection and stream, and cuTensorNet's handle.
 ///
 /// An implementation is shared between threads; the streams and handles it
-/// creates are not, which `DeviceSession` enforces. A caller selects the
-/// device before it creates an object or runs work on one, and releases
-/// each object once, after its dependents (a handle's descriptors and
-/// networks) and after the stream's work that uses it.
+/// creates are not, so a caller keeps each on the thread that created it.
+/// A caller selects the device before it creates an object or runs work
+/// on one, and releases each object once, after its dependents (a
+/// handle's descriptors and networks) and after the stream's work that
+/// uses it.
 pub(crate) trait SessionCalls: Send + Sync {
     /// The number of CUDA devices the process sees (`cudaGetDeviceCount`),
-    /// which the session checks before it selects one.
+    /// which a caller checks before it selects one.
     fn device_count(&self) -> Result<i32, CudaAlgebraError>;
     /// Makes device `ordinal` the calling thread's current device
     /// (`cudaSetDevice`), which every later call on this thread runs on.

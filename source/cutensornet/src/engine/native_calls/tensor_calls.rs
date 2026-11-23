@@ -8,8 +8,7 @@
 //! An engine that keeps its MPS canonical, site by site, needs the
 //! library's small steps: split a two-site gate's result by a truncated SVD
 //! (`gate_split`), move the canonical centre by a QR (`tensor_qr`), and
-//! contract two tensors (`contract`). Its user, `CudaAlgebra`, is that
-//! engine's linear algebra on the GPU.
+//! contract two tensors (`contract`).
 //!
 //! Every tensor is complex double (`CUDA_C_64F`), its first mode fastest
 //! (null strides), and every call computes in double precision

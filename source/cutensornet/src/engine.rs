@@ -10,27 +10,21 @@
 //! probabilities. `canonical_mps` writes that engine once, over the five
 //! tensor operations of a `SiteAlgebra`; this module gives it one on the
 //! GPU, so an MPS simulation method written against the trait runs on the
-//! GPU with no change to its code, and reads as it does on the CPU's
-//! algebra up to rounding.
+//! GPU with no change to its code.
 //!
 //! ```text
 //! CudaMpsEngine = CanonicalMpsEngine<CudaAlgebra>   (canonical_mps)
-//! CudaAlgebra ── holds ──► DeviceSession   device, stream, handle
-//!                                          (device_session.rs), through
-//!                                          its AlgebraSession
-//!             ── makes ──► DeviceTensor    one site in a device buffer
-//!                                          (cuda_algebra/)
-//! DeviceSession and CudaAlgebra
-//!   └─ every native call ──────► NativeCalls     CUDA and cuTensorNet
-//!                                                (native_calls.rs)
-//! all three fail with ─────────► CudaAlgebraError
-//!                                                (cuda_algebra_error.rs)
+//! CudaAlgebra   the site tensors and their operations on one device,
+//!               with its device session (cuda_algebra.rs, its map)
+//!   └─ every native call ──► NativeCalls        CUDA and cuTensorNet
+//!                                               (native_calls.rs)
+//! failures ─────────────────► CudaAlgebraError  (cuda_algebra_error.rs)
 //! ```
 //!
 //! The files here hold the cuTensorNet mechanics: no circuit or shot, only
-//! site tensors and their operations. The session and the algebra make
-//! their native calls through `NativeCalls`, so the algebra's real code
-//! also runs in CI, which has no GPU. The crate's `docs/engine.md`
+//! site tensors and their operations. The algebra makes its native calls
+//! through `NativeCalls`, so its real code also runs in CI, which has no
+//! GPU. The crate's `docs/engine.md`
 //! ("Native calls of each phase") shows the native calls in order.
 //!
 //! An engine, its algebra and its tensors are `!Send`: the stream and the
@@ -52,13 +46,9 @@
 //! fn require_send<T: Send>() {}
 //! require_send::<qdk_cutensornet::DeviceTensor>();
 //! ```
-//!
-//! Each call of the algebra selects its device first, since CUDA's current
-//! device is per thread and another algebra's call may have changed it.
 
 pub(crate) mod cuda_algebra;
 pub(crate) mod cuda_algebra_error;
-mod device_session;
 pub(crate) mod native_calls;
 
 pub use cuda_algebra::{CudaAlgebra, DeviceTensor};
@@ -104,8 +94,8 @@ pub use cuda_algebra_error::CudaAlgebraError;
 /// ```
 pub type CudaMpsEngine = canonical_mps::CanonicalMpsEngine<CudaAlgebra>;
 
-/// An engine on device 0, at the engine's default cutoff, on the libraries
-/// `availability` loaded and checked: [`CudaAlgebra::new`]'s algebra.
+/// An engine on device 0, on the libraries `availability` loaded and
+/// checked: [`CudaAlgebra::new`]'s algebra.
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 impl TryFrom<&crate::Availability> for CudaMpsEngine {
     type Error = CudaAlgebraError;

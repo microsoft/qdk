@@ -17,13 +17,10 @@ use std::{fmt, rc::Rc};
 ///
 /// It keeps the algebra's session alive, so it may outlive the algebra.
 /// Dropping it frees its buffer; a failed free is not returned, as `Drop`
-/// cannot return one, and debug builds write it to stderr. Every call of
-/// the algebra returns with its device work done, so nothing uses the
-/// buffer then, except after a failed call that could not wait for the
-/// device (the algebra is poisoned): the buffer is then freed only after
-/// a later wait for the device succeeds, or leaked. A drop that cannot
-/// select the algebra's device leaks the buffer too, since its free needs
-/// that device; debug builds write that failure as well.
+/// cannot return one, and debug builds write it to stderr. A poisoned
+/// algebra's session keeps the buffer instead (`algebra_session.rs`). A
+/// drop that cannot select the algebra's device leaks the buffer, since
+/// its free needs that device; debug builds write that failure as well.
 pub struct DeviceTensor {
     buffer: OpaqueHandle,
     elements: usize,

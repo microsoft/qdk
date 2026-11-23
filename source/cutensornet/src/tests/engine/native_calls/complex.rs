@@ -9,7 +9,7 @@
 //! the algebra (`tests/engine/cuda_algebra.rs`).
 
 use crate::engine::CudaAlgebraError;
-use crate::engine::native_calls::complex_bytes;
+use crate::engine::native_calls::complex::complex_bytes;
 
 /// A buffer whose size in bytes does not fit a `usize` overflows, named by
 /// what it was for.

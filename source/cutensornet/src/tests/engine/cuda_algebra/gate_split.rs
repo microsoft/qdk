@@ -7,7 +7,7 @@
 //! a failed split made is `call_scope.rs`'s.
 
 use super::*;
-use crate::engine::cuda_algebra::DISCARDED_WEIGHT_TOLERANCE;
+use crate::engine::cuda_algebra::policy::DISCARDED_WEIGHT_TOLERANCE;
 
 /// A library's report of a split (the bond it kept, the values its SVD had, the
 /// weight it discarded) is checked before the algebra reads the factors: a

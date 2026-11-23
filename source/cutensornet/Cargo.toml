@@ -18,8 +18,8 @@ thiserror = { workspace = true }
 # The algebra's conformance kit and the engine's circuits, which the tests
 # run on the fake libraries and on the GPU, and the dense SVD and QR the
 # fake libraries factor with (`src/tests/engine/cuda_algebra.rs`,
-# `tests/cuda_algebra_on_the_gpu.rs`,
-# `src/engine/native_calls/fake_libraries/tensor_calls.rs`).
+# `tests/cuda_mps_engine_on_the_gpu.rs`,
+# `src/engine/native_calls/fake_libraries/tensor_calls.rs` and its folder).
 canonical_mps = { path = "../canonical_mps", features = ["conformance"] }
 
 [lints]

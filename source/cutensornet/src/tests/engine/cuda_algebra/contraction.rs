@@ -8,7 +8,7 @@
 //! by the conformance kit (`the_cuda_algebra_conforms`).
 
 use super::*;
-use crate::engine::cuda_algebra::NETWORKS_KEPT;
+use crate::engine::cuda_algebra::policy::NETWORKS_KEPT;
 
 /// A move of a shape the algebra moved before, on other tensors: it
 /// prepares no contraction network, reusing those of the first.

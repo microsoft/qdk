@@ -11,8 +11,7 @@
 //! "the most suitable algorithm will be available for each contraction").
 //! A descriptor has four slots ([`WorkspaceSlot`]), device or host memory,
 //! scratch or cache, each lent apart. The caller allocates, lends and frees
-//! every buffer, so it decides how much memory it holds: the CUDA algebra, for
-//! its tensors and its workspace (`cuda_algebra/`).
+//! every buffer, so it decides how much memory it holds.
 //!
 //! The copies run on CUDA's legacy default stream, which a session's
 //! non-blocking stream does not wait for. A copy to the device may still be

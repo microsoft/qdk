@@ -17,8 +17,11 @@
 //!
 //! ```text
 //! CudaAlgebra ── holds ──► AlgebraSession     shared with its tensors:
-//!                            DeviceSession (device, stream, handle),
-//!                            the poison (algebra_session.rs)
+//!                            DeviceSession (device, stream, handle;
+//!                            device_session.rs), the poison
+//!                            (algebra_session.rs)
+//!             ── makes ──► DeviceTensor       one site in a device
+//!                                             buffer (device_tensor.rs)
 //!             ── holds ──► AlgebraResources   kept across calls
 //!                            (resources.rs): workspace, Scratch
 //!                            (scratch.rs), the gate and singular-value
@@ -30,24 +33,22 @@
 //!   qr_move ─────────────► qr_move.rs         a gate, a TensorQR, a
 //!                                             contraction
 //! tensor sizes             extents.rs
+//! descriptors' mode labels modes.rs
 //! settings                 policy.rs
 //! failures                 CudaAlgebraError
 //!                            (../cuda_algebra_error.rs)
 //! ```
 //!
-//! Every call binds the algebra's device first, and returns with the
-//! device idle: its stream synchronized, and its copies too if it made
-//! any. Three things rely on it. The copies run on CUDA's legacy default
-//! stream, which the algebra's stream does not wait for
-//! (`native_calls/memory_calls.rs`); the engine uses each tensor at once,
-//! often in the next call; and a call's scratch may be freed by the next
-//! one's growth. The one exception is a failed call whose wait for the
-//! device fails too: nothing then says when the device is done with the
-//! call's buffers, its inputs or the algebra's memory, so every later
-//! call returns [`CudaAlgebraError::Poisoned`], and a buffer the device may
-//! still use is freed only after a successful wait for the device (its
-//! stream and its copies); otherwise it is kept until one succeeds, or
-//! leaked (`algebra_session.rs`).
+//! Every call binds the algebra's device first, since CUDA's current
+//! device is per thread and another algebra's call may have changed it,
+//! and returns with the device idle: its stream synchronized, and its
+//! copies too if it made any. Three things rely on it. The copies run on
+//! CUDA's legacy default stream, which the algebra's stream does not wait
+//! for (`native_calls/memory_calls.rs`); the engine uses each tensor at
+//! once, often in the next call; and a call's scratch may be freed by the
+//! next one's growth. The one exception, a failed call whose wait for the
+//! device fails too, poisons the algebra: `algebra_session.rs` says what
+//! follows.
 //!
 //! That wait covers only the algebra's own device work, and a tensor is
 //! freed through the session of the algebra that made it: so every call
@@ -58,20 +59,19 @@
 mod algebra_session;
 mod call_scope;
 mod contraction;
+mod device_session;
 mod device_tensor;
 mod extents;
 mod gate_split;
-mod policy;
+mod modes;
+pub(crate) mod policy;
 mod qr_move;
 mod resources;
 mod scratch;
 
 pub use device_tensor::DeviceTensor;
-#[cfg(test)]
-pub(crate) use policy::{DISCARDED_WEIGHT_TOLERANCE, NETWORKS_KEPT};
 
 use crate::engine::cuda_algebra_error::{CudaAlgebraError, first_failure, report_failed_release};
-use crate::engine::device_session::DeviceSession;
 use crate::engine::native_calls::complex::{Complex64Abi, complex_bytes};
 use crate::engine::native_calls::{NativeCalls, OpaqueHandle};
 use algebra_session::{AlgebraSession, Retired};
@@ -79,6 +79,7 @@ use call_scope::CallScope;
 use canonical_mps::site_algebra::{
     GateSplitCall, GateSplitOutcome, QrMoveCall, QrMoveOutcome, SiteAlgebra,
 };
+use device_session::DeviceSession;
 use num_complex::Complex64;
 use resources::AlgebraResources;
 use std::{borrow::Cow, cell::RefCell, rc::Rc, sync::Arc};
@@ -275,25 +276,4 @@ impl SiteAlgebra for CudaAlgebra {
             bond: k,
         })
     }
-}
-
-/// The mode labels of the calls' descriptors. Two tensors' modes of one
-/// label are one index; a call's output keeps the labels it names.
-mod modes {
-    /// A pair's left extent.
-    pub(super) const LEFT: i32 = 1;
-    /// The left site's qubit.
-    pub(super) const P: i32 = 2;
-    /// The bond the pair shares before the call.
-    pub(super) const BOND: i32 = 3;
-    /// The right site's qubit.
-    pub(super) const Q: i32 = 4;
-    /// A pair's right extent.
-    pub(super) const RIGHT: i32 = 5;
-    /// The left qubit once gated.
-    pub(super) const P_OUT: i32 = 6;
-    /// The right qubit once gated.
-    pub(super) const Q_OUT: i32 = 7;
-    /// The bond the call returns.
-    pub(super) const NEW_BOND: i32 = 8;
 }

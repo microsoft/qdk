@@ -17,11 +17,15 @@
 //! | U      | `[l, 2, k]`    | `LEFT, P_OUT, NEW_BOND`  |
 //! | V      | `[k, 2, r]`    | `NEW_BOND, Q_OUT, RIGHT` |
 //!
-//! `k` is `max_extent`, `2l`, `2r` or `4m`, whichever is least: the product
-//! is a `2l × 2r` matrix of rank at most `4m` (the gate's four terms times
-//! the bond), and cuTensorNet's reduced algorithm, which splits the core
-//! left by a QR of A and of B, accepts no more. Under the cutoff, the split
-//! keeps the reduced extent its report gives, and U and V are packed at it.
+//! The split runs cuTensorNet's reduced algorithm
+//! (`CUTENSORNET_GATE_SPLIT_ALGO_REDUCED`; `policy.rs` says why): it first
+//! factors A and B by QR, then applies the gate to the small core their
+//! QRs leave and splits only that core by the SVD, rather than the whole
+//! gated pair. `k` is `max_extent`, `2l`, `2r` or `4m`, whichever is
+//! least: the product is a `2l × 2r` matrix of rank at most `4m` (the
+//! gate's four terms times the bond), and the reduced algorithm accepts no
+//! more. Under the cutoff, the split keeps the reduced extent its report
+//! gives, and U and V are packed at it.
 //!
 //! The descriptors, the SVD configuration and the report are made for each
 //! call and released before it returns: under a cutoff, the split lowers
