@@ -1,15 +1,15 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The CUDA and cuTensorNet calls that open and close the algebra's
-//! session: count and select the devices, and create, synchronize and
+//! The CUDA and cuTensorNet calls that open and close a session on a
+//! device: count and select the devices, and create, synchronize and
 //! release its stream and its cuTensorNet handle.
 
 use super::{OpaqueHandle, Stream};
 use crate::engine::CudaAlgebraError;
 
-/// The native calls a `DeviceSession` makes: CUDA's device selection and
-/// stream, and cuTensorNet's handle.
+/// The calls that select a CUDA device and own a session on it: CUDA's
+/// device selection and stream, and cuTensorNet's handle.
 ///
 /// An implementation is shared between threads; the streams and handles it
 /// creates are not, so a caller keeps each on the thread that created it.

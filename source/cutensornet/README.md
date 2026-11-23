@@ -75,13 +75,9 @@ A caller writes no part of the crate: a simulator calls
 default cutoff (`.with_cutoff(c)` sets another), as the example on
 [`CudaMpsEngine`](src/engine.rs) does; or, to hold the algebra itself,
 with `CudaMpsEngine::new(CudaAlgebra::new(&availability)?)`. The
-simulator opens the engine in each run's first step, on the thread that
-runs it, and drops it at the run's end: the engine holds device 0's
-stream and cuTensorNet handle, the memory it lent cuTensorNet (grown to
-the run's largest call) and the contraction networks it prepared, until
-it is dropped. On an error, the simulator tells the user what is missing,
-or runs on `CpuMpsEngine`. A user setting the GPU up calls
-`GpuSetup::check`.
+simulator opens the engine in each run's first step and drops it at the
+run's end; [`CudaMpsEngine`](src/engine.rs) says why. A user setting the
+GPU up calls `GpuSetup::check`.
 
 ## The MPS engine
 
@@ -415,8 +411,12 @@ native object, its scratch, its failures and its refusals.
 the kit and `canonical_mps`'s engine circuits on a GPU, with the real
 libraries, and the native calls' tests include the cases they also run
 on a GPU; these tests are ignored unless asked for (`--ignored`), as they
-need a GPU. The [unit tests](src/tests) drive each way discovery fails
-without NVIDIA's libraries, and each problem the
+need a GPU.
+
+The [unit tests](src/tests) drive each way discovery fails without
+NVIDIA's libraries, on any Unix host: missing and refused libraries,
+missing functions, failed version probes, refused versions, and bad
+override variables, each reported with the others; and each problem the
 [GPU setup check](#the-gpu-setup-check) finds, with its advice
 ([`src/tests/gpu_setup.rs`](src/tests/gpu_setup.rs)), on CUDA devices the
 tests make up. [`tests/availability.rs`](tests/availability.rs) discovers
@@ -433,14 +433,14 @@ apart. Anything else is expected to work, but not verified.
 | Linux x86-64  | `discover`: `UnsupportedPlatform` elsewhere                                                                                                                                                                                            | Ubuntu 22.04 on an NVIDIA A100 host                                                              |
 | The libraries | `discover`: the exact versions of [Versions](#versions)                                                                                                                                                                                | from NVIDIA's apt packages, at the default paths, and from its pip wheels, through the overrides |
 | A CUDA driver | [the GPU setup check](#the-gpu-setup-check): the CUDA Runtime's floor ([`cuda_runtime.rs`](src/libraries/cuda_runtime.rs)); `discover` only reports its version                                                                        | NVIDIA's driver 580.178.04, from Ubuntu's packages                                               |
-| An NVIDIA GPU | `CudaAlgebra::new`: `CudaAlgebraError::NoDevice` without one; [the GPU setup check](#the-gpu-setup-check): the engine's device at cuTensorNet's minimum compute capability ([`cutensornet.rs`](src/libraries/cutensornet.rs)) or later | an A100 80GB, compute capability 8.0: run pending (below)                                        |
+| An NVIDIA GPU | `CudaAlgebra::new`: `CudaAlgebraError::NoDevice` without one; [the GPU setup check](#the-gpu-setup-check): the engine's device at cuTensorNet's minimum compute capability ([`cutensornet.rs`](src/libraries/cutensornet.rs)) or later | an A100 80GB, compute capability 8.0 (below)                                                     |
 
-- **On an A100 80GB, run pending:** the run checks that `CudaAlgebra`
-  passes `canonical_mps`'s conformance kit; that `CudaMpsEngine` passes
-  `canonical_mps`'s engine conformance circuits and reads a capped circuit
-  as `CpuMpsEngine` does; and that the kit, the capped circuit and the fake
-  libraries' cases that also run on a GPU pass NVIDIA's `compute-sanitizer`
-  memcheck, with its leak check, and synccheck without error. It also runs
+- **On an A100 80GB:** `CudaAlgebra` passes `canonical_mps`'s
+  conformance kit; `CudaMpsEngine` passes `canonical_mps`'s engine
+  conformance circuits and reads a capped circuit as `CpuMpsEngine` does;
+  and the kit and the capped circuit pass NVIDIA's `compute-sanitizer`
+  memcheck, with its leak check, and synccheck without error. Rerun
+  pending: the native calls' cases that also run on a GPU, and
   [`tests/availability.rs`](tests/availability.rs), whose setup check finds
   the setup ready.
 - **Expected, not verified:** other x86-64 Linux distributions, with the

@@ -1,11 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! What every library shares: how its paths are chosen (the override
-//! variable, checked before anything is loaded, or else the library's
-//! packaged file, then its defaults), how an open library is checked and
-//! reported with the other copies beside it, and that the setup check has
-//! advice for each. Each
+//! The rules every library shares, shown on cuTensorNet and the CUDA
+//! Runtime: how its paths are chosen (the override variable, checked before
+//! anything is loaded, or else the library's packaged file, then its
+//! defaults), how an open library is checked and reported with the other
+//! copies beside it, and that the setup check has advice for each. Each
 //! library's own rules (its table, probes and versions) are tested in its
 //! module's file.
 
@@ -42,7 +42,8 @@ use crate::{
 };
 use std::ffi::OsString;
 #[cfg(unix)]
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 
 /// An empty report of `L`, as discovery starts it once `L` is open.
 #[cfg(unix)]
@@ -501,30 +502,6 @@ fn one_file_named_twice_is_reported_once() {
         vec![other.clone()]
     );
 }
-
-/// cuTensorNet's state API (the state, its network operators and their
-/// expectations), which the crate does not use: an installation without it
-/// is not at fault.
-#[cfg(unix)]
-const STATE_API: &[&str] = &[
-    "cutensornetCreateState",
-    "cutensornetDestroyState",
-    "cutensornetStateApplyTensorOperator",
-    "cutensornetStateCaptureMPS",
-    "cutensornetStateCompute",
-    "cutensornetStateConfigure",
-    "cutensornetStateFinalizeMPS",
-    "cutensornetStateInitializeMPS",
-    "cutensornetStatePrepare",
-    "cutensornetCreateNetworkOperator",
-    "cutensornetDestroyNetworkOperator",
-    "cutensornetNetworkOperatorAppendProduct",
-    "cutensornetCreateExpectation",
-    "cutensornetDestroyExpectation",
-    "cutensornetExpectationCompute",
-    "cutensornetExpectationConfigure",
-    "cutensornetExpectationPrepare",
-];
 
 /// A library with no fault is bound to its table, and its versions are
 /// reported.

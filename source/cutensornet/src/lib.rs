@@ -19,12 +19,13 @@
 //!   failure of the algebra is a [`CudaAlgebraError`].
 //! - **Finding and loading.** cuTensorNet runs on the CUDA Runtime, and most
 //!   users have neither, so the QDK must build, install and run without
-//!   them: the crate never links them. [`discover`] finds and opens the two
-//!   shared libraries installed on the host, when a GPU run is asked for,
-//!   looks up the functions of a table per library, and checks the
-//!   libraries' versions against the audited ones; [`discover_with`] also
-//!   tries the files a package manager installed ([`PackagedLibraries`]).
-//!   It returns an [`Availability`] that keeps the libraries loaded, or an
+//!   them: the crate never links them. When a GPU run is asked for,
+//!   [`discover`] finds and opens the shared libraries it needs (today the
+//!   CUDA Runtime and cuTensorNet) installed on the host, looks up the
+//!   functions of a table per library, and checks the libraries' versions
+//!   against the audited ones; [`discover_with`] also tries the files a
+//!   package manager installed ([`PackagedLibraries`]). It returns an
+//!   [`Availability`] that keeps the libraries loaded, or an
 //!   [`AvailabilityError`] listing every fault of each library, so a caller
 //!   can report them or run on the CPU instead. Discovery runs no GPU work.
 //! - **The GPU setup check.** A GPU run needs a driver, a device and the
