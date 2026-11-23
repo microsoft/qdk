@@ -21,10 +21,10 @@ use crate::InstructionSet;
 ///
 /// An `execute` holds any number of batches, so that a part sends at once
 /// the work of shots at different points of their programs; it answers
-/// each in the caller's [`BatchReadouts`](crate::BatchReadouts) for it,
-/// which the protocol shapes from the batch: a row per shot in `shots`'
-/// order, of a value per readout slot of `instructions`, as many as the
-/// sender states ([`readout_slots`](Self::readout_slots)).
+/// each in the caller's [`BatchReadouts`] for it, which the protocol
+/// shapes from the batch: a row per shot in `shots`' order, of a value per
+/// readout slot of `instructions`, as many as the sender states
+/// ([`readout_slots`](Self::readout_slots)).
 /// How the batches of one `execute` relate, such as a shot in at most one
 /// of them, is said on [`Executor::execute`](crate::Executor::execute).
 ///
