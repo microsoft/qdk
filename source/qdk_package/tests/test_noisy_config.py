@@ -16,6 +16,12 @@ def test_setting_1q_noise():
     assert noise.h.x == 0.01
 
 
+def test_setting_identity_gate_noise_errors():
+    noise = NoiseConfig()
+    with pytest.raises(AttributeError, match="'i'"):
+        noise.i.set_pauli_noise("X", 1.0)
+
+
 def test_setting_1q_noise_through_attr():
     noise = NoiseConfig()
     noise.h.x = 0.01
@@ -168,7 +174,6 @@ ALLOWED_ON_LOSS_POLICIES = {
 
 
 SINGLE_QUBIT_GATE_ATTRS = [
-    "i",
     "x",
     "y",
     "z",

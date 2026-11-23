@@ -23,7 +23,6 @@ const NOISE_CONFIG: NoiseConfig<f64, f64> = NoiseConfig {
     idle: IdleNoiseParams {
         s_probability: 0.01,
     },
-    i: NoiseTable::noiseless(1),
     x: NoiseTable::noiseless(1),
     y: NoiseTable::noiseless(1),
     z: NoiseTable::noiseless(1),
