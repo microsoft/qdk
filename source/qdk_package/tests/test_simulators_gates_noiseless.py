@@ -3,9 +3,12 @@
 
 from collections import Counter
 import os
+import pyqir
 import pytest
 from qdk import qsharp
+from qdk._adaptive_pass import AdaptiveProfilePass, Bytecode
 from qdk._interpreter import compile
+from qdk._native import run_clifford_adaptive, run_cpu_adaptive
 from qdk import Result, TargetProfile
 from qdk.simulation import run_qir as _run_qir, NoiseConfig
 from qdk.simulation._simulation import (
@@ -291,6 +294,26 @@ def test_two_qubit_gate_truth_tables(sim_type):
     ]
     # fmt: on
     check_basis_table(2, table, sim_type)
+
+
+@pytest.mark.parametrize(
+    "run", [run_cpu_adaptive, run_clifford_adaptive], ids=["cpu", "stabilizer"]
+)
+def test_ccnot_truth_table(run):
+    """Verify native CCNOT on all eight computational basis states."""
+    for basis, expected in enumerate((0, 1, 2, 7, 4, 5, 6, 3)):
+        prep = "".join(f"X(qs[{q}]);" for q in range(3) if (basis >> q) & 1)
+        qir = compile(
+            "{use qs = Qubit[3];"
+            f"{prep} CCNOT(qs[0], qs[1], qs[2]); MResetEachZ(qs)}}"
+        )
+        # Bypass run_qir's CCX decomposition to exercise the native gate.
+        module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
+        program = AdaptiveProfilePass(Bytecode.Bit64).run(module)
+        results = run(program.as_dict(), 1, None, SEED)
+        assert [result_list_to_str(shot) for shot in results] == [
+            f"{expected:03b}"[::-1]
+        ]
 
 
 # ===========================================================================

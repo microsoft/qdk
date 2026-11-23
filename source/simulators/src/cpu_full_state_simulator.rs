@@ -94,6 +94,18 @@ static CX: LazyLock<Operation> = LazyLock::new(|| {
     .expect("operation should be valid")
 });
 
+static CCX: LazyLock<Operation> = LazyLock::new(|| {
+    operation!([1., 0., 0., 0., 0., 0., 0., 0.;
+                0., 1., 0., 0., 0., 0., 0., 0.;
+                0., 0., 1., 0., 0., 0., 0., 0.;
+                0., 0., 0., 0., 0., 0., 0., 1.;
+                0., 0., 0., 0., 1., 0., 0., 0.;
+                0., 0., 0., 0., 0., 1., 0., 0.;
+                0., 0., 0., 0., 0., 0., 1., 0.;
+                0., 0., 0., 1., 0., 0., 0., 0.;])
+    .expect("operation should be valid")
+});
+
 static CY: LazyLock<Operation> = LazyLock::new(|| {
     let i = Complex::I;
     operation!([1., 0., 0.,  0.;
@@ -577,6 +589,32 @@ impl Simulator for FullStateSimulator {
 
     fn cx(&mut self, control: QubitID, target: QubitID) {
         self.apply_controlled_operation(&CX, |config| &config.cx, control, target);
+    }
+
+    fn ccx(&mut self, control1: QubitID, control2: QubitID, target: QubitID) {
+        let targets = [control1, control2, target];
+        let has_loss = targets.iter().any(|q| self.loss[*q]);
+        for q in targets {
+            if !self.loss[q] {
+                self.apply_idle_noise(q);
+                if has_loss {
+                    match self.noise_config.ccx.on_loss {
+                        LossPolicy::Skip => (),
+                        LossPolicy::Propagate => self.loss_impl(q),
+                        LossPolicy::ResidualSDagger => self.residual_s_dagger(q),
+                        LossPolicy::Degrade | LossPolicy::ApplyAnyway => unreachable!(
+                            "ccx does not support the Degrade or ApplyAnyway loss policies"
+                        ),
+                    }
+                }
+            }
+        }
+        if !has_loss {
+            self.state
+                .apply_operation(&CCX, &targets)
+                .expect("apply_operation should succeed");
+        }
+        self.apply_noise(|config| &config.ccx, &targets);
     }
 
     fn cy(&mut self, control: QubitID, target: QubitID) {

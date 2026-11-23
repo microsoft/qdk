@@ -87,6 +87,9 @@ pub trait Simulator {
     /// Controlled-X gate.
     fn cx(&mut self, control: QubitID, target: QubitID);
 
+    /// Controlled-controlled-X gate; the first two operands are controls.
+    fn ccx(&mut self, control1: QubitID, control2: QubitID, target: QubitID);
+
     /// Controlled-Y gate.
     fn cy(&mut self, control: QubitID, target: QubitID);
 
