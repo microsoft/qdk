@@ -29,9 +29,9 @@
 //!   can report them or run on the CPU instead. Discovery runs no GPU work.
 //! - **The GPU setup check.** A GPU run needs a driver, a device and the
 //!   libraries, each outside the QDK. [`GpuSetup::check`] checks each in
-//!   turn, from discovery to a trial run on CUDA device 0, and never fails:
-//!   its report lists what was found and, for the first problem met, what
-//!   to fix.
+//!   turn, from discovery to a trial run on the engine's device, and never
+//!   fails: its report lists what was found and, for the first problem
+//!   met, what to fix.
 //!
 //! The crate's README says why; its `docs/engine.md` shows how the algebra
 //! calls cuTensorNet, and its `docs/loading.md` the steps of discovery and
@@ -72,5 +72,5 @@ pub use engine::{CudaAlgebra, CudaAlgebraError, CudaMpsEngine, DeviceTensor};
 pub use gpu_setup::GpuSetup;
 pub use libraries::{
     PackagedLibraries,
-    report::{LibraryFault, LibraryReport, Version},
+    report::{LibraryFault, LibraryReport, LibrarySource, Version},
 };

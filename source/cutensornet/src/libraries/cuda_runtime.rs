@@ -51,7 +51,8 @@ pub(crate) use generated::cudart_12;
 
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 use super::{
-    NativeLibrary, ProbedVersions, setup_guide::LibrarySetupGuide, setup_guide::or_unread,
+    NativeLibrary, ProbedVersions,
+    setup_guide::{DriverFloor, LibrarySetupGuide, cuda_version, or_unread},
 };
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 use crate::{
@@ -66,27 +67,18 @@ use std::ffi::CStr;
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 pub(crate) struct CudaRuntime;
 
-/// The oldest CUDA a driver must support, as CUDA encodes it: 12.0. The
-/// floor is NVIDIA's for CUDA 12 ([`cuda_12_driver!`]); the QDK adds
-/// none.
+/// The driver CUDA 12 needs: NVIDIA's floor for CUDA 12, 525.60.13 on
+/// Linux; the QDK adds none.
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-const MINIMUM_DRIVER_CUDA: i128 = 12_000;
+const DRIVER_FLOOR: DriverFloor = DriverFloor {
+    cuda: 12_000,
+    release: "525.60.13",
+};
 
 /// The driver version CUDA reports, with success, when no NVIDIA driver is
 /// installed (`cudaDriverGetVersion`'s documentation).
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 const NO_DRIVER: i128 = 0;
-
-/// The NVIDIA driver CUDA 12 needs, NVIDIA's 525.60.13 or later, as every
-/// piece of advice that asks for it writes it. A macro rather than a
-/// `const`, since `concat!` builds the constant advice texts from it and
-/// takes literals only.
-macro_rules! cuda_12_driver {
-    () => {
-        "a driver for CUDA 12 (525.60.13 or later)"
-    };
-}
-pub(crate) use cuda_12_driver;
 
 /// The CUDA Runtime 12.9, the release the bindings were audited against.
 /// cuTensorNet must also have been built against it.
@@ -149,11 +141,15 @@ impl NativeLibrary for CudaRuntime {
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 impl LibrarySetupGuide for CudaRuntime {
     const INSTALL: &'static str = "the CUDA Runtime 12.9";
-    const VERSION_PROBE_ADVICE: Option<&'static str> = Some(concat!(
-        "CUDA could not report its version, usually because the NVIDIA driver is too old: check \
-         `nvidia-smi`, and install ",
-        cuda_12_driver!()
-    ));
+    const MINIMUM_DRIVER: Option<DriverFloor> = Some(DRIVER_FLOOR);
+
+    /// CUDA's version probe fails mostly when the driver is too old.
+    fn version_probe_advice() -> Option<String> {
+        Some(format!(
+            "CUDA could not report its version, usually because the NVIDIA driver is too old: \
+             check `nvidia-smi`, and install {DRIVER_FLOOR}"
+        ))
+    }
 
     /// Its path and version, and the CUDA the driver supports, or that
     /// there is no driver.
@@ -176,28 +172,19 @@ impl LibrarySetupGuide for CudaRuntime {
         ]
     }
 
-    /// No NVIDIA driver, or one that supports no CUDA 12.
+    /// No NVIDIA driver, or one that supports no CUDA of its floor.
     fn host_problem(report: &LibraryReport) -> Option<String> {
         match report.version("CUDA driver")? {
-            NO_DRIVER => {
-                Some(concat!("no NVIDIA driver was found: install ", cuda_12_driver!()).to_string())
-            }
-            driver if driver < MINIMUM_DRIVER_CUDA => Some(format!(
-                concat!(
-                    "the NVIDIA driver supports CUDA {} only: install ",
-                    cuda_12_driver!()
-                ),
+            NO_DRIVER => Some(format!(
+                "no NVIDIA driver was found: install {DRIVER_FLOOR}"
+            )),
+            driver if driver < DRIVER_FLOOR.cuda => Some(format!(
+                "the NVIDIA driver supports CUDA {} only: install {DRIVER_FLOOR}",
                 cuda_version(driver)
             )),
             _ => None,
         }
     }
-}
-
-/// CUDA's `1000·major + 10·minor` as `major.minor`.
-#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-pub(super) fn cuda_version(version: i128) -> String {
-    format!("{}.{}", version / 1000, version % 1000 / 10)
 }
 
 /// `cudaStreamLegacy`, `((cudaStream_t)0x1)`: the legacy default stream,

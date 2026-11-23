@@ -32,7 +32,9 @@ flowchart TD
   default paths, its [`FunctionTable`](../src/libraries/function_table.rs), how its
   versions are read and which are accepted. Beside it, the module
   implements [`LibrarySetupGuide`](../src/libraries/setup_guide.rs): what
-  the GPU setup check shows of the library and advises. cuTensorNet's table
+  the GPU setup check shows of the library and advises, and the oldest
+  driver and device it runs on; discovery keeps each library's guide, in
+  the order opened, for the check. cuTensorNet's table
   holds the functions the CUDA algebra calls: its handle's and its
   workspaces', and those of its tensor API (tensor descriptors, SVD
   settings and reports, `GateSplit`, `TensorQR` and contraction networks);

@@ -27,7 +27,7 @@ fn message_of(cuda_faults: Vec<LibraryFault>, cutensornet_faults: Vec<LibraryFau
                     },
                 ],
                 other_copies: Vec::new(),
-                from_override: false,
+                source: None,
             },
             LibraryReport {
                 library: "cuTensorNet",
@@ -35,7 +35,7 @@ fn message_of(cuda_faults: Vec<LibraryFault>, cutensornet_faults: Vec<LibraryFau
                 versions: Vec::new(),
                 faults: Vec::new(),
                 other_copies: Vec::new(),
-                from_override: false,
+                source: None,
             },
         ],
     };
@@ -88,7 +88,7 @@ fn each_fault_follows_its_library_and_path() {
                 versions: Vec::new(),
                 faults: Vec::new(),
                 other_copies: Vec::new(),
-                from_override: false,
+                source: None,
             },
             LibraryReport {
                 library: "cuTensorNet",
@@ -98,7 +98,7 @@ fn each_fault_follows_its_library_and_path() {
                     symbol: "cutensornetCreate",
                 }],
                 other_copies: Vec::new(),
-                from_override: false,
+                source: None,
             },
         ],
     };
@@ -134,7 +134,7 @@ fn a_library_not_opened_is_named_without_a_path() {
                 attempted: vec![PathBuf::from("libcudart.so.12")],
             }],
             other_copies: Vec::new(),
-            from_override: false,
+            source: None,
         }],
     };
     let message = AvailabilityError::Unusable(report).to_string();

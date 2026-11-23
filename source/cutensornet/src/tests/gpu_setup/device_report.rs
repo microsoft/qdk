@@ -9,7 +9,7 @@
 use std::cell::Cell;
 
 use crate::CudaAlgebraError;
-use crate::gpu_setup::devices::{DeviceCalls, DeviceReport, EngineDevice, read_devices};
+use crate::gpu_setup::device_report::{DeviceCalls, DeviceReport, EngineDevice, read_devices};
 
 /// A call of [`DeviceCalls`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -18,10 +18,9 @@
 //! ([`AvailabilityError::Unusable`]), carry an [`AvailabilityReport`], with
 //! one [`LibraryReport`](crate::LibraryReport) per library: where it was
 //! loaded from, the versions it reports, its faults, the other copies
-//! visible beside it, and whether it is the copy its override names. The
-//! report is in `report`, and each library's entry, made where the library
-//! is opened, in `libraries::report`; the error, and the message it shows,
-//! in `error`.
+//! visible beside it, and where the copy tried was found. The report is in
+//! `report`, and each library's entry, made where the library is opened,
+//! in `libraries::report`; the error, and the message it shows, in `error`.
 //!
 //! Discovery names no library: `libraries::LoadedLibraries` lists the
 //! libraries a GPU run needs, in the order they are opened, and each
@@ -35,6 +34,7 @@ pub(crate) mod error;
 pub(crate) mod report;
 
 use crate::libraries::PackagedLibraries;
+use crate::libraries::setup_guide::SetupGuide;
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 use crate::libraries::{CheckLibrary, InstalledLibraries, LoadedLibraries, Opening};
 use crate::{AvailabilityError, AvailabilityReport};
@@ -121,24 +121,28 @@ pub fn discover() -> Result<Availability, AvailabilityError> {
 ///
 /// As [`discover`].
 pub fn discover_with(packaged: &PackagedLibraries) -> Result<Availability, AvailabilityError> {
-    discover_on_this_platform(packaged)
+    discover_with_guides(packaged).0
 }
 
+/// What [`discover_with`] finds, with the setup guide of each library
+/// opened: none off Linux x86-64, where no library is opened.
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-fn discover_on_this_platform(
-    packaged: &PackagedLibraries,
-) -> Result<Availability, AvailabilityError> {
+pub(crate) fn discover_with_guides(packaged: &PackagedLibraries) -> Discovered {
     discover_from(std::env::var_os, packaged)
 }
 
 #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
-fn discover_on_this_platform(
-    _packaged: &PackagedLibraries,
-) -> Result<Availability, AvailabilityError> {
-    Err(AvailabilityError::UnsupportedPlatform {
+pub(crate) fn discover_with_guides(_packaged: &PackagedLibraries) -> Discovered {
+    let unsupported = AvailabilityError::UnsupportedPlatform {
         platform: format!("{} {}", std::env::consts::OS, std::env::consts::ARCH),
-    })
+    };
+    (Err(unsupported), Vec::new())
 }
+
+/// What discovery found, with the setup guide of each library it opened,
+/// in the order opened: the libraries the setup check shows and advises
+/// about.
+pub(crate) type Discovered = (Result<Availability, AvailabilityError>, Vec<SetupGuide>);
 
 /// Discovery, with the override variables read by `read_variable` and the
 /// packaged files `packaged`.
@@ -146,7 +150,7 @@ fn discover_on_this_platform(
 pub(crate) fn discover_from(
     read_variable: impl Fn(&'static str) -> Option<OsString>,
     packaged: &PackagedLibraries,
-) -> Result<Availability, AvailabilityError> {
+) -> Discovered {
     availability_of(InstalledLibraries {
         read_variable,
         packaged,
@@ -157,19 +161,17 @@ pub(crate) fn discover_from(
 /// [`Availability`] when every library is usable, or else the report of
 /// every library, the usable ones included.
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-pub(crate) fn availability_of<C: CheckLibrary>(
-    checker: C,
-) -> Result<Availability, AvailabilityError> {
+pub(crate) fn availability_of<C: CheckLibrary>(checker: C) -> Discovered {
     let mut opening = Opening::new(checker);
     let libraries = LoadedLibraries::open(&mut opening);
-    let report = AvailabilityReport {
-        libraries: opening.into_reports(),
-    };
-    match libraries {
+    let (reports, guides) = opening.into_parts();
+    let report = AvailabilityReport { libraries: reports };
+    let availability = match libraries {
         Some(libraries) => Ok(Availability {
             report,
             libraries: std::sync::Arc::new(libraries),
         }),
         None => Err(AvailabilityError::Unusable(report)),
-    }
+    };
+    (availability, guides)
 }

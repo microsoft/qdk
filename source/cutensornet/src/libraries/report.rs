@@ -3,7 +3,7 @@
 
 //! What opening and checking one library found: where it was loaded from,
 //! the versions it reports, every fault found in it, the other copies
-//! visible beside it, and whether it is the copy its override names.
+//! visible beside it, and where the copy tried was found.
 //!
 //! Each library is opened and checked in `libraries`, which fills its
 //! report; discovery collects the reports, one per library, in an
@@ -38,15 +38,12 @@ pub struct LibraryReport {
     /// Other copies of the library the setup makes visible, not loaded: a
     /// packaged copy beside an override or a system install, say. Two
     /// copies may be of different versions, and a dependency of the one
-    /// loaded may be found beside the other, so the setup check warns of
-    /// them. Empty when it was not loaded.
+    /// loaded may be found beside the other. Empty when it was not loaded.
     pub other_copies: Vec<PathBuf>,
-    /// Whether the copy tried is the one its override variable names,
-    /// loaded or not, so that the setup check, when that copy is at fault,
-    /// advises changing or unsetting the variable: an override is the only
-    /// path tried, so no install displaces it. `false` when the override is
-    /// unset or invalid.
-    pub from_override: bool,
+    /// Where the copy tried, the one loaded or the one the system loader
+    /// refused, was found. `None` when no copy was tried: the override is
+    /// invalid, or no candidate named a file the process could access.
+    pub source: Option<LibrarySource>,
 }
 
 impl LibraryReport {
@@ -58,6 +55,21 @@ impl LibraryReport {
             .find(|version| version.component == component)
             .map(|version| version.value)
     }
+}
+
+/// Where discovery found a library's copy, among the paths it tries in
+/// order (README, "Where the libraries are looked for").
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LibrarySource {
+    /// The path its override variable names; while the variable is set, no
+    /// other path is tried.
+    Override,
+    /// Its file among the [`PackagedLibraries`](crate::PackagedLibraries).
+    Packaged,
+    /// One of its default absolute paths.
+    DefaultPath,
+    /// Its file name, searched for by the system loader.
+    SystemSearch,
 }
 
 /// One version a library reports, as the library encodes it.

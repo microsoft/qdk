@@ -32,8 +32,8 @@
 //! loaded (`loader`), its functions looked up (`function_table`), its
 //! versions probed, and the other copies of it visible beside the one
 //! loaded.
-//! `LoadedLibraries` also lists the libraries' setup guides
-//! (`SETUP_GUIDES`, checked against what it opens).
+//! `Opening` keeps, beside each library's report, its setup guide, so the
+//! setup check shows and advises about the libraries discovery opened.
 //! The MPS engine and the setup check call the loaded libraries through
 //! their tables.
 //!
@@ -54,8 +54,7 @@
 //!    and `LibrarySetupGuide`: what the setup check shows of it and advises;
 //! 3. add its field to `LoadedLibraries`, open it in `LoadedLibraries::open`
 //!    after the libraries it runs on, so that each of those is listed before
-//!    it in the report, and add its guide to `LoadedLibraries::SETUP_GUIDES`
-//!    in the same order;
+//!    it in the report and the setup check;
 //! 4. test its versions in `tests/libraries/`, and its tables there with the
 //!    naming rule (`assert_each_field_is_named_for_its_symbol`) and in the
 //!    case list of `function_table`'s tests; add its variable, paths and
@@ -87,9 +86,9 @@ pub use packaged_libraries::PackagedLibraries;
 #[cfg(any(test, all(target_os = "linux", target_arch = "x86_64")))]
 use report::LibraryFault;
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-use report::{LibraryReport, Version};
+use report::{LibraryReport, LibrarySource, Version};
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-use setup_guide::SetupGuide;
+use setup_guide::{LibrarySetupGuide, SetupGuide};
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 use std::path::Path;
 #[cfg(any(test, all(target_os = "linux", target_arch = "x86_64")))]
@@ -126,15 +125,6 @@ impl LoadedLibraries {
             cuda_runtime: cuda_runtime?,
         })
     }
-
-    /// What the setup check tells a user about each library, in the order
-    /// `open` opens them: so the check lists each library after those it
-    /// runs on, as discovery's report does, and the first library it lists
-    /// at fault is the one its advice addresses.
-    pub(crate) const SETUP_GUIDES: [SetupGuide; 2] = [
-        SetupGuide::of::<cuda_runtime::CudaRuntime>(),
-        SetupGuide::of::<cutensornet::CuTensorNet>(),
-    ];
 }
 
 /// One native library: where it is looked for, the table of its functions,
@@ -195,12 +185,14 @@ pub(crate) struct BoundLibrary<L: NativeLibrary> {
 pub(crate) type Checked<L> = (LibraryReport, Option<BoundLibrary<L>>);
 
 /// The libraries being opened, one at a time, by a checker. It keeps the
-/// report of each library, in the order they are opened, whatever its
-/// faults.
+/// report and the setup guide of each library, in the order they are
+/// opened, whatever its faults: so the setup check shows and advises about
+/// exactly the libraries discovery opened, each after those it runs on.
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 pub(crate) struct Opening<C> {
     checker: C,
     reports: Vec<LibraryReport>,
+    guides: Vec<SetupGuide>,
 }
 
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
@@ -209,20 +201,22 @@ impl<C: CheckLibrary> Opening<C> {
         Self {
             checker,
             reports: Vec::new(),
+            guides: Vec::new(),
         }
     }
 
-    /// Opens and checks `L`, keeps its report, and returns it bound to its
-    /// table when it has no fault.
-    pub(crate) fn open<L: NativeLibrary>(&mut self) -> Option<BoundLibrary<L>> {
+    /// Opens and checks `L`, keeps its report and its setup guide, and
+    /// returns it bound to its table when it has no fault.
+    pub(crate) fn open<L: LibrarySetupGuide>(&mut self) -> Option<BoundLibrary<L>> {
         let (report, bound) = self.checker.check::<L>();
         self.reports.push(report);
+        self.guides.push(SetupGuide::of::<L>());
         bound
     }
 
-    /// The report of each library opened, in order.
-    pub(crate) fn into_reports(self) -> Vec<LibraryReport> {
-        self.reports
+    /// The report and the setup guide of each library opened, in order.
+    pub(crate) fn into_parts(self) -> (Vec<LibraryReport>, Vec<SetupGuide>) {
+        (self.reports, self.guides)
     }
 }
 
@@ -269,12 +263,10 @@ pub(crate) fn open<L: NativeLibrary>(
         versions: Vec::new(),
         faults: Vec::new(),
         other_copies: Vec::new(),
-        from_override: false,
+        source: None,
     };
     let override_path = validate_override_path(L::VARIABLE, read_variable(L::VARIABLE));
-    // A valid override is the only candidate, so the copy tried while it is
-    // set is the one it names, loaded or not.
-    report.from_override = matches!(override_path, Ok(Some(_)));
+    let overridden = matches!(override_path, Ok(Some(_)));
     let opened = override_path.and_then(|override_path| {
         load_library(candidates::<L>(override_path.clone(), packaged))
             .map(|library| (library, override_path))
@@ -282,11 +274,15 @@ pub(crate) fn open<L: NativeLibrary>(
     let (library, override_path) = match opened {
         Ok(opened) => opened,
         Err(fault) => {
+            if let LibraryFault::LoadFailed { path, .. } = &fault {
+                report.source = Some(source_of::<L>(path, overridden, packaged));
+            }
             report.faults.push(fault);
             return (report, None);
         }
     };
     report.path = Some(library.path().to_path_buf());
+    report.source = Some(source_of::<L>(library.path(), overridden, packaged));
     report.other_copies = other_copies::<L>(library.path(), override_path.as_deref(), packaged);
     let functions = inspect::<L, _>(&library, &mut report);
     let bound = functions.map(|functions| BoundLibrary { functions, library });
@@ -324,6 +320,27 @@ pub(crate) fn candidates<L: NativeLibrary>(
             .map(Path::to_path_buf)
             .chain(L::DEFAULTS.iter().map(PathBuf::from))
             .collect(),
+    }
+}
+
+/// Where `path`, the candidate of `L` tried, was found: its override when
+/// one is set (`overridden`), as it is then the only candidate; or else its
+/// file in `packaged`, a default absolute path, or a file name the system
+/// loader searches for.
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+fn source_of<L: NativeLibrary>(
+    path: &Path,
+    overridden: bool,
+    packaged: &PackagedLibraries,
+) -> LibrarySource {
+    if overridden {
+        LibrarySource::Override
+    } else if L::packaged(packaged) == Some(path) {
+        LibrarySource::Packaged
+    } else if path.is_absolute() {
+        LibrarySource::DefaultPath
+    } else {
+        LibrarySource::SystemSearch
     }
 }
 

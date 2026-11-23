@@ -7,7 +7,7 @@
 //! They need the CUDA Runtime 12.9 and cuTensorNet 2.13, and the setup
 //! check a CUDA device too, so they are ignored in CI; run them with
 //! `--ignored` on such a host. Discovery runs no GPU work; the setup check
-//! makes one trial run on CUDA device 0.
+//! makes one trial run on the engine's device.
 
 use qdk_cutensornet::{GpuSetup, PackagedLibraries, discover};
 

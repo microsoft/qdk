@@ -62,8 +62,8 @@ pub(crate) use generated::v2_13;
 use super::function_table::{FunctionTable, SymbolResolver};
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 use super::{
-    NativeLibrary, ProbedVersions, cuda_runtime, setup_guide::LibrarySetupGuide,
-    setup_guide::or_unread,
+    NativeLibrary, ProbedVersions, cuda_runtime,
+    setup_guide::{LibrarySetupGuide, cuda_version, or_unread},
 };
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 use crate::LibraryReport;
@@ -128,6 +128,10 @@ impl NativeLibrary for CuTensorNet {
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 impl LibrarySetupGuide for CuTensorNet {
     const INSTALL: &'static str = "cuTensorNet 2.13";
+    /// NVIDIA supports cuTensorNet on devices of compute capability 7.5 or
+    /// later. The GPU engine does not check it; the setup check applies it
+    /// to the engine's device.
+    const MINIMUM_COMPUTE_CAPABILITY: Option<(i32, i32)> = Some((7, 5));
 
     /// Its path and version, and the CUDA Runtime it was built for.
     #[expect(
@@ -142,7 +146,7 @@ impl LibrarySetupGuide for CuTensorNet {
             or_unread(
                 report
                     .version("cuTensorNet's CUDA Runtime")
-                    .map(cuda_runtime::cuda_version)
+                    .map(cuda_version)
             ),
         )]
     }
