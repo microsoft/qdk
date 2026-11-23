@@ -84,6 +84,7 @@ def _ensure_idle(name: str) -> None:
 
 
 def _stop_agent(container: str) -> None:
+    print("Requesting graceful agent shutdown...", flush=True)
     try:
         result = run(
             podman(
@@ -121,6 +122,7 @@ done
             format_error(error),
         )
     # --ignore: the agent ends its own container if it kills the relay.
+    print("Removing sandbox agent container...", flush=True)
     run(podman("rm", "--force", "--ignore", "--time", "3", container))
 
 
@@ -377,6 +379,7 @@ def _run_session(
     finally:
         token = ""
         try:
+            print("Stopping sandbox agents...", flush=True)
             for container in _get_running_agents(args.instance):
                 _stop_agent(container)
         except (LauncherError, OSError, ValueError) as error:
@@ -387,22 +390,27 @@ def _run_session(
             )
         try:
             # The proxy is the only container with egress; don't leave it idle.
+            print("Removing sandbox proxy...", flush=True)
             run(podman("rm", "--force", "--ignore", "--time", "3", session.proxy))
+            print("Removing proxy relay volume...", flush=True)
             run(podman("volume", "rm", "--force", session.volume("relay")))
         except (LauncherError, OSError, ValueError) as error:
             LOGGER.warning("Could not remove the proxy.\n%s", format_error(error))
         if not cleanup_failed:
-            for action, message in (
+            for action, progress, message in (
                 (
                     lambda: sanitize_exchange_folder(outgoing),
+                    "Sanitizing outgoing exchange directory...",
                     "Output quarantine failed; do not open the exchange output in Git-aware tools.",
                 ),
                 (
                     lambda: fetch_outbox_repo_safe(REPO, outbox, args.instance),
+                    "Fetching sandbox commits into the host repository...",
                     "Host fetch failed; commits remain in the instance outbox.",
                 ),
             ):
                 try:
+                    print(progress, flush=True)
                     action()
                 except (LauncherError, OSError, ValueError) as error:
                     cleanup_failed = True
