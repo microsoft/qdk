@@ -159,11 +159,11 @@ provides: Capabilities::new(
 ),
 ```
 
-| Kind          | Each field                            | Fits when                                                                     | A mismatch                                                                        |
-| ------------- | ------------------------------------- | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Resources     | shots per run, instructions per batch | the amount that arrives is at most the amount provided, or either is unstated | [`ResourceMismatch`](../src/capabilities/resources.rs), with both amounts         |
-| Features      | replay, seeded runs                   | the feature is not required, or the provider does not say it lacks it         | [`FeatureMismatch`](../src/capabilities/features.rs)                              |
-| The set's own | as the set defines them               | as the set's `fits` says                                                      | the set's own mismatch, boxed in [`CapabilitiesMismatch`](../src/capabilities.rs) |
+| Kind          | Each field                            | Fits when                                                                     | A mismatch                                                                                                                                |
+| ------------- | ------------------------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Resources     | shots per run, instructions per batch | the amount that arrives is at most the amount provided, or either is unstated | [`ResourceMismatch`](../src/capabilities/resources.rs), with both amounts                                                                 |
+| Features      | replay, seeded runs                   | the feature is not required, or the provider does not say it lacks it         | [`FeatureMismatch`](../src/capabilities/features.rs)                                                                                      |
+| The set's own | as the set defines them               | as the set's `fits` says                                                      | the set's own mismatch, boxed in [`CapabilitiesMismatch`](../src/capabilities.rs); in a composition fault, each piece its requirer stated |
 
 A replayed shot runs again with its run's seed, so stating replay `true`
 states seeded runs `true` too, and stating seeded runs `false` states

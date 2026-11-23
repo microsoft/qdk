@@ -579,10 +579,11 @@ fn a_joined_part_is_named_for_its_top_part() {
 }
 
 /// An encoding joined on bits, used by a user's code as an executor and
-/// sent a batch before any run got it ready: it panics, saying a part is
-/// got ready before it is called, whether its halves fit, where no run has
-/// yet given its boundary the limits each batch is checked against, or
-/// do not, where each run's `ready` would refuse with their mismatch.
+/// sent a batch before any run got it ready: it panics, saying that each
+/// run gets a part ready before calling it, whether its halves fit, where
+/// no run has yet given its boundary the limits each batch is checked
+/// against, or do not, where each run's `ready` would refuse with their
+/// mismatch.
 #[test]
 fn a_joined_part_called_before_its_ready_panics() {
     let log = Log::default();
@@ -609,7 +610,7 @@ fn a_joined_part_called_before_its_ready_panics() {
             .unwrap_or_else(|| panic!("{row}: the panic has a message"));
         assert!(
             message.contains("ready"),
-            "{row}: {message:?} says a part is got ready before it is called"
+            "{row}: {message:?} says a run gets a part ready before calling it"
         );
     }
 }
