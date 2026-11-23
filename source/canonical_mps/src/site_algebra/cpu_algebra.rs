@@ -30,7 +30,8 @@ use truncation::Truncation;
 /// Only [`gate_split`](SiteAlgebra::gate_split) fails, when `dense_linalg`'s
 /// SVD of the gated pair `θ` does ([`SvdError`]): its rotations do not
 /// converge, `θ` holds a value that is not finite, or the factors fail the
-/// checks the SVD makes of them. The other operations never fail.
+/// checks the SVD makes of them. The other operations never fail; a read
+/// past a tensor's end panics, the refusal [`SiteAlgebra::read`] asks for.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct CpuAlgebra;
 

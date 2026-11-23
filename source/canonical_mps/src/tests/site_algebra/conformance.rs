@@ -43,16 +43,18 @@ fn every_failing_case_is_reported() {
             "a move's bond is the smaller of the pair's bond and the side it leaves",
             "a move leaves the site it leaves an isometry",
             "a move leaves its inputs unchanged",
+            "a move's new sites hold exactly their elements",
         ],
         "{failures:#?}"
     );
 }
 
-/// A backend whose reads return one element short fails every case: each
-/// failure names the kit's seed, its inputs' seed derives from it (input
-/// `n` of kit seed 7 has seed `7000 + n`), and running the kit again at that
-/// seed repeats the failures, so that the backend's author can repeat the
-/// scene.
+/// A backend whose reads return one element short fails every case that
+/// reads elements back, all but the two whose read past a new site's end
+/// it refuses: each failure names the kit's seed, its inputs' seed derives
+/// from it (input `n` of kit seed 7 has seed `7000 + n`), and running the
+/// kit again at that seed repeats the failures, so that the backend's
+/// author can repeat the scene.
 #[test]
 fn every_failure_names_the_kit_seed_that_repeats_it() {
     let algebra = DefectiveFakeAlgebra::with(Defect::ShortRead);
@@ -60,7 +62,7 @@ fn every_failure_names_the_kit_seed_that_repeats_it() {
     assert_eq!(
         failures.len(),
         15,
-        "a short read fails every case: {failures:#?}"
+        "a short read fails every case that reads elements back: {failures:#?}"
     );
     for failure in &failures {
         assert_eq!(failure.seed, 7, "{failure}");
@@ -224,6 +226,24 @@ fn move_inputs_case_catches_an_overwritten_input() {
     caught_by(
         "a move leaves its inputs unchanged",
         &[Defect::InputsOverwritten],
+    );
+}
+
+/// The padded sites keep every element the bond gives them, so only the
+/// reads past their ends tell them apart.
+#[test]
+fn split_sites_case_catches_sites_held_past_their_end() {
+    caught_by(
+        "a split's new sites hold exactly their elements",
+        &[Defect::SitesHeldPastTheirEnd],
+    );
+}
+
+#[test]
+fn move_sites_case_catches_sites_held_past_their_end() {
+    caught_by(
+        "a move's new sites hold exactly their elements",
+        &[Defect::SitesHeldPastTheirEnd],
     );
 }
 

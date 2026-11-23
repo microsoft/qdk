@@ -12,9 +12,9 @@ use super::formulas::{
 use super::inputs::{
     CAPS, CUTOFFS, LARGE_SHAPE, Pair, SHAPES, derived, identity_gate, two_site_gate,
 };
-use super::{TOLERANCE, read, upload};
+use super::{TOLERANCE, read, refuses_a_read_past, upload};
 use crate::dense_linalg::Matrix;
-use crate::site_algebra::{CentreSide, GateSplitCall, SiteAlgebra};
+use crate::site_algebra::{CentreSide, GateSplitCall, GateSplitOutcome, SiteAlgebra};
 use num_complex::Complex64;
 use std::fmt;
 
@@ -332,6 +332,41 @@ pub(super) fn leaves_its_inputs_unchanged<A: SiteAlgebra>(
     Ok(())
 }
 
+/// The new sites hold exactly the elements their bond gives them, `2·l·bond`
+/// and `bond·2·r`, at every setting: a read of one more is refused, with an
+/// error or a panic, as [`SiteAlgebra::read`] promises. Catches sites held at
+/// a capacity larger than the bond kept, such as the cap or `θ`'s sides,
+/// whose reads past the site answer elements that are not the site's. For
+/// instance, sites held at the smaller of the cap and `θ`'s sides fail it
+/// with: `the pair [1, 1, 1] of seed 300, cap 2, cutoff 0.05, centre Left:
+/// bond 1: the left site answered a read of 3 elements, one past its 2`.
+pub(super) fn new_sites_hold_exactly_their_elements<A: SiteAlgebra>(
+    algebra: &A,
+    seed: u64,
+) -> Result<(), String> {
+    for scene in graded_scenes(seed)? {
+        let Pair { l, r, .. } = scene.pair;
+        for setting in Setting::all() {
+            let outcome = scene.outcome(algebra, setting)?.outcome;
+            let k = outcome.bond;
+            let sites = [
+                ("left", &outcome.left, 2 * l * k),
+                ("right", &outcome.right, k * 2 * r),
+            ];
+            for (side, site, held) in sites {
+                if !refuses_a_read_past(algebra, site, held) {
+                    return Err(format!(
+                        "{scene}, {setting}: bond {k}: the {side} site answered a read of {} \
+                         elements, one past its {held}",
+                        held + 1
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// The largest dropped fraction a split at `cutoff` may report: the cutoff's,
 /// with [`TOLERANCE`] of it for a tail at the cutoff, and values of
 /// rounding's size ([`ROUNDING_SHARE`]).
@@ -378,6 +413,36 @@ impl Scene {
     fn split<A: SiteAlgebra>(&self, algebra: &A, setting: Setting) -> Result<Split, String> {
         let Pair { l, m, r, .. } = self.pair;
         let failed = |message: String| format!("{self}, {setting}: {message}");
+        let SplitTensors {
+            outcome,
+            inputs: [left, right],
+        } = self.outcome(algebra, setting)?;
+        let k = outcome.bond;
+        let new_left = read(algebra, &outcome.left, 2 * l * k).map_err(failed)?;
+        let new_right = read(algebra, &outcome.right, k * 2 * r).map_err(failed)?;
+        let inputs = [
+            read(algebra, &left, 2 * l * m).map_err(failed)?,
+            read(algebra, &right, m * 2 * r).map_err(failed)?,
+        ];
+        Ok(Split {
+            left: Matrix::new(2 * l, k, new_left),
+            right: Matrix::new(k, 2 * r, new_right),
+            bond: k,
+            retained_fraction: outcome.retained_fraction,
+            inputs,
+        })
+    }
+
+    /// Splits the pair at `setting`, and checks the bond's bounds and the
+    /// retained fraction as [`Scene::split`] says: the outcome, and the
+    /// input tensors.
+    fn outcome<A: SiteAlgebra>(
+        &self,
+        algebra: &A,
+        setting: Setting,
+    ) -> Result<SplitTensors<A>, String> {
+        let Pair { l, m, r, .. } = self.pair;
+        let failed = |message: String| format!("{self}, {setting}: {message}");
         let left = upload(algebra, &self.pair.left).map_err(failed)?;
         let right = upload(algebra, &self.pair.right).map_err(failed)?;
         let call = GateSplitCall {
@@ -405,18 +470,9 @@ impl Scene {
                 "the retained fraction {fraction} is not in (0, 1]"
             )));
         }
-        let new_left = read(algebra, &outcome.left, 2 * l * k).map_err(failed)?;
-        let new_right = read(algebra, &outcome.right, k * 2 * r).map_err(failed)?;
-        let inputs = [
-            read(algebra, &left, 2 * l * m).map_err(failed)?,
-            read(algebra, &right, m * 2 * r).map_err(failed)?,
-        ];
-        Ok(Split {
-            left: Matrix::new(2 * l, k, new_left),
-            right: Matrix::new(k, 2 * r, new_right),
-            bond: k,
-            retained_fraction: outcome.retained_fraction,
-            inputs,
+        Ok(SplitTensors {
+            outcome,
+            inputs: [left, right],
         })
     }
 
@@ -520,4 +576,11 @@ impl fmt::Display for Setting {
         }
         write!(f, ", cutoff {}, centre {:?}", self.cutoff, self.centre)
     }
+}
+
+/// A split's outcome and its input tensors, held by the algebra, not read
+/// back yet.
+struct SplitTensors<A: SiteAlgebra> {
+    outcome: GateSplitOutcome<A::Tensor>,
+    inputs: [A::Tensor; 2],
 }

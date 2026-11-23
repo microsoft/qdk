@@ -42,16 +42,21 @@
 //!   with and without a gate, either way.
 //!
 //! Each split and each move reads its input tensors back too, and a case
-//! of each method checks they are unchanged.
+//! of each method checks they are unchanged; another reads its new sites
+//! one element past the end its bond gives them, and checks the read is
+//! refused.
 //!
-//! An error on any call is a failure of its case: the kit makes only the
-//! calls the contract allows. The latitude the contract leaves is not
-//! checked: a bond larger than the cutoff needs, and the side of a tie a
-//! split takes. The kit's own code never panics on what an algebra returns,
-//! so a failing algebra reports every case it fails; a panic inside the
-//! algebra's own call (a read of a tensor shorter than the bond the algebra
-//! reported, for instance) is the algebra's failure, which the test harness
-//! reports, and it stops the kit.
+//! An error on any call is a failure of its case, but for the read past a
+//! new site's end: the kit makes only the calls the contract allows, and
+//! that read, which the contract says is refused. The latitude the
+//! contract leaves is not checked: a bond larger than the cutoff needs,
+//! and the side of a tie a split takes. The kit's own code never panics on
+//! what an algebra returns, so a failing algebra reports every case it
+//! fails; a panic inside the algebra's own call (a read of a tensor shorter
+//! than the bond the algebra reported, for instance) is the algebra's
+//! failure, which the test harness reports, and it stops the kit, except
+//! in the read past a new site's end, where a panic is the refusal the
+//! case expects, and the kit catches it.
 //! The kit needs the `conformance` feature, so it costs nothing in a build
 //! that does not test a backend.
 
@@ -64,6 +69,7 @@ mod storage;
 use super::SiteAlgebra;
 use num_complex::Complex64;
 use std::fmt;
+use std::panic::{self, AssertUnwindSafe};
 
 /// How far a product, a retained fraction or an isometry may be from its
 /// formula, in the Frobenius norm of the normalised pair or the largest entry:
@@ -98,7 +104,7 @@ pub fn check_with_seed<A: SiteAlgebra>(algebra: &A, seed: u64) -> Vec<Failure> {
 }
 
 /// The kit's cases, in the order [`check`] runs them.
-fn cases<A: SiteAlgebra>() -> [Case<A>; 15] {
+fn cases<A: SiteAlgebra>() -> [Case<A>; 17] {
     [
         (
             "a read returns what was uploaded",
@@ -145,6 +151,10 @@ fn cases<A: SiteAlgebra>() -> [Case<A>; 15] {
             gate_split::leaves_its_inputs_unchanged,
         ),
         (
+            "a split's new sites hold exactly their elements",
+            gate_split::new_sites_hold_exactly_their_elements,
+        ),
+        (
             "a move gives back the gated pair's product",
             qr_move::gives_back_the_gated_product,
         ),
@@ -159,6 +169,10 @@ fn cases<A: SiteAlgebra>() -> [Case<A>; 15] {
         (
             "a move leaves its inputs unchanged",
             qr_move::leaves_its_inputs_unchanged,
+        ),
+        (
+            "a move's new sites hold exactly their elements",
+            qr_move::new_sites_hold_exactly_their_elements,
         ),
     ]
 }
@@ -222,4 +236,12 @@ fn read<A: SiteAlgebra>(
             values.len()
         ))
     }
+}
+
+/// Whether `algebra` refuses a read of one element more than the `held`
+/// elements of `tensor`, as [`SiteAlgebra::read`] promises: with an error or
+/// a panic, which this catches, rather than with elements.
+fn refuses_a_read_past<A: SiteAlgebra>(algebra: &A, tensor: &A::Tensor, held: usize) -> bool {
+    let answered = panic::catch_unwind(AssertUnwindSafe(|| algebra.read(tensor, held + 1).is_ok()));
+    !matches!(answered, Ok(true))
 }

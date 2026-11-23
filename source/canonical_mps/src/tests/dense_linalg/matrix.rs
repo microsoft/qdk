@@ -60,11 +60,16 @@ fn an_overflowing_element_count_is_refused() {
             let _ = Matrix::product(MatrixRef::new(huge, 0, &[]), MatrixRef::new(0, 2, &[]));
         }),
     ];
+    let shape = format!("{} × 2", 1_usize << (usize::BITS - 1));
     for (name, build) in rows {
         let message = panic_message(build);
         assert!(
-            message.contains("× 2 matrix has more elements than `usize` counts"),
-            "{name}: {message}"
+            message.contains(&shape),
+            "{name}: the shape is named: {message}"
+        );
+        assert!(
+            message.contains("usize"),
+            "{name}: the fault is named: {message}"
         );
     }
 }
@@ -83,12 +88,19 @@ fn a_product_sums_rows_times_columns() {
 }
 
 /// A 2 × 3 matrix cannot multiply a 2 × 3 matrix: the product panics
-/// rather than read past the first one's columns.
+/// rather than read past the first one's columns, naming both shapes.
 #[test]
-#[should_panic(expected = "the product of a 2 × 3 and a 2 × 3 matrix")]
 fn a_product_of_mismatched_shapes_panics() {
-    let a = matrix(2, 3, 1);
-    let _ = Matrix::product(a.view(), a.view());
+    let message = panic_message(|| {
+        let a = matrix(2, 3, 1);
+        let _ = Matrix::product(a.view(), a.view());
+    });
+    assert_eq!(
+        message.matches("2 × 3").count(),
+        2,
+        "both shapes are named: {message}"
+    );
+    assert!(message.contains("product"), "the fault is named: {message}");
 }
 
 /// A matrix without elements stays empty, whatever its dimensions, and

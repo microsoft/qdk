@@ -28,8 +28,8 @@ matters, and the cases).
 
 **The approach.** The SVD's rules are the module's own, written once: a trim
 that reduces the matrix to full rank, leaving out only rounding; one-sided
-Jacobi rotations, which converge on a matrix of full rank within a cap of
-sweeps, or report the failure; and checks, to the bounds of LAPACK's SVD tests,
+Jacobi rotations, which rotate the columns until orthogonal, or report a failure
+after a cap of sweeps; and checks, to the bounds of LAPACK's SVD tests,
 on every answer. The steps that set the module's speed (the products and the QR
 decompositions) sit behind one module-private trait, so that replacing their
 implementation changes none of the SVD's rules. The SVD checks every answer it
@@ -54,15 +54,15 @@ steps name the parts of its algorithm with these terms:
 
 It runs these steps:
 
-| Step                   | How                                                                                     | Why                                                                                                                                                              |
-| ---------------------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1. Zero matrix         | One value, 0, and the first unit vectors.                                               | It has no rank to keep and no largest entry to scale by.                                                                                                         |
-| 2. Wide matrix         | Factored through its adjoint.                                                           | The rotated columns are then the shorter side.                                                                                                                   |
-| 3. Scaling             | By a power of two when the largest entry is far from 1.                                 | The squared norms neither overflow nor underflow; it rounds only entries it takes below the normal range.                                                        |
-| 4. Trim                | Drops the rows of $R$ of smallest norm, chosen by norm, not by pivot.                   | The rest sees full rank; the pivoting keeps $\lvert R_{ii} \rvert$ nonincreasing only to rounding.                                                               |
-| 5. Rotations           | $W$'s columns rotated until orthogonal.                                                 | They converge on $W$ of full rank within a cap of sweeps; a faster SVD for $W$ far from orthogonal is planned ([`svd.rs`](../src/dense_linalg/svd.rs)'s header). |
-| 6. Left vectors        | The kept columns of $Q$, applied by its reflectors, times $W$'s right singular vectors. | Cheaper than forming $Q$: the reflectors act on the answer's $r$ columns alone, and those after the last kept row are skipped.                                   |
-| Checks, on each answer | Reconstruction and orthonormality, to LAPACK's bounds.                                  | No SVD is trusted: a library's has answered wrong factors without a failure, and the rotations' answer passes through the pivoted QR and the products.           |
+| Step                   | How                                                                                     | Why                                                                                                                                                                                                            |
+| ---------------------- | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Zero matrix         | One value, 0, and the first unit vectors.                                               | It has no rank to keep and no largest entry to scale by.                                                                                                                                                       |
+| 2. Wide matrix         | Factored through its adjoint.                                                           | The rotated columns are then the shorter side.                                                                                                                                                                 |
+| 3. Scaling             | By a power of two when the largest entry is far from 1.                                 | The squared norms neither overflow nor underflow; it rounds only entries it takes below the normal range.                                                                                                      |
+| 4. Trim                | Drops the rows of $R$ of smallest norm, chosen by norm, not by pivot.                   | The rest sees full rank; the pivoting keeps $\lvert R_{ii} \rvert$ nonincreasing only to rounding.                                                                                                             |
+| 5. Rotations           | $W$'s columns rotated until orthogonal.                                                 | Orthogonal columns give $W$'s SVD; a pair still rotating at the cap of sweeps is reported as a failure. A faster SVD for $W$ far from orthogonal is planned ([`svd.rs`](../src/dense_linalg/svd.rs)'s header). |
+| 6. Left vectors        | The kept columns of $Q$, applied by its reflectors, times $W$'s right singular vectors. | Cheaper than forming $Q$: the reflectors act on the answer's $r$ columns alone, and those after the last kept row are skipped.                                                                                 |
+| Checks, on each answer | Reconstruction and orthonormality, to LAPACK's bounds.                                  | No SVD is trusted: a library's has answered wrong factors without a failure, and the rotations' answer passes through the pivoted QR and the products.                                                         |
 
 [`svd.rs`](../src/dense_linalg/svd.rs)'s header gives the details;
 [`svd/checks.rs`](../src/dense_linalg/svd/checks.rs) and
@@ -76,9 +76,10 @@ rotations.
   `Matrix::product(a, b)` is $a b$, and `MatrixRef::adjoint` the conjugate
   transpose.
 - [`Qr::of`](../src/dense_linalg/qr.rs) is the thin QR decomposition $a = q r$
-  of a finite matrix, by Householder reflections, at any scale (scaled by a
-  power of two as in the SVD's step 3). It cannot fail, and checks nothing: a
-  matrix with an entry that is not finite gets unspecified factors.
+  of a finite matrix, by Householder reflections, at any scale short of an $r$
+  too large to store (scaled by a power of two as in the SVD's step 3). It
+  cannot fail, and checks nothing: a matrix with an entry that is not finite
+  gets unspecified factors.
 
 ## The libraries and the pivoted QR
 

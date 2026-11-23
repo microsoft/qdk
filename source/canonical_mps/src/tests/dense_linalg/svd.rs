@@ -120,9 +120,10 @@ mod errors {
                 let _ = Svd::of(Matrix::new(rows, cols, Vec::new()).view());
             });
             assert!(
-                message.contains(&format!("the SVD of an empty {rows} × {cols} matrix")),
-                "{message}"
+                message.contains(&format!("{rows} × {cols}")),
+                "the shape is named: {message}"
             );
+            assert!(message.contains("empty"), "the fault is named: {message}");
         }
     }
 

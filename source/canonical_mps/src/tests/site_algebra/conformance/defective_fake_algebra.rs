@@ -80,6 +80,10 @@ pub(super) enum Defect {
     MoveFails,
     /// A split or a move zeroes its left input.
     InputsOverwritten,
+    /// A split holds its new sites padded with zeros to the smaller of its
+    /// cap and `θ`'s sides, not to its bond, and a move holds each new site
+    /// with one zero more.
+    SitesHeldPastTheirEnd,
 }
 
 /// The CPU algebra with `defect`, or with none.
@@ -301,6 +305,11 @@ impl SiteAlgebra for DefectiveFakeAlgebra {
                 let other = Self::split_at(call, gate, max_extent, kept, centre)?;
                 outcome.retained_fraction = other.retained_fraction;
             }
+            Some(Defect::SitesHeldPastTheirEnd) => {
+                let capacity = max_extent.min(rows).min(cols);
+                outcome.left.resize(rows * capacity, Complex64::ZERO);
+                outcome.right.resize(capacity * cols, Complex64::ZERO);
+            }
             _ => {}
         }
         Ok(GateSplitOutcome {
@@ -362,6 +371,10 @@ impl SiteAlgebra for DefectiveFakeAlgebra {
                 for x in reached {
                     *x *= 0.5;
                 }
+            }
+            Some(Defect::SitesHeldPastTheirEnd) => {
+                outcome.left.push(Complex64::ZERO);
+                outcome.right.push(Complex64::ZERO);
             }
             _ => {}
         }

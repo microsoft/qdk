@@ -26,7 +26,7 @@
 //! column-major `(2·left) × right` matrix of rows `a + left·s`, or the
 //! `left × (2·right)` matrix of columns `s + 2·b`. The calls' outputs are
 //! packed: a site of extents `[left, 2, right]` holds exactly
-//! `left·2·right` elements.
+//! `left·2·right` elements, so a read of one more is refused.
 
 mod centre_side;
 #[cfg(any(test, feature = "conformance"))]
@@ -48,7 +48,9 @@ use std::borrow::Cow;
 ///
 /// The caller has checked every argument (extents, lengths, the call's
 /// settings) before it calls, so an implementation may assume each is
-/// valid. Tensors follow the [module's layout](self).
+/// valid, except a read's length, which [`read`](SiteAlgebra::read)
+/// refuses past the tensor's end. Tensors follow the
+/// [module's layout](self).
 ///
 /// [`gate_split`](SiteAlgebra::gate_split) and
 /// [`qr_move`](SiteAlgebra::qr_move) leave their input tensors unchanged:
@@ -78,10 +80,13 @@ pub trait SiteAlgebra {
     fn upload(&self, values: &[Complex64]) -> Result<Self::Tensor, Self::Error>;
 
     /// The first `len` elements of `tensor`, borrowed where they already
-    /// live on the host. `tensor` holds at least `len` elements. The engine
-    /// reads sites to compute on the host (a probability, an expectation,
-    /// an MPO's span), so reads are frequent: a backend whose tensors live
-    /// on the host borrows them rather than copying.
+    /// live on the host. `tensor` holds at least `len` elements; a read of
+    /// more is refused, with an error or a panic, never answered with
+    /// elements that are not the tensor's, so that a length the caller got
+    /// wrong (a bond misread) fails rather than computes on other memory.
+    /// The engine reads sites to compute on the host (a probability, an
+    /// expectation, an MPO's span), so reads are frequent: a backend whose
+    /// tensors live on the host borrows them rather than copying.
     fn read<'t>(
         &self,
         tensor: &'t Self::Tensor,

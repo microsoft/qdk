@@ -7,9 +7,9 @@
 
 use super::formulas::{columns_isometry_error, gated_site, relative_distance, rows_isometry_error};
 use super::inputs::{LARGE_SHAPE, MOVE_SHAPES, Pair, SHAPES, derived, one_site_gate};
-use super::{TOLERANCE, read, upload};
+use super::{TOLERANCE, read, refuses_a_read_past, upload};
 use crate::dense_linalg::Matrix;
-use crate::site_algebra::{CentreSide, QrMoveCall, SiteAlgebra};
+use crate::site_algebra::{CentreSide, QrMoveCall, QrMoveOutcome, SiteAlgebra};
 use num_complex::Complex64;
 use std::fmt;
 
@@ -96,6 +96,39 @@ pub(super) fn leaves_its_inputs_unchanged<A: SiteAlgebra>(
     Ok(())
 }
 
+/// The new sites hold exactly the elements their bond gives them, `2·l·bond`
+/// and `bond·2·r`, with a gate and without, either way: a read of one more is
+/// refused, with an error or a panic, as [`SiteAlgebra::read`] promises.
+/// Catches sites held at a capacity larger than the bond, whose reads past the
+/// site answer elements that are not the site's. For instance, a left site
+/// held with one element more fails it with: `the pair [1, 1, 1] of seed
+/// 600, no gate, centre to the Right: bond 1: the left site answered a read
+/// of 3 elements, one past its 2`.
+pub(super) fn new_sites_hold_exactly_their_elements<A: SiteAlgebra>(
+    algebra: &A,
+    seed: u64,
+) -> Result<(), String> {
+    for scene in scenes(seed) {
+        let Pair { l, r, .. } = scene.pair;
+        let outcome = scene.outcome(algebra)?.outcome;
+        let k = outcome.bond;
+        let sites = [
+            ("left", &outcome.left, 2 * l * k),
+            ("right", &outcome.right, k * 2 * r),
+        ];
+        for (side, site, held) in sites {
+            if !refuses_a_read_past(algebra, site, held) {
+                return Err(format!(
+                    "{scene}: bond {k}: the {side} site answered a read of {} elements, one \
+                     past its {held}",
+                    held + 1
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// A pair, a gate or none, and the way the centre moves.
 struct Scene {
     pair: Pair,
@@ -134,6 +167,29 @@ impl Scene {
     fn move_centre<A: SiteAlgebra>(&self, algebra: &A) -> Result<Moved, String> {
         let Pair { l, m, r, .. } = self.pair;
         let failed = |message: String| format!("{self}: {message}");
+        let MoveTensors {
+            outcome,
+            inputs: [left, right],
+        } = self.outcome(algebra)?;
+        let k = outcome.bond;
+        let new_left = read(algebra, &outcome.left, 2 * l * k).map_err(failed)?;
+        let new_right = read(algebra, &outcome.right, k * 2 * r).map_err(failed)?;
+        let inputs = [
+            read(algebra, &left, 2 * l * m).map_err(failed)?,
+            read(algebra, &right, m * 2 * r).map_err(failed)?,
+        ];
+        Ok(Moved {
+            left: Matrix::new(2 * l, k, new_left),
+            right: Matrix::new(k, 2 * r, new_right),
+            inputs,
+        })
+    }
+
+    /// Moves the centre, and checks the bond as [`Scene::move_centre`]
+    /// says: the outcome, and the input tensors.
+    fn outcome<A: SiteAlgebra>(&self, algebra: &A) -> Result<MoveTensors<A>, String> {
+        let Pair { l, m, r, .. } = self.pair;
+        let failed = |message: String| format!("{self}: {message}");
         let left = upload(algebra, &self.pair.left).map_err(failed)?;
         let right = upload(algebra, &self.pair.right).map_err(failed)?;
         let call = QrMoveCall {
@@ -153,16 +209,9 @@ impl Scene {
         if k != expected {
             return Err(failed(format!("bond {k}, not {expected}")));
         }
-        let new_left = read(algebra, &outcome.left, 2 * l * k).map_err(failed)?;
-        let new_right = read(algebra, &outcome.right, k * 2 * r).map_err(failed)?;
-        let inputs = [
-            read(algebra, &left, 2 * l * m).map_err(failed)?,
-            read(algebra, &right, m * 2 * r).map_err(failed)?,
-        ];
-        Ok(Moved {
-            left: Matrix::new(2 * l, k, new_left),
-            right: Matrix::new(k, 2 * r, new_right),
-            inputs,
+        Ok(MoveTensors {
+            outcome,
+            inputs: [left, right],
         })
     }
 }
@@ -212,4 +261,11 @@ impl Moved {
     fn product(&self) -> Matrix {
         Matrix::product(self.left.view(), self.right.view())
     }
+}
+
+/// A move's outcome and its input tensors, held by the algebra, not read
+/// back yet.
+struct MoveTensors<A: SiteAlgebra> {
+    outcome: QrMoveOutcome<A::Tensor>,
+    inputs: [A::Tensor; 2],
 }
