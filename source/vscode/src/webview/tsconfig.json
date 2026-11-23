@@ -6,7 +6,7 @@
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "lib": ["DOM", "ES2022"],
-    "rootDir": ".",
+    "rootDir": "..",
     "strict": true /* enable all strict type-checking options */,
     "jsx": "react-jsx",
     "jsxImportSource": "preact",

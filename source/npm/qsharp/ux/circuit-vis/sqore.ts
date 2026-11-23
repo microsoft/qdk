@@ -28,6 +28,11 @@ import { installEditor } from "./editor/installEditor.js";
 import { getOperationRegisters } from "./utils.js";
 import type { StateColumn } from "./state-viz/stateViz.js";
 import type { PrepareStateVizOptions } from "./state-viz/worker/stateVizPrep.js";
+import {
+  CircuitSvgExport,
+  type CircuitRendererSvgOptions,
+} from "./renderer/circuitSvgDocument.js";
+import { screenTarget, type RenderTarget } from "./renderer/renderTarget.js";
 
 /**
  * Contains render data for visualization.
@@ -107,6 +112,11 @@ export class Sqore {
    */
   private lastLocationMap: Map<Operation, string> | null = null;
   /**
+   * The circuit as last drawn in the view: a copy with each operation's location and expansion
+   * marked. The SVG export draws it again, so the file shows exactly what the view shows.
+   */
+  private renderedCircuit: Circuit | null = null;
+  /**
    * Initializes Sqore object.
    *
    * @param circuitGroup Group of circuits to be visualized.
@@ -147,6 +157,22 @@ export class Sqore {
       this.zoomToFit();
       window.addEventListener("resize", () => this.onResize());
     }
+  }
+
+  /**
+   * Draws the circuit as last rendered in the view, with the same layout and expanded groups, as a
+   * standalone SVG file. Changes neither the circuit nor the view.
+   */
+  exportSvg(options: CircuitRendererSvgOptions = {}): string {
+    if (this.renderedCircuit == null) {
+      throw new Error("The circuit must be rendered before exporting SVG.");
+    }
+    const target = new CircuitSvgExport();
+    const { width, height, elements } = this.compose(
+      this.renderedCircuit,
+      target,
+    );
+    return target.toSvg(width, height, elements, options);
   }
 
   /**
@@ -285,6 +311,7 @@ export class Sqore {
 
     // Create visualization components
     const composedSqore: ComposedSqore = this.compose(_circuit);
+    this.renderedCircuit = _circuit;
     const svg: SVGElement = this.generateSvg(composedSqore);
     this.setViewBox(svg);
     if (this.options.onZoomChange != null) {
@@ -444,10 +471,14 @@ export class Sqore {
    * Generates the components required for visualization.
    *
    * @param circuit Circuit to be visualized.
+   * @param target Where the circuit is drawn.
    *
    * @returns `ComposedSqore` object containing render data for visualization.
    */
-  private compose(circuit: Circuit): ComposedSqore {
+  private compose(
+    circuit: Circuit,
+    target: RenderTarget = screenTarget,
+  ): ComposedSqore {
     const add = (
       acc: GateRenderData[],
       gate: GateRenderData | GateRenderData[],
@@ -473,13 +504,19 @@ export class Sqore {
     const rowHeights = getRowHeights(qubits, componentGrid);
 
     const isEditable = this.options.editor != null;
+    // Links to the source belong only to the interactive viewer, not to the editor or an export.
+    const renderLocations =
+      target.interactive && !isEditable
+        ? this.options.renderLocations
+        : undefined;
 
     // Draw the qubit labels. Also calculate other register render data to be used later in the
     // rendering.
     const { qubitLabels, registers, svgHeight } = formatInputs(
       qubits,
       rowHeights,
-      isEditable ? undefined : this.options.renderLocations,
+      renderLocations,
+      target,
     );
 
     // Calculate the render data for the operations.
@@ -493,7 +530,7 @@ export class Sqore {
         topY,
         bottomY,
         registers,
-        isEditable ? undefined : this.options.renderLocations,
+        renderLocations,
       );
 
     // Assemble the LayoutMap from the layout pass.
@@ -511,7 +548,7 @@ export class Sqore {
     layoutMap.wireYs = qubits.map((q) => registers[q.id].y);
 
     // Draw the operations.
-    const formattedGates: SVGElement = formatGates(renderDataArray);
+    const formattedGates: SVGElement = formatGates(renderDataArray, target);
 
     // Draw the lines that represent qubit and classical wires.
     const formattedRegs: SVGElement = formatRegisters(

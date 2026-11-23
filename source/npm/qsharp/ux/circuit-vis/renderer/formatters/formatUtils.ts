@@ -99,6 +99,7 @@ export const circle = (
  * @param x      x coord of circle.
  * @param y      y coord of circle.
  * @param wireYs y coords of wire(s) connected to the control dot.
+ * @param interactive Whether to add the data attributes the editor reads.
  *
  * @returns SVG element for control dot.
  */
@@ -106,11 +107,14 @@ export const controlDot = (
   x: number,
   y: number,
   wireYs: number[],
+  interactive: boolean = true,
 ): SVGElement => {
   const radius = 5;
   const dot = circle(x, y, radius, "control-dot");
-  dot.setAttribute("data-wire-ys", JSON.stringify(wireYs));
-  dot.setAttribute("data-width", `${2 * radius}`);
+  if (interactive) {
+    dot.setAttribute("data-wire-ys", JSON.stringify(wireYs));
+    dot.setAttribute("data-width", `${2 * radius}`);
+  }
   return dot;
 };
 
