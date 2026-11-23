@@ -1,10 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! How each runtime's shot is timed: the machine alone
-//! ([`machine_shot`]'s loop, every outcome `Zero`), and `run_shot` on a
-//! simulator that does nothing ([`NoOpSimulator`]); and how the program
-//! the machine runs is timed as it is built.
+//! How each runtime's shot is timed: the machine alone (a loop like
+//! [`machine_shot`]'s, every outcome `Zero`, its calls not kept), and
+//! `run_shot` on a simulator that does nothing ([`NoOpSimulator`]); and
+//! how the program the machine runs is timed as it is built.
 
 use std::hint::black_box;
 

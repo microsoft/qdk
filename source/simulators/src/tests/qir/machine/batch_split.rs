@@ -771,11 +771,13 @@ fn a_restarted_context_holds_no_trap() {
         ret(),
     ]]);
     let traps = built(&traps);
-    let held = QirMachine::new(&traps).with_split(at_most(1));
+    let trapping = QirMachine::new(&traps).with_split(at_most(1));
     let (_, another) = programs().swap_remove(0);
     for (name, bytecode) in [("its program", None), ("another", Some(&another))] {
-        let mut context = held.start_shot();
-        let stop = held.resume(&mut context, &[]).expect("a context starts");
+        let mut context = trapping.start_shot();
+        let stop = trapping
+            .resume(&mut context, &[])
+            .expect("a context starts");
         assert!(matches!(stop, QirStop::Split([_])), "{stop:?}");
         let other = bytecode.map(built);
         let restarting = other.as_ref().unwrap_or(&traps);

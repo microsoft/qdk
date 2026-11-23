@@ -107,7 +107,7 @@ use walk::Stop;
 ///
 /// A context stops only where it uses an outcome it does not have, at the
 /// program's end, and, where its batches are split ([`SplitBatches`]),
-/// where a piece is full:
+/// where a piece is full or its walk traps:
 ///
 /// - a measurement does not stop it: the call joins the batch;
 /// - it stops before an instruction that reads or writes a result a call

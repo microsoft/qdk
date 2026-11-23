@@ -17,8 +17,8 @@
 //! `#[inline]` (those of this file, of the context, of `classical_ops.rs`,
 //! of the prepared calls and of a call), except the bytecode's opcode
 //! accessors, a bit mask each, which rustc inlines across crates on its
-//! own. Without it, a call of correlated noise took up to 1.8 times as long
-//! (the crate's `qir_machine` benchmark).
+//! own. Without it, those functions are called across crates, a slowdown
+//! the crate's `qir_machine` benchmark shows, largest on correlated noise.
 
 use super::super::program::prepared_quantum_calls::CallSource;
 #[cfg(doc)]
