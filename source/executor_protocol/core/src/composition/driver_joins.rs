@@ -16,12 +16,11 @@ use crate::{Driver, Executor, ExecutorReadings, RunRequirement, Runner, Translat
 ///
 /// Each join joins only a part below that accepts the instruction set type
 /// the driver sends ([`Driver::Sends`]), checked at compile time: between
-/// two set types, a [`TranslatingAdapter`]
-/// joins them. It
-/// checks that the set the driver sends fits the one the part below
-/// accepts, and binds the driver where it fits ([`Driver::bind`]); a
-/// boundary that does not fit is reported, with every other fault of the
-/// chain, by the `on` that makes the runner.
+/// two set types, a [`TranslatingAdapter`] joins them. It checks that the
+/// set the driver sends fits the one the part below accepts, and binds the
+/// driver where it fits ([`Driver::bind`]); a boundary that does not fit
+/// is reported, with every other fault of the chain, by the `on` that
+/// makes the runner.
 pub trait DriverJoins: Driver + Sized {
     /// This driver calling `adapter`, as one driver: it sends what
     /// `adapter` sends, and requires what `adapter` requires given what

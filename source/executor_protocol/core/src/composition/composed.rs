@@ -162,9 +162,8 @@ impl<U, L, S: InstructionSet> Composed<U, L, S> {
         Ok((lower, &boundary.required, below, boundary.part.as_ref()))
     }
 
-    /// Ends a run's `ready` with `upper`, the answer of the upper half,
-    /// the last asked once the lower half answered `Ok`: marks this part
-    /// ready if it is `Ok`.
+    /// Ends a run's `ready` with `upper`, the answer of the upper half, the
+    /// last one asked: marks this part ready if it is `Ok`, and returns it.
     fn finish_run(&mut self, upper: Result<(), NotReady>) -> Result<(), NotReady> {
         self.readied = upper.is_ok();
         upper
