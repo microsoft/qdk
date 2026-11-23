@@ -36,8 +36,9 @@ use crate::prelude::*;
 use crate::tests::example_sets::{BitReadout, CliffordT, Measuring, ToffoliGate};
 use crate::tests::fake_parts::{
     BitFlip, Bits, CczDecomposition, CliffordTPassThrough, CliffordTRegister, CoinCopy, FromThread,
-    GateForGate, Later, Log, NamesBelow, Profiler, Program, Renamed, Splitter, Spread, Stating,
-    ToffoliProgram, Trap, Values, Zeros, batches_of, coin_gate, in_each_bracketing,
+    GateForGate, Later, Log, NamesBelow, Profiler, Program, ReadiesLater, Renamed, Splitter,
+    Spread, Stating, ToffoliProgram, Trap, Values, Zeros, batches_of, capabilities, coin_gate,
+    in_each_bracketing,
 };
 use crate::tests::runner;
 use crate::{
@@ -581,13 +582,18 @@ fn a_joined_part_is_named_for_its_top_part() {
 
 /// A joined part of each role, used by a user's code and called before a
 /// run got it ready: before any `ready`, after one that a half refused, or
-/// after one that succeeded and a later one refused. Once polled, its
-/// `execute`, `drive` or `adapt` panics before either half is called, so
-/// that its upper half does no work, saying that each run gets a part
-/// ready before calling it; whether its halves fit or not, and whether its
-/// upper half would send anything below or answer by itself, as a trap
-/// does.
+/// after one that succeeded and a later one that its upper half, its lower
+/// half or the boundary between them refused, or that was dropped before
+/// it answered. Once polled, its `execute`, `drive` or `adapt` panics
+/// before either half is called, so that neither half does any work,
+/// saying that each run gets a part ready before calling it; whether its
+/// halves fit or not, and whether its upper half would send anything below
+/// or answer by itself, as a trap does.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "a row per way a part is called unready"
+)]
 fn a_joined_part_called_before_a_run_got_it_ready_panics() {
     let log = Log::default();
     let counted = Rc::new(Cell::new(0));
@@ -597,7 +603,8 @@ fn a_joined_part_called_before_a_run_got_it_ready_panics() {
     let shots = ShotSet::ids(0..1);
     let instructions = [coin_gate("h", 0)];
     let batches = [Batch::new(&shots, &instructions, 0)];
-    let rows: [(&str, Call<'_>); 8] = [
+    let batches_up_to = |n| capabilities(batches_of(n), Features::nothing_stated());
+    let rows: [(&str, Call<'_>); 11] = [
         (
             "a profiler on an executor, before any ready",
             Box::new(|| executed_after(profiler().on(fit()), &[], &batches)),
@@ -629,9 +636,38 @@ fn a_joined_part_called_before_a_run_got_it_ready_panics() {
             }),
         ),
         (
+            "fit halves, readied, then refused by its lower half",
+            Box::new(|| {
+                let lower = profiler().busy_once_ready("taken").on(fit());
+                executed_after(profiler().on(lower), &[READY, REFUSED], &batches);
+            }),
+        ),
+        (
+            "fit halves, readied, then refused at their boundary",
+            Box::new(|| {
+                let lower =
+                    Zeros::providing(Measuring::new(&["h", "x", "mz"]), Some(batches_up_to(2)));
+                let mut joined = profiler().on(lower);
+                assert_eq!(answer(joined.ready_given(&batches_up_to(1))), READY);
+                assert_eq!(answer(joined.ready_given(&batches_up_to(4))), REFUSED);
+                executed_after(joined, &[], &batches);
+            }),
+        ),
+        (
+            "fit halves, readied, then a ready dropped while its lower half gets ready",
+            Box::new(|| {
+                let mut joined = profiler().on(ReadiesLater(fit()));
+                assert_eq!(answer(Executor::ready(&mut joined)), READY);
+                let dropped = polled_once(Executor::ready(&mut joined));
+                assert!(dropped.is_pending(), "the lower half answers later");
+                executed_after(joined, &[], &batches);
+            }),
+        ),
+        (
             "a driver through a profiler, after a ready its driver refused",
             Box::new(|| {
-                let mut joined = CoinCopy::new().busy("calibrating").through(profiler());
+                let coin_copy = CoinCopy::new().logging(&log).busy("calibrating");
+                let mut joined = coin_copy.through(profiler());
                 assert_eq!(answer(Driver::ready(&mut joined)), REFUSED, "the driver");
                 let _ = polled_once(joined.drive(&shots, Seed::new(SEED), &mut fit()));
             }),
@@ -656,23 +692,30 @@ fn a_joined_part_called_before_a_run_got_it_ready_panics() {
             message.contains("ready"),
             "{row}: {message:?} says a run gets a part ready before calling it"
         );
-        assert_eq!(counted.get(), 0, "{row}: the upper half did no work");
+        let driven = log.entries_containing("CoinCopy drive");
+        assert!(
+            counted.get() == 0 && driven.is_empty(),
+            "{row}: neither half worked"
+        );
     }
 }
 
 /// A row's call of a part, expected to panic.
 type Call<'a> = Box<dyn FnOnce() + 'a>;
 
-/// A `ready` that answered `Ok`, at its first poll.
+/// A `ready` that answered `Ok`.
 const READY: bool = true;
-/// A `ready` that refused, at its first poll.
+/// A `ready` that refused.
 const REFUSED: bool = false;
 
-/// Whether `ready` answered `Ok` at its first poll.
+/// Whether `ready` answered `Ok`, polled until it answers: the parts of
+/// these tests that answer later wake it at once.
 fn answer(ready: impl Future<Output = Result<(), NotReady>>) -> bool {
-    match polled_once(ready) {
-        Poll::Ready(answer) => answer.is_ok(),
-        Poll::Pending => panic!("ready answers at its first poll"),
+    let mut ready = pin!(ready);
+    loop {
+        if let Poll::Ready(answer) = polled_once(ready.as_mut()) {
+            return answer.is_ok();
+        }
     }
 }
 

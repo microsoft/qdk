@@ -271,6 +271,37 @@ impl<E: Executor> Executor for Later<E> {
     }
 }
 
+/// An executor whose `ready` answers on a later poll: pending once, woken
+/// at once, as a device's that calibrates before each run. It states no
+/// limit.
+pub(crate) struct ReadiesLater<E>(pub(crate) E);
+
+impl<E: Executor> Executor for ReadiesLater<E> {
+    type Accepts = E::Accepts;
+
+    fn accepts(&self) -> &E::Accepts {
+        self.0.accepts()
+    }
+
+    async fn ready(&mut self) -> Result<(), NotReady> {
+        YieldNow::default().await;
+        self.0.ready().await
+    }
+
+    async fn execute(
+        &mut self,
+        batches: &[Batch<'_, E::Accepts>],
+        seed: Seed,
+        readouts: &mut [BatchReadouts<E::Accepts>],
+    ) -> Result<(), ExecuteError> {
+        self.0.execute(batches, seed, readouts).await
+    }
+
+    fn end_shots(&mut self, shots: &ShotSet) {
+        self.0.end_shots(shots);
+    }
+}
+
 /// An executor running as the one it holds, but keeping the default
 /// `provides`: it states nothing.
 pub(crate) struct StatesNoLimits<E>(pub(crate) E);

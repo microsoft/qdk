@@ -9,8 +9,9 @@
 //!   one batch for every shot, or one for each half of them, in
 //!   [`coin_gates`], requiring the run's shots, and seeded runs if its
 //!   seed is fixed; [`PassesTheRun`], which keeps the default `requires`.
-//! - Executors: [`Bits`]; executors that answer later ([`Later`]) or
-//!   from a thread ([`FromThread`]); [`StatesNoLimits`], which keeps
+//! - Executors: [`Bits`]; executors that answer later ([`Later`]), get
+//!   ready later ([`ReadiesLater`]) or answer from a thread
+//!   ([`FromThread`]); [`StatesNoLimits`], which keeps
 //!   the default `provides`; and [`Zeros`], of any set, which reads `Zero`
 //!   everywhere.
 //! - Adapters: [`BitFlip`], which draws; [`Profiler`], which draws nothing;

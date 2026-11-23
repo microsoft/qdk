@@ -19,7 +19,8 @@ pub(crate) struct CoinCopy {
     sequences: [Vec<Gate>; 3],
     /// Each sequence's readout slots.
     slots: [u32; 3],
-    /// Where it logs that it gets ready, and for what, if anywhere.
+    /// Where it logs that it gets ready, and for what, and that it
+    /// drives, if anywhere.
     log: Option<Log>,
     /// Why it refuses every run in `ready`, if it does.
     busy: Option<&'static str>,
@@ -52,7 +53,8 @@ impl CoinCopy {
 
 impl StatesLimits<CoinCopy> {
     /// This driver, logging to `log` when it gets ready, as
-    /// [`CoinCopy::ready_for`] the run it gets.
+    /// [`CoinCopy::ready_for`] the run it gets, and when it drives, as
+    /// `CoinCopy drive`.
     pub(crate) fn logging(mut self, log: &Log) -> Self {
         self.part.log = Some(log.clone());
         self
@@ -104,6 +106,9 @@ impl Driver for CoinCopy {
         seed: Seed,
         below: &mut impl Executor<Accepts = Measuring>,
     ) -> Result<Vec<Values>, DriveError> {
+        if let Some(log) = &self.log {
+            log.push("CoinCopy drive");
+        }
         let mut tossed = Readouts::new();
         let toss = [Batch::new(shots, &self.sequences[0], self.slots[0])];
         let tossed = tossed.readouts_for(&toss);
