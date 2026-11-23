@@ -40,7 +40,7 @@ To easily install all the above extras:
 pip install "qdk[all]"
 ```
 
-For the GPU engine of `qdk.simulation.tensornetwork_qir`, NVIDIA's cuTensorNet and CUDA Runtime (Linux x86-64 with an NVIDIA GPU only, so not in `all`):
+For the GPU engine of `qdk.simulation.tensornetwork_qir`, NVIDIA's cuTensorNet, CUDA Runtime, cuBLAS and cuSOLVER (Linux x86-64 with an NVIDIA GPU only, so not in `all`):
 
 ```bash
 pip install "qdk[tensornetwork]"

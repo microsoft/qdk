@@ -470,6 +470,11 @@ _MEASURE_AND_RECORD = """
             id="readout noise",
         ),
         pytest.param(
+            "call void @bit_flip_noise(%Qubit* inttoptr (i64 0 to %Qubit*))",
+            "bit_flip_noise",
+            id="a noise intrinsic",
+        ),
+        pytest.param(
             "call void @__quantum__qis__peek_loss__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))",
             "peek_loss",
             id="a loss check",
@@ -485,33 +490,14 @@ def test_a_call_the_method_cannot_run_raises_value_error(engine, call, message):
     """A call the MPS simulation method does not run, named by its message:
     a `cx` on one qubit twice, which no two-qubit matrix applies (refused
     before the run where the qubit is a constant, during it where the qubit
-    is computed); readout noise; a loss check. And a rotation by an angle
-    that is not finite, whose matrix the engine refuses: its message gives
-    the refusal, not the call, which the engine's refusal does not carry."""
+    is computed); readout noise; a noise intrinsic (a function with the
+    ``qdk_noise`` attribute), whose noise the method does not run yet; a
+    loss check. And a rotation by an angle that is not finite, whose matrix
+    the engine refuses: its message gives the refusal, not the call, which
+    the engine's refusal does not carry."""
     qir = adaptive_qir(f"  {call}{_MEASURE_AND_RECORD}", qubits=1, results=1)
     with pytest.raises(ValueError, match=message):
         run(qir, [Sample(1)], engine=engine)
-
-
-@pytest.mark.parametrize("flipped", [False, True])
-def test_a_noise_intrinsic_runs_as_identity(engine, flipped):
-    """A bit-flip noise intrinsic (a function with the ``qdk_noise``
-    attribute) after a qubit is set: no noise model is given, so every shot
-    reads the value set, 1 after an `x`, 0 without."""
-    set_qubit = (
-        "  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))\n"
-        if flipped
-        else ""
-    )
-    qir = adaptive_qir(
-        set_qubit
-        + "  call void @bit_flip_noise(%Qubit* inttoptr (i64 0 to %Qubit*))"
-        + _MEASURE_AND_RECORD,
-        qubits=1,
-        results=1,
-    )
-    (rows,) = run(qir, [Sample(8)], engine=engine)
-    assert {bits(row) for row in rows} == {"1" if flipped else "0"}
 
 
 def test_a_max_bond_dimension_too_large_for_the_qubits_raises_value_error(engine):
