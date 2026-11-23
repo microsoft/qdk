@@ -335,7 +335,7 @@ fn index_of<'a>(
         .iter()
         .position(|(known, _)| known == block_type)
     {
-        return u32::try_from(index).expect("a set has fewer than 2^32 block types");
+        return u32::try_from(index).expect("an operand's block type's index a `u32` holds");
     }
     if !unknown.contains(&block_type) {
         unknown.push(block_type);

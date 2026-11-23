@@ -263,7 +263,7 @@ impl Meaning {
     fn guarded(mut self, odd: bool, guards: impl IntoIterator<Item = Guard>) -> Self {
         let mut given: Vec<Guard> = guards.into_iter().collect();
         given.sort_unstable();
-        let guard = Condition::new(odd, given.iter().copied());
+        let guard = Condition::of_sorted(odd, &given);
         let Some(steps) = self.steps.as_mut().filter(|steps| !steps.is_empty()) else {
             self.slips.push(MeaningFault::GuardWithoutStep);
             return self;
@@ -439,12 +439,11 @@ struct Condition {
 }
 
 impl Condition {
-    /// `None` for `unless` with no term left: the step always runs.
-    fn new(odd: bool, guards: impl IntoIterator<Item = Guard>) -> Option<Self> {
-        let mut sorted: Vec<Guard> = guards.into_iter().collect();
-        sorted.sort_unstable();
+    /// The condition of `sorted`, guards in order; `None` for `unless`
+    /// with no term left: the step always runs.
+    fn of_sorted(odd: bool, sorted: &[Guard]) -> Option<Self> {
         let mut terms: Vec<Guard> = Vec::with_capacity(sorted.len());
-        for guard in sorted {
+        for &guard in sorted {
             if terms.last() == Some(&guard) {
                 terms.pop();
             } else {

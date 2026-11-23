@@ -125,8 +125,9 @@ impl BlockInstructionSet {
     ///
     /// # Panics
     ///
-    /// With 2^32 instructions or block types or more, which opcodes and
-    /// block-type indices, `u32`s, cannot number.
+    /// When an index a `u32` cannot hold is needed: an instruction's, as
+    /// its opcode, past the 2^32-th instruction; or a block type's, past
+    /// the 2^32-th block type, where an instruction's operand names it.
     pub fn new(
         name: impl Into<String>,
         block_types: impl IntoIterator<Item = (BlockType, u32)>,
@@ -149,7 +150,7 @@ impl BlockInstructionSet {
         let mut checks = Vec::with_capacity(instructions.len());
         for (index, def) in instructions.iter().enumerate() {
             let opcode =
-                Opcode::at(u32::try_from(index).expect("a set has fewer than 2^32 instructions"));
+                Opcode::at(u32::try_from(index).expect("an instruction's index a `u32` holds"));
             if opcodes.insert(def.mnemonic.clone(), opcode).is_some() {
                 faults.push(DeclarationFault::RepeatedMnemonic {
                     mnemonic: def.mnemonic.clone(),
