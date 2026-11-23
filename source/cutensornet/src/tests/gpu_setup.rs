@@ -65,15 +65,20 @@ fn an_unsupported_platform_is_advised_where_the_engine_runs() {
 /// test but the one above, which holds on every platform.
 #[cfg(unix)]
 mod on_unix {
-    use std::{error::Error, ffi::OsString, path::PathBuf, sync::Arc};
+    use std::{borrow::Cow, error::Error, ffi::OsString, path::PathBuf, sync::Arc};
 
-    use canonical_mps::CanonicalMpsError;
+    use canonical_mps::{
+        CanonicalMpsEngine, CanonicalMpsError,
+        site_algebra::{GateSplitCall, GateSplitOutcome, QrMoveCall, QrMoveOutcome, SiteAlgebra},
+    };
+    use num_complex::Complex64;
 
     use super::{advice, checked};
     use crate::{
         AvailabilityError, AvailabilityReport, CudaAlgebra, CudaAlgebraError, CudaMpsEngine,
-        GpuSetup, LibraryFault, LibraryReport, LibrarySource, PackagedLibraries, Version,
-        engine::native_calls::{NativeCalls, fake_libraries::FakeLibraries},
+        DeviceTensor, GpuSetup, LibraryFault, LibraryReport, LibrarySource, PackagedLibraries,
+        Version,
+        engine::native_calls::fake_libraries::FakeLibraries,
         gpu_setup::{
             LoadedSetup,
             device_report::{DeviceReport, EngineDevice},
@@ -787,15 +792,96 @@ mod on_unix {
     /// own run for wrong would refuse every sound host.
     #[test]
     fn a_trial_run_on_an_engine_that_computes_right_is_ready() {
-        let libraries: Arc<dyn NativeCalls> = Arc::new(FakeLibraries::new());
-        let algebra = CudaAlgebra::with_native_calls(libraries)
-            .unwrap_or_else(|error| panic!("the fake libraries open an algebra: {error}"));
-        let engine = CudaMpsEngine::new(algebra);
+        let engine = CudaMpsEngine::new(fake_algebra());
         let setup = setup(with_trial_run(
             loaded(audited_report(), Some(a100())),
             run_trial(&engine),
         ));
         assert!(setup.is_ready(), "{setup}");
+    }
+
+    /// Libraries whose tensor computation is broken may still upload and
+    /// read sites right: the trial run makes them compute an entangling
+    /// gate, so a gate split that fails, or that ignores its gate, leaves
+    /// the setup unready, advised by the trial run. Each row is the trial
+    /// run on such libraries.
+    #[test]
+    fn a_trial_run_on_libraries_whose_gate_split_is_faulty_is_not_ready() {
+        let failing = Arc::new(FakeLibraries::new());
+        failing.fail("gate_split", 1);
+        let gateless = GateSplitIgnoringItsGate(fake_algebra());
+        for trial_run in [
+            run_trial(&CudaMpsEngine::new(fake_algebra_on(failing))),
+            run_trial(&CanonicalMpsEngine::new(gateless)),
+        ] {
+            let setup = setup(with_trial_run(
+                loaded(audited_report(), Some(a100())),
+                trial_run,
+            ));
+            assert!(!setup.is_ready(), "{setup}");
+            let advice = advice(&setup);
+            assert!(advice.contains("trial run"), "{advice}");
+        }
+    }
+
+    /// An algebra on `libraries`.
+    fn fake_algebra_on(libraries: Arc<FakeLibraries>) -> CudaAlgebra {
+        CudaAlgebra::with_native_calls(libraries)
+            .unwrap_or_else(|error| panic!("the fake libraries open an algebra: {error}"))
+    }
+
+    /// An algebra on fresh fake libraries.
+    fn fake_algebra() -> CudaAlgebra {
+        fake_algebra_on(Arc::new(FakeLibraries::new()))
+    }
+
+    /// An algebra whose gate split applies the identity whatever its gate,
+    /// as libraries whose split dropped the gate would: every other call
+    /// is the inner algebra's.
+    struct GateSplitIgnoringItsGate(CudaAlgebra);
+
+    impl SiteAlgebra for GateSplitIgnoringItsGate {
+        type Tensor = DeviceTensor;
+        type Error = CudaAlgebraError;
+
+        fn upload(&self, values: &[Complex64]) -> Result<DeviceTensor, CudaAlgebraError> {
+            self.0.upload(values)
+        }
+
+        fn read<'t>(
+            &self,
+            tensor: &'t DeviceTensor,
+            len: usize,
+        ) -> Result<Cow<'t, [Complex64]>, CudaAlgebraError> {
+            self.0.read(tensor, len)
+        }
+
+        fn duplicate(
+            &self,
+            tensor: &DeviceTensor,
+            len: usize,
+        ) -> Result<DeviceTensor, CudaAlgebraError> {
+            self.0.duplicate(tensor, len)
+        }
+
+        fn gate_split(
+            &self,
+            call: &GateSplitCall<'_, DeviceTensor>,
+        ) -> Result<GateSplitOutcome<DeviceTensor>, CudaAlgebraError> {
+            let (zero, one) = (Complex64::new(0.0, 0.0), Complex64::new(1.0, 0.0));
+            let identity = std::array::from_fn(|i| if i % 5 == 0 { one } else { zero });
+            self.0.gate_split(&GateSplitCall {
+                gate: identity,
+                ..*call
+            })
+        }
+
+        fn qr_move(
+            &self,
+            call: &QrMoveCall<'_, DeviceTensor>,
+        ) -> Result<QrMoveOutcome<DeviceTensor>, CudaAlgebraError> {
+            self.0.qr_move(call)
+        }
     }
 
     /// A failed discovery reports what it found of each library, the usable

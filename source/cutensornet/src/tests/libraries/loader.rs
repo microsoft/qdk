@@ -30,20 +30,33 @@ fn absent_bare_name() -> PathBuf {
     ))
 }
 
-/// A file that the system loader refuses (here, not a shared object; on a
-/// real host, also a library whose own dependencies are missing) is
-/// reported with its path and the loader's message.
+/// A candidate the system loader refuses is reported with its path and the
+/// loader's message, and no later candidate is tried: a file that is not a
+/// shared object (on a real host, also a library whose own dependencies are
+/// missing), and a directory, which is something other than no file.
 #[test]
 fn a_library_the_system_loader_refuses_is_a_load_failure() {
-    let (path, _remove) = not_a_shared_object("invalid-library");
-    let fault = load_library(vec![path.clone()])
-        .err()
-        .expect("the file is not a shared object");
-    assert!(matches!(
-        fault,
-        LibraryFault::LoadFailed { path: found, message }
-            if found == path && !message.is_empty()
-    ));
+    let (file, _remove) = not_a_shared_object("invalid-library");
+    let directory = unique_temp_path("directory-library");
+    std::fs::create_dir(&directory).expect("the temporary directory is writable");
+    let (later, _remove_later) = not_a_shared_object("after-refused");
+    let faults = [&file, &directory].map(|refused| {
+        (
+            refused,
+            load_library(vec![refused.clone(), later.clone()]).err(),
+        )
+    });
+    std::fs::remove_dir(&directory).expect("the test created the directory");
+    for (refused, fault) in faults {
+        assert!(
+            matches!(
+                &fault,
+                Some(LibraryFault::LoadFailed { path, message })
+                    if path == refused && !message.is_empty()
+            ),
+            "{refused:?}: {fault:?}"
+        );
+    }
 }
 
 /// A default path where there is no file on this host is skipped for the

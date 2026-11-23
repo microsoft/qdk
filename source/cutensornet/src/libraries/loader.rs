@@ -4,8 +4,8 @@
 //! Opening a native library file.
 //!
 //! [`load_library`] opens a library from the first of its candidate paths
-//! (absolute paths, or bare file names the system loader searches for) that
-//! names a file of it, and tells a library not found from one at a path the
+//! (absolute paths, or bare file names the system loader searches for) where
+//! something exists, and tells a library not found from one at a path the
 //! process cannot access and from one the system loader refused
 //! ([`LibraryFault`]'s `NotFound`, `InaccessiblePath` and `LoadFailed`).
 
@@ -38,15 +38,17 @@ impl SymbolResolver for OpenLibraryFile {
     }
 }
 
-/// Opens the first of `paths`, a library's candidates in order, where a
-/// file may be.
+/// Opens the first of `paths`, a library's candidates in order, where
+/// something exists.
 ///
-/// An absolute path where there is no file is skipped, including one that
-/// passes through a regular file as if it were a directory. One the process
-/// cannot access (a directory on it the process may not search) is the
-/// library's [`LibraryFault::InaccessiblePath`], as a file may be there. A
-/// bare file name is searched for by the system loader, and skipped when the
-/// loader reports no file of that name ([`no_file_of_that_name`]). Any other
+/// An absolute path where nothing exists is skipped, including one that
+/// passes through a regular file as if it were a directory. Anything else
+/// there, a directory for instance, is opened, and the loader's refusal is
+/// the library's [`LibraryFault::LoadFailed`]. One the process cannot
+/// access (a directory on it the process may not search) is the library's
+/// [`LibraryFault::InaccessiblePath`], as a file may be there. A bare file
+/// name is searched for by the system loader, and skipped when the loader
+/// reports no file of that name ([`no_file_of_that_name`]). Any other
 /// failure is the library's.
 pub(crate) fn load_library(paths: Vec<PathBuf>) -> Result<OpenLibraryFile, LibraryFault> {
     for path in &paths {

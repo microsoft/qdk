@@ -30,9 +30,11 @@
 //!    there is none, or when its compute capability is below a library's
 //!    floor;
 //! 4. the trial run: a [`CudaMpsEngine`](crate::CudaMpsEngine) on that
-//!    device prepares one qubit, applies a Hadamard and reads the
-//!    probability of One, which must be 1/2: the smallest run that touches
-//!    the device and checks what it computes.
+//!    device prepares two qubits, entangles them and reads the second's
+//!    probability of One, which must be 1/2 within
+//!    [`TRIAL_RUN_TOLERANCE`]: the smallest run that makes cuTensorNet
+//!    compute on the device (the entangling gate's split) and checks what
+//!    it computes.
 //!
 //! What the check shows and advises of a library, the driver and the
 //! compute capability it needs included, the library declares in its
@@ -295,13 +297,14 @@ fn device_report(_availability: &crate::Availability) -> Result<DeviceReport, Cu
     unreachable!("discovery fails off Linux x86-64")
 }
 
-/// The probability of One the trial run must read: a Hadamard on |0⟩
-/// gives exactly 1/2.
+/// The probability of One the trial run must read: the Bell state it
+/// prepares gives exactly 1/2 on either qubit.
 const TRIAL_RUN_PROBABILITY: f64 = 0.5;
 
 /// How far the trial run's probability may be from
-/// [`TRIAL_RUN_PROBABILITY`]: the rounding error of a one-qubit state is
-/// near 1e-16, so a value further off is a wrong result, not rounding.
+/// [`TRIAL_RUN_PROBABILITY`]: the rounding error of a two-qubit state
+/// after one gate split is near 1e-15, so a value further off is a wrong
+/// result, not rounding.
 const TRIAL_RUN_TOLERANCE: f64 = 1e-6;
 
 /// Whether `probability`, read by the trial run, is
@@ -328,19 +331,35 @@ fn trial_run(
     unreachable!("discovery fails off Linux x86-64")
 }
 
-/// The trial run on `engine`: prepares one qubit, applies a Hadamard and
-/// returns the probability of One it reads, [`TRIAL_RUN_PROBABILITY`] when
-/// the engine computes right.
+/// The trial run on `engine`: prepares two qubits, applies a Hadamard to
+/// the first and a CNOT from it to the second, and returns the second's
+/// probability of One, [`TRIAL_RUN_PROBABILITY`] when the engine computes
+/// right.
+///
+/// The CNOT is there for the GPU: the engine applies a one-qubit gate and
+/// reads a probability on the host, so a one-qubit run would only copy
+/// sites to and from the device; an entangling gate it applies by the
+/// algebra's gate split, cuTensorNet's computation that every entangling
+/// gate of a run needs. The bond of 2 keeps the whole Bell state.
 #[cfg(any(test, all(target_os = "linux", target_arch = "x86_64")))]
 pub(crate) fn run_trial<E: tensornet::MpsEngine>(engine: &E) -> Result<f64, E::Error> {
     use num_complex::Complex64;
 
-    let capacity = tensornet::MpsShape::qubit_chain(1, 1).expect("one qubit is a chain");
+    let capacity = tensornet::MpsShape::qubit_chain(2, 2).expect("two qubits are a chain");
     let mut state = engine.prepare(&capacity)?;
-    let h = std::f64::consts::FRAC_1_SQRT_2;
-    let hadamard = [h, h, h, -h].map(|x| Complex64::new(x, 0.0));
+    let (zero, one) = (Complex64::new(0.0, 0.0), Complex64::new(1.0, 0.0));
+    let h = Complex64::new(std::f64::consts::FRAC_1_SQRT_2, 0.0);
+    let hadamard = [h, h, h, -h];
+    #[rustfmt::skip]
+    let cnot = [
+        one, zero, zero, zero,
+        zero, one, zero, zero,
+        zero, zero, zero, one,
+        zero, zero, one, zero,
+    ];
     engine.apply(&mut state, &[0], &hadamard)?;
-    engine.probability_of_one(&state, 0)
+    engine.apply(&mut state, &[0, 1], &cnot)?;
+    engine.probability_of_one(&state, 1)
 }
 
 /// `error`, then each error it was caused by, separated by `: `, so a
