@@ -517,3 +517,141 @@ fn index_into_mutable_dyn_array_ref() {
         "#]],
     );
 }
+
+#[test]
+fn index_into_int_with_durationof_index_errors() {
+    let source = "
+        int[4] a;
+        a[durationof({})];
+    ";
+
+    check_stmt_kinds(
+        source,
+        &expect![[r#"
+        Program:
+            version: <none>
+            pragmas: <empty>
+            statements:
+                Stmt [9-18]:
+                    annotations: <empty>
+                    kind: ClassicalDeclarationStmt [9-18]:
+                        symbol_id: 8
+                        ty_span: [9-15]
+                        ty_exprs:
+                            Expr [13-14]:
+                                ty: const uint
+                                const_value: Int(4)
+                                kind: Lit: Int(4)
+                        init_expr: Expr [9-18]:
+                            ty: const int[4]
+                            kind: Lit: Int(0)
+                Stmt [27-45]:
+                    annotations: <empty>
+                    kind: Err
+
+        [Qdk.Qasm.Lowerer.IndexMustBeInt
+
+          x index must be an int
+           ,-[test:3:11]
+         2 |         int[4] a;
+         3 |         a[durationof({})];
+           :           ^^^^^^^^^^^^^^
+         4 |     
+           `----
+        ]"#]],
+    );
+}
+
+#[test]
+fn index_into_int_with_failed_const_index_errors() {
+    let source = "
+        int[4] a;
+        a[1/0];
+    ";
+
+    check_stmt_kinds(
+        source,
+        &expect![[r#"
+        Program:
+            version: <none>
+            pragmas: <empty>
+            statements:
+                Stmt [9-18]:
+                    annotations: <empty>
+                    kind: ClassicalDeclarationStmt [9-18]:
+                        symbol_id: 8
+                        ty_span: [9-15]
+                        ty_exprs:
+                            Expr [13-14]:
+                                ty: const uint
+                                const_value: Int(4)
+                                kind: Lit: Int(4)
+                        init_expr: Expr [9-18]:
+                            ty: const int[4]
+                            kind: Lit: Int(0)
+                Stmt [27-34]:
+                    annotations: <empty>
+                    kind: Err
+
+        [Qdk.Qasm.Lowerer.DivisionByZero
+
+          x division by zero error during const evaluation
+           ,-[test:3:11]
+         2 |         int[4] a;
+         3 |         a[1/0];
+           :           ^^^
+         4 |     
+           `----
+        ]"#]],
+    );
+}
+
+#[test]
+fn assign_into_int_with_float_index_errors() {
+    let source = "
+        int[4] a;
+        a[1.5] = 1;
+    ";
+
+    check_stmt_kinds(
+        source,
+        &expect![[r#"
+        Program:
+            version: <none>
+            pragmas: <empty>
+            statements:
+                Stmt [9-18]:
+                    annotations: <empty>
+                    kind: ClassicalDeclarationStmt [9-18]:
+                        symbol_id: 8
+                        ty_span: [9-15]
+                        ty_exprs:
+                            Expr [13-14]:
+                                ty: const uint
+                                const_value: Int(4)
+                                kind: Lit: Int(4)
+                        init_expr: Expr [9-18]:
+                            ty: const int[4]
+                            kind: Lit: Int(0)
+                Stmt [27-38]:
+                    annotations: <empty>
+                    kind: AssignStmt [27-38]:
+                        lhs: Expr [27-28]:
+                            ty: unknown
+                            kind: Err
+                        rhs: Expr [27-38]:
+                            ty: unknown
+                            kind: Err
+
+        [Qdk.Qasm.Lowerer.IndexMustBeInt
+
+          x index must be an int
+           ,-[test:3:11]
+         2 |         int[4] a;
+         3 |         a[1.5] = 1;
+           :           ^^^
+         4 |     
+           `----
+        ]"#]],
+    );
+}
