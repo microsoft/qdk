@@ -3,8 +3,9 @@
 
 //! The kit's inputs: seeded pairs of sites, with graded singular values or
 //! with values known by construction, and seeded gates, so that a failure
-//! repeats. A failure names its pair's seed; a scene's random gate is drawn
-//! from that seed plus 5, so the seed repeats the whole scene.
+//! repeats. Every input's seed derives from the kit's seed ([`derived`]). A
+//! failure names its pair's seed; a scene's random gate is drawn from that
+//! seed plus 5, so the seed repeats the whole scene.
 
 use crate::dense_linalg::{Matrix, Qr};
 use num_complex::Complex64;
@@ -46,6 +47,14 @@ pub(super) const CUTOFFS: [f64; 3] = [0.0, 0.05, 1.0 - f64::EPSILON / 2.0];
 /// cutoff drops a tail.
 const GRADE: f64 = 0.5;
 
+/// The seed of a case's input `offset` under the kit's seed `kit_seed`:
+/// `1000·kit_seed + offset`, so that a failure's seed reads as the kit's
+/// seed and the input (seed 7305 is input 305 of kit seed 7), and kit
+/// seed 0 draws the inputs of a fixed kit. Every offset is below 1000.
+pub(super) fn derived(kit_seed: u64, offset: u64) -> u64 {
+    kit_seed.wrapping_mul(1000).wrapping_add(offset)
+}
+
 /// Two neighbouring sites `A[a, p, j]` and `B[j, q, b]`, of extents
 /// `[l, 2, m]` and `[m, 2, r]`, in the contract's layout.
 pub(super) struct Pair {
@@ -75,7 +84,7 @@ impl Pair {
             }
             scale *= GRADE;
         }
-        let right = random(m, 2 * r, seed + 1).into_elements();
+        let right = random(m, 2 * r, seed.wrapping_add(1)).into_elements();
         Self {
             left,
             right,
@@ -93,7 +102,7 @@ impl Pair {
     pub(super) fn with_values(values: &[f64], l: usize, r: usize, seed: u64) -> Self {
         let m = values.len();
         let u = unitary(2 * l, seed);
-        let v_adjoint = unitary(2 * r, seed + 1).view().adjoint();
+        let v_adjoint = unitary(2 * r, seed.wrapping_add(1)).view().adjoint();
         let left = (0..m)
             .flat_map(|j| {
                 u.elements()[2 * l * j..2 * l * (j + 1)]
@@ -146,8 +155,8 @@ pub(super) fn one_site_gate(seed: u64) -> [Complex64; 4] {
         .expect("a 2 × 2 matrix has 4 entries")
 }
 
-/// The two-site identity gate.
-pub(super) fn identity_gate() -> [Complex64; 16] {
+/// The two-site identity gate, row-major.
+pub(crate) fn identity_gate() -> [Complex64; 16] {
     std::array::from_fn(|i| Complex64::new(if i % 5 == 0 { 1.0 } else { 0.0 }, 0.0))
 }
 
@@ -164,7 +173,7 @@ fn unitary(n: usize, seed: u64) -> Matrix {
 
 /// A `rows × cols` matrix of entries in `[-0.5, 0.5)`, real and imaginary
 /// parts alike, from a linear congruential generator seeded by `seed`.
-fn random(rows: usize, cols: usize, seed: u64) -> Matrix {
+pub(crate) fn random(rows: usize, cols: usize, seed: u64) -> Matrix {
     let mut state = seed;
     let mut next = move || {
         state = state

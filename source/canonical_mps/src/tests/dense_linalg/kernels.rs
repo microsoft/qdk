@@ -78,7 +78,7 @@ fn pivoted_qr_cases() -> Vec<(String, Matrix)> {
 /// columns, `forward` is a permutation, and column `j` of `Q·R` is column
 /// `forward[j]` of `A`, to rounding of `A`'s largest entry.
 #[test]
-fn decomposes_by_column_pivoted_qr() {
+fn a_pivoted_qr_gives_back_the_permuted_matrix_with_orthonormal_q() {
     let mut cases = pivoted_qr_cases();
     let a = matrix(6, 4, 17);
     for exponent in [-100, 100] {

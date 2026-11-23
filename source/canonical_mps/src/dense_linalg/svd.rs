@@ -60,9 +60,7 @@
 //!
 //! Planned: a faster SVD for the `W`s far from orthogonal, a bidiagonal
 //! SVD on nalgebra's bidiagonalization, checked alike (nalgebra's own SVD
-//! is not one: above). On an MPS simulation of benzene at bond dimension
-//! 32, t4a-faer's bidiagonal SVD on those `W`s and the rotations on the
-//! rest took about 30% less time than the rotations alone on all of them.
+//! is not one: above).
 
 pub(crate) mod checks;
 pub(crate) mod jacobi;

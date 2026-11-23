@@ -5,6 +5,11 @@
 //! a gated site, each by the formula's own loops, `θ`'s singular values
 //! and the fractions of their squares kept and dropped, and the distances
 //! from a product and from an isometry.
+//!
+//! The singular values come from the crate's own SVD, the one the CPU
+//! algebra splits with, so on the CPU algebra a fault in that SVD would be
+//! shared by the algebra and the kit; the SVD's own tests check it against
+//! values known in closed form.
 
 use super::inputs::Pair;
 use crate::dense_linalg::{Matrix, Svd};

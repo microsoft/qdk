@@ -22,8 +22,10 @@
 //!
 //! `--order` puts qubit `q` on site `order[q]`.
 //!
-//! The shots are recorded by a run of the program on a simulator outside
-//! this crate, which writes two files per shot:
+//! The recordings are not shipped with the crate, nor is the program that
+//! made them (a run of the program on a sparse state simulator outside
+//! this repository). Any simulator that writes these two files per shot
+//! can feed the example:
 //!
 //! - `SHOT.replay`, the operations in order, one per line (`#` starts a
 //!   comment): `<Gate> <q> [<angle>]` for a one-qubit gate (`X`, `Y`, `Z`,
@@ -43,7 +45,7 @@ mod support;
 
 use canonical_mps::{CpuAlgebra, CpuMpsEngine, DEFAULT_CUTOFF};
 use support::{
-    Res,
+    ExampleResult,
     args::{flag, order},
     readout::{readout_distribution, tvd_to},
     recordings::{readout_file, replay},
@@ -51,7 +53,7 @@ use support::{
 };
 use tensornet::MpsEngine;
 
-fn main() -> Res<()> {
+fn main() -> ExampleResult<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let chi: usize = flag(&args, "--chi").map_or(Ok(64), |x| x.parse())?;
     let shots: Vec<&String> = args.iter().filter(|a| a.ends_with(".replay")).collect();

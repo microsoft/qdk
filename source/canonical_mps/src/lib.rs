@@ -16,7 +16,10 @@
 //!   applies gates, and the bounds its truncations stay within.
 //! - [`CpuMpsEngine`] is the engine on [`CpuAlgebra`], the `SiteAlgebra`
 //!   of the host CPU, which passes the contract's conformance kit. It
-//!   needs no device, so it runs wherever the QDK runs.
+//!   needs no device, so it runs wherever the QDK runs; it is also the
+//!   reference a GPU backend is checked against, and, since CI has no
+//!   GPU, the backend on which CI runs the engine's tests and the
+//!   conformance kit and circuits.
 //! - [`site_algebra`] is the backend contract.
 //!   [`SiteAlgebra`](site_algebra::SiteAlgebra) is what a backend
 //!   implements: a site tensor's storage, a gate split, and a move of the
@@ -68,8 +71,9 @@
 //! are tested. Each item's documentation states its contract; the crate's
 //! `README.md` gives an overview, `docs/engine.md` the backend calls and
 //! the numerics of each method, `docs/distant_sites.md` how gates on
-//! distant sites are applied, with the alternatives considered, and
-//! `docs/dense_linalg.md` the SVD's guarantees and steps.
+//! distant sites are applied, and how that compares with routing by
+//! SWAPs, and
+//! `docs/dense_linalg.md` the SVD's steps.
 
 #[cfg(feature = "conformance")]
 pub mod dense_linalg;

@@ -5,8 +5,8 @@
 //! reasons.
 
 /// The cutoff of [`CanonicalMpsEngine::new`](super::CanonicalMpsEngine::new):
-/// a split drops singular values whose squares sum to at most `1e-14` of
-/// all their squares, within the bounds
+/// a split drops singular values whose squares sum to at most this
+/// fraction of all their squares, within the bounds
 /// [`with_cutoff`](super::CanonicalMpsEngine::with_cutoff) states, which
 /// also says what a smaller or larger cutoff trades.
 ///

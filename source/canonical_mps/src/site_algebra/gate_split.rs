@@ -36,12 +36,12 @@ pub struct GateSplitCall<'t, T> {
     /// The largest bond the split may keep, at least 1; `usize::MAX`: no
     /// cap.
     pub max_extent: usize,
-    /// The share of the squared singular values the split may drop, in
-    /// `[0, 1)`, and beyond it values of rounding's size, which an SVD may
-    /// give where the exact values are zero: their squares may add the share
-    /// of the squared norm that the conformance kit allows for rounding
-    /// (`conformance/gate_split.rs`). So 0 drops the zeros, and may drop such
-    /// values.
+    /// The largest share of the sum of the squared singular values the
+    /// split may drop, in `[0, 1)`. Beyond it, the split may also drop
+    /// values of rounding's size, which an SVD may give where the exact
+    /// values are zero, within the rounding the conformance kit allows
+    /// (`conformance/gate_split.rs`). So 0 drops the zeros, and may drop
+    /// such values.
     pub cutoff: f64,
     /// The site that absorbs the singular values, and so holds the centre
     /// afterwards.

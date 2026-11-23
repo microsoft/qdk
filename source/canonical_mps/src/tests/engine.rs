@@ -17,10 +17,10 @@ mod expectation;
 mod fusion;
 mod measurement;
 mod mpo;
+mod splits;
 mod stand_ins;
 mod state;
 mod statistics;
-mod truncation;
 
 use crate::dense_linalg::SvdError;
 use crate::engine::conformance::{

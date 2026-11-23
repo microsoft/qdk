@@ -34,12 +34,10 @@
 //!    gate, from the far end back to the near end, truncates each cut as a
 //!    gate's split does, and leaves the centre at the near end.
 //!
-//! So a window on a span of `d + 1` sites costs the moves that bring the
-//! centre into the span, then `d − 1` QR moves and `d` splits. Every
-//! backend call is one of the operations the engine already makes
+//! Every backend call is one of the operations the engine already makes
 //! elsewhere: moves and splits as for a gate, reads and uploads as for a
-//! projection; only the bonds inside the span are larger, up to the
-//! capacity's times the operator's bond.
+//! projection. What an MPO costs, and the larger bonds inside its span,
+//! are stated on [`CanonicalMpsEngine`] (Sites far apart).
 
 use super::{
     CanonicalMpsEngine, CanonicalMpsError,

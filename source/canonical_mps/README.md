@@ -31,7 +31,9 @@ contract's conformance kit, and the engine's conformance circuits, on it.
 The crate's own backend is the CPU algebra: its tensors are vectors in the
 host's memory, and its products, QR and SVD are the crate's
 [dense linear algebra](#the-dense-linear-algebra)'s, on the calling
-thread. A backend on a GPU library goes in a crate of its own, which runs
+thread. It is also the reference a GPU backend is checked against, and,
+since CI has no GPU, the backend on which CI runs the engine's tests and
+the conformance kit and circuits. A backend on a GPU library goes in a crate of its own, which runs
 it on an NVIDIA GPU, for the chemistry instances that are slow on the CPU,
 such as benzene, or N₂ at a large bond dimension. The engine keeps the
 cost low by deferring and sharing work: it fuses gates into one
@@ -44,18 +46,16 @@ Today the crate holds:
   over any `SiteAlgebra`: it fuses, applies, truncates and reads by one
   set of rules. [`CpuMpsEngine`](src/lib.rs) is the engine on the CPU
   algebra.
-- **[Its state, settings and statistics](#settings-and-statistics):**
+- **[Its state, settings and statistics](#state-settings-and-statistics):**
   [`CanonicalMpsState`](src/engine/state.rs), a chain of the backend's
   tensors; [`DEFAULT_CUTOFF`](src/engine/policy.rs) and
   `CanonicalMpsEngine::with_cutoff`, which trade time for accuracy; and
   [`CanonicalMpsStatistics`](src/engine/statistics.rs), what a state's
   history cost.
 - **Refusals and failures:**
-  [`CanonicalMpsError`](src/engine/error.rs): a call `MpsEngine`'s contract
-  refuses (one whose arguments break its rules, or a projection or condition
-  on a value of probability zero), the backend's own failure, or the
-  engine's (a sample too large for memory, a truncation that would leave too
-  little weight, a failed factorisation of a gate window's operator).
+  [`CanonicalMpsError`](src/engine/error.rs), which tells a call the
+  contract refuses, after which the state can still be used, from a
+  failure.
 - **[The backend contract](#the-backend-contract):**
   [`SiteAlgebra`](src/site_algebra.rs), the tensor operations a backend
   implements.
@@ -90,24 +90,18 @@ sampling, expectations, the contract's refusals and the retained weight;
 and the state's statistics.
 
 **When each guarantee holds.** The rustdoc of
-[`CanonicalMpsEngine`](src/engine.rs) and of
-[`CanonicalMpsError`](src/engine/error.rs) states each one:
+[`CanonicalMpsEngine`](src/engine.rs) states each one in full:
 
 - **At construction:** `with_cutoff` panics on a cutoff outside `[0, 1)`.
 - **At each call, before any backend call:** the contract's checks refuse
-  a malformed call (a qudit that is not a qubit, a site out of range or
-  named twice, a gate on three sites), so the backend never sees one.
+  a malformed call, so the backend never sees one.
 - **At each projection or condition:** a value of probability zero or
   NaN is refused, leaving what every read sees unchanged.
-- **At each split:** the split keeps its largest singular value, drops at
-  most the cutoff's fraction of its own weight and values of rounding's
-  size, and keeps at most the capacity's bond; a split that would take
-  the retained weight below the smallest normal `f64` fails with
-  `CanonicalMpsError::WeightUnderflow` instead, since callers divide by
-  the weight.
-- **After a failure:** the state is unspecified, and the caller drops it;
-  only a failed read or upload of a site of an MPO's span leaves that
-  span's sites unmultiplied, so neighbours still share each bond.
+- **At each split:** the bounds of its Truncation paragraph, or
+  `CanonicalMpsError::WeightUnderflow` instead of a retained weight below
+  the smallest normal `f64`.
+- **After a failure:** the state is unspecified, as its Failures
+  paragraph says, and the caller drops it.
 
 **Why this approach.**
 
@@ -292,9 +286,10 @@ lists, the window fails with `CanonicalMpsError::OperatorDecomposition`
 when the host's factorisation of its operator fails, which checked gates
 are not expected to reach.
 
-### Settings and statistics
+### State, settings and statistics
 
-The cutoff and the capacity's $\chi$ trade time for accuracy:
+A state, [`CanonicalMpsState`](src/engine/state.rs), is a chain of the
+backend's tensors. The cutoff and the capacity's $\chi$ trade time for accuracy:
 [`CanonicalMpsEngine::with_cutoff`](src/engine.rs) says how, and
 [`policy.rs`](src/engine/policy.rs) gives the default cutoff with how it
 was chosen. A caller that tunes them reads a state's
@@ -386,7 +381,7 @@ assert_truncated_circuit_stays_within_its_truncation_bound(CpuAlgebra);
 is the contract on the host CPU. Each operation is computed directly from
 its contract; it passes the [conformance kit](#conformance-the-kit-and-the-engines-circuits), and
 the engine's tests run on it. It needs no device, so it runs wherever the
-QDK runs.
+QDK runs, and it is the reference a GPU backend's tests compare with.
 
 `CpuAlgebra` holds each site in a `Vec<Complex64>`, in the contract's
 layout, which is the column-major order of the dense linear algebra's
@@ -405,10 +400,8 @@ The truncation rule drops the longest tail of singular values whose
 squares sum to at most the cutoff's share, then keeps at most the cap;
 its [documentation](src/site_algebra/cpu_algebra/truncation.rs) states it in
 full. Only `gate_split` fails, when the SVD does
-([`SvdError`](src/dense_linalg/svd.rs)): `DidNotConverge` when its
-rotations still turn after their last sweep, `FailedChecks` when $\theta$
-holds a value that is not finite or the factors fail the SVD's checks.
-The engine reports it as `CanonicalMpsError::Algebra`.
+([`SvdError`](src/dense_linalg/svd.rs) says when); the engine reports it
+as `CanonicalMpsError::Algebra`.
 
 ## The dense linear algebra
 
@@ -418,8 +411,8 @@ contractions), come from the crate's module
 [`dense_linalg`](src/dense_linalg.rs): dense complex matrices with a thin
 QR and a checked SVD, which either answers factors checked against the
 matrix or reports a failure (`SvdError`, exported at the crate's root).
-[`docs/dense_linalg.md`](docs/dense_linalg.md) gives the SVD's guarantees
-and steps, and what computes the module's products and QR decompositions:
+[`docs/dense_linalg.md`](docs/dense_linalg.md) gives the SVD's steps,
+and what computes the module's products and QR decompositions:
 the products and the thin QR by matrixmultiply and nalgebra, the
 column-pivoted QR the module's own.
 
@@ -432,7 +425,8 @@ run, up to recorded chemistry shots; they assert nothing.
   estimation (its header gives their size and formats); for each shot,
   the total variation distance (TVD) between the engine's distribution of
   the readout qubits and the recorded exact one, and the time.
-  The shots are recorded by a simulator run outside this crate.
+  The recordings are not shipped; its header gives what any simulator
+  must write to feed it.
 - [`accuracy_and_cost`](examples/accuracy_and_cost.rs): circuit families
   (random brickworks, an Ising quench, the Fourier transform) or a gate
   list; how far the engine's state is from the exact state vector, its

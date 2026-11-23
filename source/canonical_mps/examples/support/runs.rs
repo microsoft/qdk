@@ -5,7 +5,7 @@
 //! took, and the process's peak memory.
 
 use super::{
-    Res,
+    ExampleResult,
     circuit::{Circuit, Op},
 };
 use canonical_mps::{CanonicalMpsState, CpuAlgebra, CpuMpsEngine};
@@ -32,7 +32,7 @@ pub fn run_engine(
     circuit: &Circuit,
     order: &[usize],
     chi: usize,
-) -> Res<EngineRun> {
+) -> ExampleResult<EngineRun> {
     let mut state = engine.prepare(&capacity(circuit.qubits, chi))?;
     let mut max_projection_gap: f64 = 0.0;
     let started = Instant::now();

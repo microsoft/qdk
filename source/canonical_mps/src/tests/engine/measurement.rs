@@ -362,23 +362,17 @@ fn a_sample_never_draws_a_value_of_probability_zero() {
         // A sample of a site and site 0 after a measurement of the site
         // drew One, with the seed whose first uniform is the largest a draw
         // gives: the sample draws One, not the Zero of probability zero,
-        // and the next site's draw, given it, is not refused. The site is
-        // one on which P(One) over the site's whole weight, summed in
-        // another order than the two values' weights, rounds below that
-        // uniform: site 1 of 5 sites fused, found by a probe of the
-        // circuits of 5 to 20 sites (the exact reference's limit) that
-        // `a_measured_value_has_probability_exactly_one` measures, which
-        // found no such site unfused; the sampling rule is the same for
-        // both settings, so the row runs fused alone. Such sites move with
-        // any change to the splits' rounding: a precondition checks that
-        // the chosen site still rounds so, and asks to re-probe when it
-        // does not.
+        // and the next site's draw, given it, is not refused. The site must
+        // be one whose P(One) over its whole weight rounds below that
+        // uniform: site 1 of 5, fused, rounds so (no unfused site of the
+        // circuits of `a_measured_value_has_probability_exactly_one` does,
+        // and the rule is the same for both). A precondition asks to find
+        // such a site again when the splits' rounding changes.
         ("One where Zero has probability zero", |engine, name| {
             // COMPATIBILITY NOTE: this behavior was present in the earlier
-            // CPU MPS engine's sampling, hence we keep its rule. The sites
-            // differ from those its test used, because this crate's splits
-            // round differently from that engine's SVD, so they were found
-            // again as the comment above says.
+            // CPU MPS engine's sampling (`qdk_cpu_mps`, not merged), hence
+            // we keep its rule. The site differs from its test's, because
+            // this crate's splits round differently from that engine's SVD.
             // 1 − 2⁻⁵³ is the largest `f64` below 1, so a uniform in [0, 1) is
             // not below it only when it is 1 − 2⁻⁵³ exactly.
             assert!(
@@ -397,7 +391,7 @@ fn a_sample_never_draws_a_value_of_probability_zero() {
                 whole < 1.0,
                 "{name}: precondition, P(One) of site {site} over its whole \
                  weight rounds below 1 ({whole}); the splits' rounding changed, \
-                 so re-probe the site as the doc says"
+                 so find such a site again as the row's comment says"
             );
             let values = engine
                 .sample(&state, &[site, 0], 1, SEED_OF_THE_LARGEST_UNIFORM)

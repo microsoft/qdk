@@ -20,8 +20,8 @@ use crate::site_algebra::SiteAlgebra;
 use num_complex::Complex64;
 use tensornet::MpsShape;
 
-/// The chain of a state: its sites, the centre, the capacity, the work
-/// pending on the host, the retained weight and the statistics.
+/// The chain of a state. Between the engine's calls, neighbours share
+/// each bond, and every site but the centre is an isometry towards it.
 pub(super) struct Chain<T> {
     pub(super) sites: Vec<Site<T>>,
     /// The one-site gate (row-major) each site's tensor still owes, if any.
@@ -47,7 +47,6 @@ pub(super) struct Site<T> {
 }
 
 impl<T> Site<T> {
-    /// The number of elements the site holds.
     pub(super) fn len(&self) -> usize {
         2 * self.left * self.right
     }

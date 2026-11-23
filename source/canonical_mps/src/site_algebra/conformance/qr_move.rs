@@ -6,19 +6,24 @@
 //! outcome with the gated product `A·B`.
 
 use super::formulas::{columns_isometry_error, gated_site, relative_distance, rows_isometry_error};
-use super::inputs::{LARGE_SHAPE, MOVE_SHAPES, Pair, SHAPES, one_site_gate};
+use super::inputs::{LARGE_SHAPE, MOVE_SHAPES, Pair, SHAPES, derived, one_site_gate};
 use super::{TOLERANCE, read, upload};
 use crate::dense_linalg::Matrix;
 use crate::site_algebra::{CentreSide, QrMoveCall, SiteAlgebra};
 use num_complex::Complex64;
 use std::fmt;
 
-/// The product of the new sites is the product of the pair, the gate
-/// applied to the site the centre leaves: nothing is truncated. Catches a
-/// truncating move, the gate applied to the other site or transposed, and
-/// a remaining factor absorbed on the wrong side.
-pub(super) fn product<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
-    for scene in scenes() {
+/// The product of the new sites is the product of the pair, the gate applied to
+/// the site the centre leaves: nothing is truncated. Catches a truncating move,
+/// the gate applied to the other site or transposed, and a remaining factor
+/// absorbed on the wrong side. For instance, a gate applied to the other site
+/// fails it with: `the pair [1, 1, 1] of seed 600, a gate, centre to the Right:
+/// the product of the new sites is 1.2e0 from the gated pair's`.
+pub(super) fn gives_back_the_gated_product<A: SiteAlgebra>(
+    algebra: &A,
+    seed: u64,
+) -> Result<(), String> {
+    for scene in scenes(seed) {
         let moved = scene.move_centre(algebra)?;
         let error = relative_distance(moved.product().elements(), scene.gated_product().elements());
         if error > TOLERANCE {
@@ -30,12 +35,17 @@ pub(super) fn product<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
     Ok(())
 }
 
-/// The bond after the move is the smaller of the pair's bond and the side
-/// of the site the centre leaves: `2·left_extent` moving right,
-/// `2·right_extent` moving left. Catches the pair's bond reported
-/// unchanged, and the other site's side.
-pub(super) fn bond<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
-    for scene in scenes() {
+/// The bond after the move is the smaller of the pair's bond and the side of
+/// the site the centre leaves: `2·left_extent` moving right, `2·right_extent`
+/// moving left. Catches the pair's bond reported unchanged, and the other
+/// site's side. For instance, the pair's bond reported unchanged fails it with:
+/// `the pair [1, 4, 2] of seed 670, no gate, centre to the Right: bond 4, not
+/// 2`.
+pub(super) fn bond_is_the_smaller_of_the_bond_and_the_side_it_leaves<A: SiteAlgebra>(
+    algebra: &A,
+    seed: u64,
+) -> Result<(), String> {
+    for scene in scenes(seed) {
         // `move_centre` checks the bond before it reads.
         scene.move_centre(algebra)?;
     }
@@ -43,11 +53,16 @@ pub(super) fn bond<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
 }
 
 /// The site the centre leaves is an isometry: the left site's columns are
-/// orthonormal after a move to the right, the right site's rows after a
-/// move to the left. Catches a move that leaves the factor on the site it
-/// leaves.
-pub(super) fn isometry<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
-    for scene in scenes() {
+/// orthonormal after a move to the right, the right site's rows after a move to
+/// the left. Catches a move that leaves the factor on the site it leaves. For
+/// instance, a move that doubles the site it leaves and halves the other fails
+/// it with: `the pair [1, 1, 1] of seed 600, no gate, centre to the Right: the
+/// left site is 3.0e0 from an isometry`.
+pub(super) fn site_it_leaves_is_an_isometry<A: SiteAlgebra>(
+    algebra: &A,
+    seed: u64,
+) -> Result<(), String> {
+    for scene in scenes(seed) {
         let moved = scene.move_centre(algebra)?;
         let (error, side) = match scene.centre {
             CentreSide::Right => (columns_isometry_error(&moved.left), "left"),
@@ -62,12 +77,17 @@ pub(super) fn isometry<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
     Ok(())
 }
 
-/// The move leaves its input tensors unchanged, with a gate and without,
-/// either way, since the engine may still hold them (the sites of a
-/// fork's source). Catches a move computed in the inputs' storage, or a
-/// gate applied in place.
-pub(super) fn inputs_unchanged<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
-    for scene in scenes() {
+/// The move leaves its input tensors unchanged, with a gate and without, either
+/// way, since the engine may still hold them (the sites of a fork's source).
+/// Catches a move computed in the inputs' storage, or a gate applied in place.
+/// For instance, a move that zeroes its left input fails it with: `the pair [1,
+/// 1, 1] of seed 600, no gate, centre to the Right: the move changed its
+/// inputs`.
+pub(super) fn leaves_its_inputs_unchanged<A: SiteAlgebra>(
+    algebra: &A,
+    seed: u64,
+) -> Result<(), String> {
+    for scene in scenes(seed) {
         let moved = scene.move_centre(algebra)?;
         if moved.inputs != [scene.pair.left.clone(), scene.pair.right.clone()] {
             return Err(format!("{scene}: the move changed its inputs"));
@@ -159,18 +179,18 @@ impl fmt::Display for Scene {
 }
 
 /// Every shape of [`SHAPES`], [`LARGE_SHAPE`] and [`MOVE_SHAPES`], with a
-/// random gate and without, either way.
-fn scenes() -> impl Iterator<Item = Scene> {
+/// random gate and without, either way, drawn from the kit's `seed`.
+fn scenes(seed: u64) -> impl Iterator<Item = Scene> {
     let shapes = SHAPES.into_iter().chain([LARGE_SHAPE]).chain(MOVE_SHAPES);
-    (shapes.zip(0_u64..)).flat_map(|(shape, index)| {
-        let seed = 600 + 10 * index;
-        [None, Some(one_site_gate(seed + 5))]
+    (shapes.zip(0_u64..)).flat_map(move |(shape, index)| {
+        let pair_seed = derived(seed, 600 + 10 * index);
+        [None, Some(one_site_gate(pair_seed.wrapping_add(5)))]
             .into_iter()
             .flat_map(move |gate| {
                 [CentreSide::Right, CentreSide::Left]
                     .into_iter()
                     .map(move |centre| Scene {
-                        pair: Pair::graded(shape, seed),
+                        pair: Pair::graded(shape, pair_seed),
                         gate,
                         centre,
                     })

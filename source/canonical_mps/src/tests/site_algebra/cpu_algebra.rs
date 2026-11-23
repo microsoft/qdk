@@ -15,7 +15,8 @@ mod truncation;
 
 use super::*;
 use crate::CpuAlgebra;
-use crate::dense_linalg::{Matrix, SvdError};
+use crate::dense_linalg::SvdError;
+use crate::site_algebra::conformance::inputs::{identity_gate, random};
 use crate::site_algebra::{CentreSide, GateSplitCall, SiteAlgebra};
 use std::borrow::Cow;
 
@@ -57,27 +58,4 @@ fn a_read_borrows_the_first_len_elements() {
         matches!(read, Cow::Borrowed(_)),
         "a host read copies nothing"
     );
-}
-
-fn identity_gate() -> [Complex64; 16] {
-    std::array::from_fn(|i| c(if i % 5 == 0 { 1.0 } else { 0.0 }, 0.0))
-}
-
-/// A `rows × cols` matrix of entries in `[-0.5, 0.5)`, real and imaginary
-/// parts alike, from a linear congruential generator seeded by `seed`.
-fn random(rows: usize, cols: usize, seed: u64) -> Matrix {
-    let mut state = seed;
-    let mut next = move || {
-        state = state
-            .wrapping_mul(6_364_136_223_846_793_005)
-            .wrapping_add(1_442_695_040_888_963_407);
-        // The top 53 bits, exactly representable.
-        #[expect(clippy::cast_precision_loss, reason = "53 bits fit a double")]
-        let unit = (state >> 11) as f64 / (1u64 << 53) as f64;
-        unit - 0.5
-    };
-    Matrix::from_fn(rows, cols, |_, _| {
-        let re = next();
-        c(re, next())
-    })
 }

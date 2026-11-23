@@ -7,18 +7,15 @@
 //! The engine ([`CanonicalMpsEngine`](crate::CanonicalMpsEngine)) keeps a
 //! chain of site tensors in canonical form: one site, the orthogonality
 //! centre, holds the state's norm, and every other site is an isometry
-//! towards it. Some of its rules are the same on every backend: where the
-//! centre moves, which pair a gate splits, how the retained weight is
-//! kept, and the bounds every truncation stays within (those of
-//! [`SiteAlgebra::gate_split`]); what differs is where the tensors live,
-//! which library factors them, and which values a truncation keeps within
-//! those bounds. So the engine is written once over this trait, and a
-//! backend implements only its operations: a gate split and a move of the
-//! centre on two neighbouring sites, and the storage of a site. Each of
-//! the two calls passes its inputs as one type and gets its outputs as
-//! another: [`GateSplitCall`] and [`GateSplitOutcome`], [`QrMoveCall`]
-//! and [`QrMoveOutcome`], each call naming the site that holds the centre
-//! afterwards as a [`CentreSide`].
+//! towards it. The engine's rules are written once over this trait, so a
+//! backend implements only its operations (the crate's `README.md` says
+//! why): a gate split and a move of the centre on two neighbouring sites,
+//! and the storage of a site. Each of the two calls passes its inputs as
+//! one type and gets its outputs as another: [`GateSplitCall`] and
+//! [`GateSplitOutcome`], [`QrMoveCall`] and [`QrMoveOutcome`], each call
+//! naming the site that holds the centre afterwards as a [`CentreSide`].
+//! The bounds every truncation stays within are those of
+//! [`SiteAlgebra::gate_split`].
 //!
 //! # The layout
 //!

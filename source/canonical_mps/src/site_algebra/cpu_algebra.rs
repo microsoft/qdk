@@ -9,16 +9,12 @@
 //! its two factorisations, the gate split and the move, with
 //! `dense_linalg`'s product, thin QR and SVD (which checks its own
 //! factors), on the calling thread. It needs no device, so it runs
-//! wherever the QDK runs.
+//! wherever the QDK runs; it is also the reference a GPU backend is
+//! checked against, and, since CI has no GPU, the backend on which CI
+//! runs the engine's tests and the conformance kit and circuits.
 //!
-//! A gate split builds the gated pair `θ` by a product and the gate's
-//! loops, factors it by one SVD, and truncates it by its truncation rule
-//! (`Truncation`): it drops the longest tail of values whose squares sum
-//! to at most the cutoff's share, a tail of exactly that share included,
-//! then keeps at most the cap. It multiplies the kept values, normalised,
-//! into the centre's side. A move of the centre applies the one-site gate
-//! to the leaving site, factors that site by one thin QR, and multiplies
-//! the small factor into the other site.
+//! Which values a gate split keeps is its truncation rule, `Truncation`,
+//! in `truncation`.
 
 mod truncation;
 

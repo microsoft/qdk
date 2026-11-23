@@ -1,20 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The engine's errors, [`CanonicalMpsError`]: the contract's refusals,
-//! then the failures.
-//!
-//! Refusals: a condition or a projection on a value of probability zero or
-//! NaN is refused, leaving what reads see, while a value of rounding
-//! weight or rare but possible is accepted; a gate refused (on three sites,
-//! of the wrong length, not unitary) leaving what reads see; and each
-//! checked method's refusal (a qutrit, a site out of range or named
-//! twice), reported before any call of the algebra.
-//!
-//! Failures: a sample too large for memory, and each operation of the algebra
-//! failing, on the fake [`FailingFakeAlgebra`], since the CPU algebra,
-//! [`CpuAlgebra`], fails only when its SVD does, which the engine's tests
-//! never make it do.
+//! The engine's errors, [`CanonicalMpsError`]: its refusals, then its
+//! failures, on the fake [`FailingFakeAlgebra`] (the CPU algebra fails only
+//! in its SVD).
 
 use super::stand_ins::failing_fake_algebra::{AlgebraFailure, Operation};
 use super::*;

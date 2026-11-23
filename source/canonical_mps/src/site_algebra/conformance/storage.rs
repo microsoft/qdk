@@ -4,16 +4,20 @@
 //! The cases of a site's storage: [`SiteAlgebra::upload`],
 //! [`SiteAlgebra::read`] and [`SiteAlgebra::duplicate`].
 
-use super::inputs::{Pair, values};
+use super::inputs::{Pair, derived, values};
 use super::{read, upload};
 use crate::site_algebra::{CentreSide, QrMoveCall, SiteAlgebra};
 
-/// A read of the first `len` elements of an uploaded tensor returns
-/// exactly those elements, for `len` from none to all. Catches a read
-/// that returns other elements or another number of them, and an upload
-/// that changes them.
-pub(super) fn upload_and_read<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
-    let seed = 700;
+/// A read of the first `len` elements of an uploaded tensor returns exactly
+/// those elements, for `len` from none to all. Catches a read that returns
+/// other elements or another number of them, and an upload that changes them.
+/// For instance, a read that negates its first element fails it with: `12
+/// values of seed 700: a read of 1 of 12 uploaded elements returned others`.
+pub(super) fn read_returns_what_was_uploaded<A: SiteAlgebra>(
+    algebra: &A,
+    kit_seed: u64,
+) -> Result<(), String> {
+    let seed = derived(kit_seed, 700);
     let failed = |message: String| format!("12 values of seed {seed}: {message}");
     let values = values(12, seed);
     let tensor = upload(algebra, &values).map_err(failed)?;
@@ -30,11 +34,16 @@ pub(super) fn upload_and_read<A: SiteAlgebra>(algebra: &A) -> Result<(), String>
 
 /// A duplicate holds the first `len` elements of its source, and either
 /// outlives the other unchanged: dropping the source leaves the copy, and
-/// dropping the copy, or passing it to a move of the centre, leaves the
-/// source. Catches a duplicate that copies other elements, and one that
-/// shares the source's storage.
-pub(super) fn duplicate<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
-    let seed = 710;
+/// dropping the copy, or passing it to a move of the centre, leaves the source.
+/// Catches a duplicate that copies other elements, and one that shares the
+/// source's storage. For instance, a duplicate that shares its source's storage
+/// fails it with: `12 values of seed 710: a duplicate changed when its source
+/// was dropped`.
+pub(super) fn duplicate_is_a_copy_in_its_own_storage<A: SiteAlgebra>(
+    algebra: &A,
+    kit_seed: u64,
+) -> Result<(), String> {
+    let seed = derived(kit_seed, 710);
     let failed = |message: String| format!("12 values of seed {seed}: {message}");
     let values = values(12, seed);
 
@@ -63,7 +72,7 @@ pub(super) fn duplicate<A: SiteAlgebra>(algebra: &A) -> Result<(), String> {
     // The copy is the left site `[2, 2, 3]` of a pair whose right site is
     // `[3, 2, 1]`; the move's outcome is not checked here.
     let copy = duplicate_of(algebra, &source, 12).map_err(failed)?;
-    let pair = Pair::graded((2, 3, 1), 720);
+    let pair = Pair::graded((2, 3, 1), derived(kit_seed, 720));
     let failed = |message: String| format!("12 values of seed {seed}, {pair}: {message}");
     let right = upload(algebra, &pair.right).map_err(failed)?;
     let call = QrMoveCall {

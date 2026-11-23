@@ -7,8 +7,10 @@
 //! list, and the `h2_shots` example's those of a recorded shot and of its
 //! readout distribution, and where they come from.
 
+use num_complex::Complex64;
+
 use super::{
-    C, Res, c,
+    ExampleResult, c,
     circuit::{Circuit, Op},
     gates::{H, controlled, pauli_x, pauli_y, pauli_z, phase, rx, ry, rz},
 };
@@ -16,7 +18,7 @@ use std::{f64::consts::PI, fs};
 
 /// A unitary gate list (a `--gates` file), such as a chemistry program's
 /// phase estimation.
-pub fn gate_list(path: &str) -> Res<Circuit> {
+pub fn gate_list(path: &str) -> ExampleResult<Circuit> {
     let text = fs::read_to_string(path)?;
     let mut ops = Vec::new();
     let mut qubits = 0;
@@ -36,9 +38,9 @@ pub fn gate_list(path: &str) -> Res<Circuit> {
 }
 
 /// One line of a gate list: the gate's qubits and its matrix.
-fn gate_line(line: &str) -> Res<(Vec<usize>, Vec<C>)> {
+fn gate_line(line: &str) -> ExampleResult<(Vec<usize>, Vec<Complex64>)> {
     let w: Vec<&str> = line.split_whitespace().collect();
-    let q = |i: usize| -> Res<usize> { Ok(w.get(i).ok_or("short line")?.parse()?) };
+    let q = |i: usize| -> ExampleResult<usize> { Ok(w.get(i).ok_or("short line")?.parse()?) };
     Ok(match w[0] {
         "cx" => (vec![q(1)?, q(2)?], controlled(pauli_x()).to_vec()),
         "h" => (vec![q(1)?], H.to_vec()),
@@ -57,9 +59,9 @@ fn gate_line(line: &str) -> Res<(Vec<usize>, Vec<C>)> {
     })
 }
 
-fn named_one(name: &str, angle: Option<f64>) -> Res<[C; 4]> {
+fn named_one(name: &str, angle: Option<f64>) -> ExampleResult<[Complex64; 4]> {
     let angle = || angle.ok_or("missing angle");
-    let quarter = C::from_polar(1.0, PI / 4.0);
+    let quarter = Complex64::from_polar(1.0, PI / 4.0);
     Ok(match name {
         "X" => pauli_x(),
         "Y" => pauli_y(),
@@ -78,7 +80,7 @@ fn named_one(name: &str, angle: Option<f64>) -> Res<[C; 4]> {
 
 /// A recorded shot (a `SHOT.replay` file): its gates, its projections on
 /// the outcomes the shot drew, and its readout qubits.
-pub fn replay(path: &str) -> Res<Circuit> {
+pub fn replay(path: &str) -> ExampleResult<Circuit> {
     let text = fs::read_to_string(path)?;
     let mut circuit = Circuit::new(0);
     for (index, line) in text.lines().enumerate() {
@@ -101,12 +103,12 @@ pub fn replay(path: &str) -> Res<Circuit> {
 }
 
 /// One line of a recorded shot, added to `circuit`.
-fn replay_line(circuit: &mut Circuit, line: &str) -> Res<()> {
+fn replay_line(circuit: &mut Circuit, line: &str) -> ExampleResult<()> {
     let w: Vec<&str> = line.split_whitespace().collect();
-    let q = |i: usize| -> Res<usize> { Ok(w.get(i).ok_or("short line")?.parse()?) };
+    let q = |i: usize| -> ExampleResult<usize> { Ok(w.get(i).ok_or("short line")?.parse()?) };
     match w[0] {
         "READOUT" => {
-            circuit.readout = (1..w.len()).map(q).collect::<Res<_>>()?;
+            circuit.readout = (1..w.len()).map(q).collect::<ExampleResult<_>>()?;
         }
         "P" => circuit.ops.push(Op::Project {
             qubit: q(1)?,
@@ -131,7 +133,7 @@ fn replay_line(circuit: &mut Circuit, line: &str) -> Res<()> {
 /// The exact readout distribution of a recorded shot (a `SHOT.readout`
 /// file), keyed by the outcome in record order (the first readout qubit
 /// first).
-pub fn readout_file(path: &str) -> Res<Vec<(String, f64)>> {
+pub fn readout_file(path: &str) -> ExampleResult<Vec<(String, f64)>> {
     let text = fs::read_to_string(path)?;
     let mut out = Vec::new();
     for (index, line) in text.lines().enumerate() {
@@ -144,13 +146,13 @@ pub fn readout_file(path: &str) -> Res<Vec<(String, f64)>> {
 }
 
 /// One line of a readout distribution: the outcome and its probability.
-fn readout_line(line: &str) -> Res<(String, f64)> {
+fn readout_line(line: &str) -> ExampleResult<(String, f64)> {
     let w: Vec<&str> = line.split_whitespace().collect();
     Ok((w[0].to_string(), w.get(2).ok_or("short line")?.parse()?))
 }
 
 /// `result`, its error prefixed with the file, the line's number (from 1)
 /// and the line itself.
-fn at_line<T>(path: &str, index: usize, line: &str, result: Res<T>) -> Res<T> {
+fn at_line<T>(path: &str, index: usize, line: &str, result: ExampleResult<T>) -> ExampleResult<T> {
     result.map_err(|error| format!("{path}:{}: {error}: {line}", index + 1).into())
 }

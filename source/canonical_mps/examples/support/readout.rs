@@ -4,7 +4,7 @@
 //! The distribution of the qubits a program reads out at its end, and its
 //! distance to a recorded one.
 
-use super::{Res, c};
+use super::{ExampleResult, c};
 use canonical_mps::{CanonicalMpsState, CpuAlgebra, CpuMpsEngine};
 use tensornet::{MpsEngine, Pauli, PauliSum, PauliTerm};
 
@@ -14,7 +14,7 @@ pub fn readout_distribution(
     engine: &CpuMpsEngine,
     state: &CanonicalMpsState<CpuAlgebra>,
     sites: &[usize],
-) -> Res<Vec<f64>> {
+) -> ExampleResult<Vec<f64>> {
     let k = sites.len();
     let mut z = vec![0.0; 1 << k];
     z[0] = 1.0;
@@ -47,7 +47,7 @@ pub fn readout_distribution(
 /// first readout qubit as its most significant bit, to a recorded one
 /// ([`super::recordings::readout_file`]), over all of `distribution`'s
 /// outcomes: an outcome the file does not list counts as probability 0.
-pub fn tvd_to(distribution: &[f64], recorded: &[(String, f64)]) -> Res<f64> {
+pub fn tvd_to(distribution: &[f64], recorded: &[(String, f64)]) -> ExampleResult<f64> {
     let mut exact = vec![0.0; distribution.len()];
     for (bits, p) in recorded {
         let outcome = usize::from_str_radix(bits, 2)?;

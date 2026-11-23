@@ -3,7 +3,7 @@
 
 //! How far the engine's state is from an exact state vector.
 
-use super::{Res, c, rng::Rng, state_vector::StateVector};
+use super::{ExampleResult, c, rng::Rng, state_vector::StateVector};
 use canonical_mps::{CanonicalMpsState, CpuAlgebra, CpuMpsEngine};
 use tensornet::{MpsEngine, Pauli, PauliSum, PauliTerm};
 
@@ -26,7 +26,7 @@ pub fn agreement(
     exact: &StateVector,
     strings: usize,
     samples: usize,
-) -> Res<Agreement> {
+) -> ExampleResult<Agreement> {
     let n = order.len();
     let mut rng = Rng::new(0x00C0_FFEE);
     let mut max_probability_gap: f64 = 0.0;
@@ -68,7 +68,7 @@ fn sampled_tvd(
     exact: &StateVector,
     samples: usize,
     rng: &mut Rng,
-) -> Res<f64> {
+) -> ExampleResult<f64> {
     if samples == 0 {
         return Ok(f64::NAN);
     }

@@ -87,9 +87,9 @@ fn the_cutoff_discards_the_tail_within_its_share() {
         // A Bell pair's two Schmidt values, the same float: the smaller
         // value's square is exactly the cutoff's share of the sum.
         // COMPATIBILITY NOTE: this behavior was present in the earlier
-        // CPU MPS engine's truncation (a tail is dropped while its squares
-        // sum to at most the cutoff's share), hence we keep it: it is what
-        // makes a cutoff of 0 drop the zeros.
+        // CPU MPS engine's truncation (`qdk_cpu_mps`, not merged: a tail is
+        // dropped while its squares sum to at most the cutoff's share),
+        // hence we keep it: it is what makes a cutoff of 0 drop the zeros.
         ("a tail of exactly the cutoff's share", vec![h, h], 0.5, 1),
         // A Schmidt weight of 1e-20, far below the cutoffs simulations
         // use, is kept.
@@ -232,10 +232,11 @@ fn tiny_values_truncate_as_at_scale_one() {
 /// A zero gated pair, which the contract rules out but a caller may still
 /// send, and whose SVD gives one value, 0 (`Svd::of`): the split keeps it,
 /// with a retained fraction of 1 and no NaN.
-// DISCUSS COMPATIBILITY: the earlier CPU MPS engine's SVD gave the zero
-// matrix one value, 0, as this crate's does; its truncation then divided
-// 0 by 0, which would have failed the split with a weight underflow, where
-// this one keeps the value with a retained fraction of 1. The engine does
+// DISCUSS COMPATIBILITY: the earlier CPU MPS engine's SVD (`qdk_cpu_mps`,
+// not merged) gave the zero matrix one value, 0, as this crate's does; its
+// truncation then divided 0 by 0, which would have failed the split with a
+// weight underflow, where this one keeps the value with a retained fraction
+// of 1. The engine does
 // not reach it, since its states have a norm of 1 to rounding (a gate may
 // drift from it within the unitarity check's tolerance). We think a total
 // rule is better than failing on a NaN, and a retained fraction of 1

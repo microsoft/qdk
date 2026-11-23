@@ -3,7 +3,7 @@
 
 //! The examples' command-line arguments.
 
-use super::Res;
+use super::ExampleResult;
 
 /// The value of `--flag value` in `args`.
 pub fn flag(args: &[String], name: &str) -> Option<String> {
@@ -14,13 +14,13 @@ pub fn flag(args: &[String], name: &str) -> Option<String> {
 }
 
 /// The number `--name N` in `args`, else `default`.
-pub fn number(args: &[String], name: &str, default: usize) -> Res<usize> {
+pub fn number(args: &[String], name: &str, default: usize) -> ExampleResult<usize> {
     Ok(flag(args, name).map_or(Ok(default), |x| x.parse())?)
 }
 
 /// The number of qubits `--n N` a circuit family needs: an error when it
 /// is missing or 0.
-pub fn qubits(args: &[String]) -> Res<usize> {
+pub fn qubits(args: &[String]) -> ExampleResult<usize> {
     match number(args, "--n", 0)? {
         0 => Err("a family needs --n N, its number of qubits, at least 1".into()),
         n => Ok(n),
@@ -29,7 +29,7 @@ pub fn qubits(args: &[String]) -> Res<usize> {
 
 /// The order `--order a,b,c,…` (the site of each qubit; brackets and
 /// spaces allowed), else the identity.
-pub fn order(args: &[String], qubits: usize) -> Res<Vec<usize>> {
+pub fn order(args: &[String], qubits: usize) -> ExampleResult<Vec<usize>> {
     let Some(text) = flag(args, "--order") else {
         return Ok((0..qubits).collect());
     };

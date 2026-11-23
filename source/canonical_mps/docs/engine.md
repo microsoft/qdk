@@ -117,10 +117,9 @@ $T$, its pending gate applied, and
 
 $$P(b) = \frac{w_b}{w_0 + w_1}.$$
 
-Each value's probability is read from its own weight, so a value of weight
-exactly zero reads exactly 0. A gate may drift from norm 1 within the
-unitarity check's tolerance; on the centre's site it divides out, elsewhere
-it shifts reads by at most that order.
+The rules a read keeps (each value's probability from its own weight, the
+state unchanged) are stated in
+[`measurement.rs`](../src/engine/measurement.rs).
 
 **A projection.** It returns $p = P(b)$, refuses $p$ of zero or NaN, zeroes
 the other value's elements, and divides the site by the norm of what it
@@ -129,24 +128,16 @@ over the kept elements $x$, with $m$ their largest modulus, not as
 $\sqrt{p}$, so the site it hands the algebra, and with it the state, has a
 norm of 1 to rounding, even when $p$ is subnormal, and later projections
 stay possible. It truncates nothing, so $W$ is unchanged, and it does not
-compress the chain again: recompressing was measured 1 to 14% slower at
-the same accuracy, on H₂ phase estimation and a polyene's, as the gates
-that follow regrow the bonds it shrinks.
+compress the chain again; `CanonicalMpsEngine`'s `project`, in
+[`engine.rs`](../src/engine.rs), says why.
 
 **An expectation.** An observable $c_0 + \sum_k c_k P_k$, each $P_k$ a
 product of one-site Paulis, has the value
 
 $$c_0 + \sum_k c_k \frac{\langle \psi \vert P_k \vert \psi \rangle}{\lVert T_\text{centre} \rVert^2}.$$
 
-The division takes out a gate's drift on the centre's site, and a drift
-elsewhere shifts the value by at most the order of the unitarity check's
-tolerance. The sites left of the centre are isometries from the left, so
-the environment on any bond left of the centre is the identity, and
-likewise from the right; a term's contraction runs only over the sites
-between its own and the centre. The terms are evaluated together:
-
-- the sites between the terms and the centre are read once each, whatever
-  the number of terms;
-- the terms are walked as a trie of their factors, sorted by site, from the
-  environments of the plain chain;
-- a term's last factor is closed by a right environment with its Pauli.
+The sites left of the centre are isometries from the left, so the
+environment on any bond left of the centre is the identity, and likewise
+from the right; a term's contraction runs only over the sites between its
+own and the centre. How the terms are evaluated together, each site read
+once, is in [`expectation.rs`](../src/engine/expectation.rs).

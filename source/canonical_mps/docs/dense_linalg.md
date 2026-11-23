@@ -21,11 +21,10 @@ parts:
 The `conformance` feature makes the module public, so that another crate's
 test fakes can compute as a backend library would.
 
-**The problem.** The matrices met when simulating MPS are rank-deficient most of
-the time, with repeated singular values, and general SVDs have returned factors
-that do not give back the matrix on them, without reporting a failure
-([`svd.rs`](../src/dense_linalg/svd.rs)'s header gives the cases). A simulator
-that acts on such values truncates the wrong state, silently.
+**The problem.** General SVDs have returned factors that do not give back
+the matrix, without reporting a failure, on the matrices MPS simulations
+meet ([`svd.rs`](../src/dense_linalg/svd.rs)'s header gives why that
+matters, and the cases).
 
 **The approach.** The SVD's rules are the module's own, written once: a trim
 that reduces the matrix to full rank, leaving out only rounding; one-sided
@@ -41,8 +40,10 @@ to rounding, not checked.
 
 [`Svd::of`](../src/dense_linalg/svd.rs) answers
 $a = u \operatorname{diag}(s) v^\dagger$ with $r$ values,
-$1 \le r \le \min(\text{rows}, \text{cols})$, nonincreasing. Its guarantees and
-its steps name the parts of its algorithm with these terms:
+$1 \le r \le \min(\text{rows}, \text{cols})$, nonincreasing. Its
+guarantees (checked factors, only rounding's singular values left out, any
+scale) are stated in [`svd.rs`](../src/dense_linalg/svd.rs)'s header; its
+steps name the parts of its algorithm with these terms:
 
 - **The trim:** a column-pivoted QR $a P = Q R$, whose rows of $R$ of
   smallest norm are dropped while their joint norm stays within rounding.
@@ -50,26 +51,6 @@ its steps name the parts of its algorithm with these terms:
   the SVD of $a$ follows from $W$'s.
 - **The rotations:** one-sided Jacobi rotations of $W$'s columns, LAPACK
   `zgesvj`'s rules.
-
-It guarantees:
-
-- **Checked factors:** $u \operatorname{diag}(s) v^\dagger$ gives back $a$, and
-  $u$ and $v$ are orthonormal, to the bounds of LAPACK's SVD tests
-  ([`svd/checks.rs`](../src/dense_linalg/svd/checks.rs)), else
-  [`SvdError::FailedChecks`](../src/dense_linalg/svd.rs); when the rotations
-  still rotate after their last sweep,
-  [`SvdError::DidNotConverge`](../src/dense_linalg/svd.rs). A matrix with an
-  entry that is not finite fails the checks, before any work.
-- **Only rounding left out:** the values left out
-  ($r < \min(\text{rows}, \text{cols})$) are those of the trim's dropped rows,
-  whose joint norm is within $\max(\text{rows}, \text{cols}) \cdot \varepsilon$
-  times the largest row's, $\varepsilon$ the machine epsilon; a matrix whose
-  $R$ has $r$ rows each above that bound and the others jointly within it
-  gets exactly $r$ values (for instance a product of random factors with $r$
-  columns, whose rank is $r$); the zero matrix gives one value, 0.
-- **Any scale:** down to subnormal entries, short of matrices whose
-  singular values are too small or too large to store, which the checks
-  refuse.
 
 It runs these steps:
 

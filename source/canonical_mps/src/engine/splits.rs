@@ -1,11 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Truncation: the split of two neighbours, a gate applied, back into two
-//! sites, by one [`gate_split`](SiteAlgebra::gate_split), the one place
-//! where the engine truncates the state's bonds to keep the state small;
-//! an MPO's factorisation drops only an operator's values at or below
-//! [`OPERATOR_RANK_CUTOFF`](super::policy::OPERATOR_RANK_CUTOFF) relative.
+//! Splits: a gate on two neighbours, one of them the centre, applied and
+//! split back into two sites by one [`gate_split`](SiteAlgebra::gate_split),
+//! the one place where the engine truncates the state's bonds to keep the
+//! state small.
 //!
 //! A window on two neighbours ends in one split, its operator the split's
 //! gate; a window applied as a matrix product operator
@@ -15,19 +14,10 @@
 //! decomposition is the state's Schmidt decomposition across the cut:
 //! keeping the largest values gives the closest state, in norm, of that
 //! bond, and loses exactly the weight of the dropped squares. The rules a
-//! caller relies on are stated on [`CanonicalMpsEngine`] (Truncation);
-//! the split carries them out:
-//!
-//! - **What it keeps.** It passes the algebra the engine's cutoff and the
-//!   capacity's bond at the cut, and the algebra truncates.
-//! - **The weight.** It multiplies the state's retained weight by the
-//!   fraction the algebra reports, and fails with
-//!   [`CanonicalMpsError::WeightUnderflow`] instead of storing a weight
-//!   below the smallest normal `f64`.
-//! - **Where the centre goes.** The kept values go into the side the
-//!   caller names, which becomes the centre.
-//! - **What it reports.** It counts the split and records its bond as the
-//!   largest at rest.
+//! caller relies on are stated on [`CanonicalMpsEngine`] (Truncation):
+//! the split multiplies the retained weight by the fraction the algebra
+//! reports, and fails with [`CanonicalMpsError::WeightUnderflow`] instead
+//! of storing a weight below the smallest normal `f64`.
 //!
 //! The windows' operators are unitary and the chain's norm about 1, so the
 //! gated pair is never zero, as [`GateSplitCall`] requires. A non-unitary
