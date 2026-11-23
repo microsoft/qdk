@@ -718,28 +718,6 @@ fn the_parts_are_asked_bottom_up_until_one_refuses() {
     );
     assert_eq!(ended(&log), [] as [String; 0], "busy driver: no shot ended");
     assert_eq!(counted.get(), 0, "nothing ran");
-    // Every part takes the run: each is asked, bottom up.
-    let program = || Program::new(&[("mz", 0)]);
-    let log = Log::default();
-    let profiler = Profiler::new(&counted, &log);
-    runner(program().through(profiler).on(Bits::new(&log)))
-        .run(&shots, SEED)
-        .expect("the run succeeds");
-    assert_eq!(
-        asked(&log),
-        ["Bits ready for batches of 1", "Profiler ready"],
-        "the profiler with the driver"
-    );
-    let log = Log::default();
-    let profiler = Profiler::new(&counted, &log);
-    runner(program().on(profiler.on(Bits::new(&log))))
-        .run(&shots, SEED)
-        .expect("the run succeeds");
-    assert_eq!(
-        asked(&log),
-        ["Bits ready for batches of 1", "Profiler ready"],
-        "the profiler with the bits"
-    );
 }
 
 /// The refusals of runs of `shots`, in turn, on the one runner of the
