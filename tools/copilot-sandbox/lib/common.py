@@ -111,7 +111,7 @@ def make_process_env() -> dict[str, str]:
     return {
         key: value
         for key, value in os.environ.items()
-        if not key.startswith(("GIT_", "COMPOSE_", "QDK_SANDBOX_", "QDK_SEED_"))
+        if not key.startswith(("GIT_", "QDK_SANDBOX_", "QDK_SEED_"))
         and key not in {"COPILOT_GITHUB_TOKEN", "GH_TOKEN", "QDK_BRANCH"}
     }
 
