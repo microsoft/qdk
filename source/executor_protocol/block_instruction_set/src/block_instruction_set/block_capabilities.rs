@@ -108,12 +108,8 @@ impl BlockCapabilitiesMismatch {
         self.readout_parity
     }
 
-    /// Each of its mismatches alone, with how two parts state the same
-    /// need of it: a short count, the same count of its block type;
-    /// readout parities, the same readout parities. The set's
-    /// [`split_mismatch`](executor_protocol_core::InstructionSet::split_mismatch),
-    /// so that a composition fault names, for each, the part that stated
-    /// it.
+    /// Its pieces, as [`BlockInstructionSet`]'s `split_mismatch` gives
+    /// them.
     pub(crate) fn split(self) -> Vec<(Self, SameNeed<BlockInstructionSet>)> {
         let blocks = self.blocks.into_iter().map(|count| {
             let block_type = count.block_type.clone();
