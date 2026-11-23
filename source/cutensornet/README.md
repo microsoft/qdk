@@ -61,9 +61,9 @@ Today the crate holds:
   on it, and says what to fix.
 
 The extension points are an MPS simulation method and a library. An MPS
-simulation method, written once against `tensornet::MpsEngine`, runs on
-this engine as on `canonical_mps`'s `CpuMpsEngine`, and runs on the GPU
-unchanged. A library bound later is one module under
+simulation method, written once against `tensornet::MpsEngine`, runs
+unchanged on this engine, on the GPU, as on `canonical_mps`'s
+`CpuMpsEngine`. A library bound later is one module under
 [`src/libraries/`](src/libraries), listed in `LoadedLibraries`, implementing
 [`NativeLibrary`](src/libraries.rs) for discovery and
 [`LibrarySetupGuide`](src/libraries/setup_guide.rs) for the setup check
@@ -414,7 +414,7 @@ libraries, and the native calls' tests include the cases they also run
 on a GPU; these tests are ignored unless asked for (`--ignored`), as they
 need a GPU.
 
-The [unit tests](src/tests) drive each way discovery fails without
+Discovery's [unit tests](src/tests) drive each way it fails without
 NVIDIA's libraries: on any Unix host, refused libraries, missing
 functions, failed version probes, refused versions, and bad override
 variables, each reported with the others; on Linux with glibc, the tests
