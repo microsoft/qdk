@@ -190,7 +190,7 @@ def tensornetwork_qir(
 
     Noise is not yet supported by this method, and is planned: a call to a
     noise intrinsic (a function with the ``qdk_noise`` attribute) or to
-    readout noise, or a loss check, raises ``ValueError``.
+    readout noise, or a loss check, is refused (``ValueError``, below).
 
     :param input: The QIR program, Base or Adaptive profile, as text or
         bitcode.
@@ -220,7 +220,11 @@ def tensornetwork_qir(
         does not run (a noise intrinsic, a readout-noise call, a loss check,
         a two-qubit gate given one qubit twice), a max bond dimension too
         large for the program's qubits, or a call the engine refuses (a
-        rotation by an angle that is not finite, say).
+        rotation by an angle that is not finite, say). A readout-noise call,
+        a loss check, one qubit given twice where it is computed at run
+        time, a max bond dimension too large, and a call the engine refuses
+        are found once the engine is made: when the GPU engine cannot be
+        made, its ``OSError`` comes first.
     :raises TypeError: When ``options`` is not an :class:`MpsOptions`,
         ``queries`` is not iterable (a bare :class:`Sample`, say), a query
         is not a :class:`Sample`, ``engine`` is not a ``str``, or ``input``
@@ -298,8 +302,8 @@ def check_tensornetwork_setup() -> TensorNetworkSetup:
     It checks the libraries (each library's override,
     ``QDK_CUTENSORNET_LIBRARY`` or ``QDK_CUDART_LIBRARY``, alone when set; else
     the copy ``pip install "qdk[tensornetwork]"`` installed; else the
-    system's), the driver, CUDA device 0 and a one-gate trial run, as the
-    report it returns lists them.
+    system's), the driver, CUDA device 0 and a two-qubit trial run on that
+    device, as the report it returns lists them.
 
     ::
 

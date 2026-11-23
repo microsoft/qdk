@@ -18,9 +18,12 @@
 //! device 0 (`CudaMpsEngine`, on cuTensorNet), whose libraries discovery
 //! finds, with the files of NVIDIA's wheels that Python found; or `"cpu"`,
 //! the same engine on the host CPU (`CpuMpsEngine`), which needs no setup.
-//! The program and the settings are checked before the run (`ValueError`).
-//! Which exception each run failure raises: `tensor_network/run_failure.rs`;
-//! leaving the Python thread and Ctrl-C: `tensor_network/detached_run.rs`.
+//! The program is built and the settings are checked before the engine is
+//! made (`ValueError`); the method's own refusals (a readout-noise call, a
+//! max bond dimension too large, say) come from the run, once the engine is
+//! made. Which exception each run failure raises:
+//! `tensor_network/run_failure.rs`; leaving the Python thread and Ctrl-C:
+//! `tensor_network/detached_run.rs`.
 
 mod detached_run;
 mod run_failure;

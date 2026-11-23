@@ -330,6 +330,37 @@ def test_an_adaptive_program_steers_its_shots_later_gates(engine):
     assert {bits(row) for row in rows} == {"00", "11"}
 
 
+@pytest.mark.parametrize(
+    "start, recorded",
+    [
+        ("000", "000"),
+        ("010", "010"),
+        ("100", "100"),
+        ("110", "111"),
+        ("001", "001"),
+        ("011", "011"),
+        ("101", "101"),
+        ("111", "110"),
+    ],
+)
+def test_a_ccx_flips_its_target_when_both_controls_are_one(engine, start, recorded):
+    """A Base profile program's `ccx` (the Toffoli gate), on two controls and
+    a target set to `start`: each shot records the target flipped when both
+    controls are 1, and every qubit unchanged otherwise."""
+    flips = "\n".join(f"x q[{k}];" for k, bit in enumerate(start) if bit == "1")
+    qir = qasm(f"""
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        qubit[3] q;
+        bit[3] c;
+        {flips}
+        ccx q[0], q[1], q[2];
+        c = measure q;
+        """)
+    (rows,) = run(qir, [Sample(2)], engine=engine)
+    assert [bits(row) for row in rows] == [recorded, recorded]
+
+
 def test_the_report_gives_the_largest_bond_the_discarded_weight_and_the_max(engine):
     """A GHZ state at max bond dimension 16: the report gives its largest
     bond, 2; nothing discarded, as every bond fits; and the max bond
@@ -463,6 +494,8 @@ _MEASURE_AND_RECORD = """
   call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
   call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)"""
 
+_READOUT_NOISE = "call void @__quantum__rt__readout_noise(double 0.1, double 0.1, %Result* inttoptr (i64 0 to %Result*))"
+
 
 @pytest.mark.parametrize(
     "call, message",
@@ -480,11 +513,7 @@ _MEASURE_AND_RECORD = """
             r"`cx`.*qubit 0",
             id="a two-qubit gate given one qubit twice, the qubit computed at run time",
         ),
-        pytest.param(
-            "call void @__quantum__rt__readout_noise(double 0.1, double 0.1, %Result* inttoptr (i64 0 to %Result*))",
-            "readout_noise",
-            id="readout noise",
-        ),
+        pytest.param(_READOUT_NOISE, "readout_noise", id="readout noise"),
         pytest.param(
             "call void @bit_flip_noise(%Qubit* inttoptr (i64 0 to %Qubit*))",
             "bit_flip_noise",
@@ -540,15 +569,29 @@ def unusable_setup(monkeypatch):
     monkeypatch.setenv("QDK_CUTENSORNET_LIBRARY", "libcutensornet.so.2")
 
 
+@pytest.mark.parametrize(
+    "program",
+    [
+        pytest.param(BELL, id="a program the method runs"),
+        pytest.param(
+            adaptive_qir(
+                f"  {_READOUT_NOISE}{_MEASURE_AND_RECORD}", qubits=1, results=1
+            ),
+            id="a readout-noise call, found once the engine is made",
+        ),
+    ],
+)
 def test_a_setup_problem_raises_os_error_with_the_setup_checks_report(
-    unusable_setup,
+    unusable_setup, program
 ):
     """A user whose setup cannot work (here, an override that is not an
     absolute path) runs on the default engine, the GPU's, and gets an
     `OSError` whose message is the report `check_tensornetwork_setup` gives,
-    with the fix, then a last line offering the CPU engine."""
+    with the fix, then a last line offering the CPU engine. A fault of the
+    program that is found once the engine is made (a readout-noise call)
+    does not change that: no engine was made."""
     with pytest.raises(OSError) as raised:
-        tensornetwork_qir(BELL, [Sample(1)])
+        tensornetwork_qir(program, [Sample(1)])
     message = str(raised.value)
     setup = check_tensornetwork_setup()
     assert message.startswith(setup.report + "\n")
