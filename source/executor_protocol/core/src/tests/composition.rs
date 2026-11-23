@@ -28,7 +28,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::pin::pin;
 use std::rc::Rc;
 use std::sync::mpsc;
-use std::task::{Context, Waker};
+use std::task::{Context, Poll, Waker};
 use std::thread;
 use std::time::Duration;
 
@@ -579,23 +579,33 @@ fn a_joined_part_is_named_for_its_top_part() {
 }
 
 /// An encoding joined on bits, used by a user's code as an executor and
-/// sent a batch before any run got it ready: it panics, saying that each
-/// run gets a part ready before calling it, whether its halves fit, where
-/// no run has yet given its boundary the limits each batch is checked
-/// against, or do not, where each run's `ready` would refuse with their
-/// mismatch.
+/// sent a batch before a run got it ready: once polled, its `execute`
+/// panics, saying that each run gets a part ready before calling it. It
+/// does whether its halves fit, where no run has yet given its boundary
+/// the limits each batch is checked against, or do not, where each run's
+/// `ready` refuses them, even once one has.
 #[test]
-fn a_joined_part_called_before_its_ready_panics() {
+fn a_joined_part_called_before_a_run_got_it_ready_panics() {
     let log = Log::default();
     let shots = ShotSet::ids(0..1);
     let instructions = [coin_gate("h", 0)];
-    for (row, mut joined) in [
-        ("fit halves", Spread::new(1, &log).on(Bits::new(&log))),
+    let unfit = || Spread::new(1, &log).on(Bits::accepting(Measuring::new(&["x", "mz"]), &log));
+    for (row, mut joined, readied_first) in [
         (
-            "unfit halves",
-            Spread::new(1, &log).on(Bits::accepting(Measuring::new(&["x", "mz"]), &log)),
+            "fit halves",
+            Spread::new(1, &log).on(Bits::new(&log)),
+            false,
         ),
+        ("unfit halves", unfit(), false),
+        ("unfit halves, after a refused ready", unfit(), true),
     ] {
+        if readied_first {
+            let ready = pin!(joined.ready()).poll(&mut Context::from_waker(Waker::noop()));
+            assert!(
+                matches!(ready, Poll::Ready(Err(_))),
+                "{row}: ready refuses halves that do not fit"
+            );
+        }
         let batches = [Batch::new(&shots, &instructions, 0)];
         let mut readouts = [BatchReadouts::new(1, 0)];
         let panic = catch_unwind(AssertUnwindSafe(|| {

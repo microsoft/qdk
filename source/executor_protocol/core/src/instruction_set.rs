@@ -93,7 +93,7 @@ pub trait InstructionSet:
     /// stated or not, as a need of nothing is within any limits: a chain of
     /// parts that state nothing composes and runs on any part below. A
     /// part that limits nothing states no provision at all (`None`), never
-    /// this value, which as a provision could limit everything.
+    /// this value, which as a provision may limit, such as to no qubit.
     fn needs_nothing() -> Self::SetCapabilities;
 
     /// `mismatch`, a fit's of the set's capabilities, split into one piece
@@ -108,7 +108,10 @@ pub trait InstructionSet:
     /// By default, the whole mismatch is one piece, a need two parts state
     /// alike when their capabilities are equal: a set whose capabilities
     /// hold several independent needs overrides it, or its faults name the
-    /// last part to change any of them.
+    /// last part to change any of them. An override puts each need of
+    /// `mismatch` in exactly one piece, and gives at least one piece: the
+    /// protocol, which does not check it, relies on it to name a part for
+    /// each need, and to refuse every mismatch with a fault.
     fn split_mismatch(
         mismatch: <Self::SetCapabilities as BoundaryCompatible>::Mismatch,
     ) -> Vec<(

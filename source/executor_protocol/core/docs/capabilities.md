@@ -14,13 +14,13 @@ needs it holds; a provision, for the requirements it takes. What arrives
 fits a provision when the first set is inside the second: every need
 it holds is within the limits.
 
-| Value                                                                       | As a requirement                                                           | As a provision                                                                |
-| --------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `None`                                                                      | not one: a requirement is always a value                                   | no limit, which every requirement fits: a part's default `provides`           |
-| nothing stated: `Resources::nothing_stated()`, `Features::nothing_stated()` | no need of any resource or feature                                         | no limit on any resource or feature                                           |
-| the requirement of nothing: these, with the set's `needs_nothing()`         | no need, which fits every provision: what arrives before any run says more | never one: its set's part would read as the tightest limits, such as no qubit |
-| a stated value                                                              | the needs it states, such as 3 qubits a shot                               | the limits it states, such as at most 8 qubits a shot                         |
-| a field left unstated, inside a stated value                                | no need of that field                                                      | no limit on that field                                                        |
+| Value                                                                       | As a requirement                                                           | As a provision                                                                                 |
+| --------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `None`                                                                      | not one: a requirement is always a value                                   | no limit, which every requirement fits: a part's default `provides`                            |
+| nothing stated: `Resources::nothing_stated()`, `Features::nothing_stated()` | no need of any resource or feature                                         | no limit on any resource or feature                                                            |
+| the requirement of nothing: these, with the set's `needs_nothing()`         | no need, which fits every provision: what arrives before any run says more | never one (law (c)): depending on the set, its part can read as tight limits, such as no qubit |
+| a stated value                                                              | the needs it states, such as 3 qubits a shot                               | the limits it states, such as at most 8 qubits a shot                                          |
+| a field left unstated, inside a stated value                                | no need of that field                                                      | no limit on that field                                                                         |
 
 One requirement **requires no more than** another when it fits every
 provision the other fits, as [`Capabilities`](../src/capabilities.rs)
@@ -38,8 +38,8 @@ says field by field. The protocol relies on three laws:
   ([`src/tests/composition/runner.rs`](../src/tests/composition/runner.rs)),
   as [The rule](#the-rule) says.
 - **(c) A value never crosses sides untranslated.** A part that limits
-  nothing provides `None`, never the requirement of nothing, which as a
-  provision would refuse every need
+  nothing provides `None`, never the requirement of nothing, whose set's
+  part, read as a provision, may limit, such as to no qubit
   ([`src/tests/roles/executor.rs`](../src/tests/roles/executor.rs),
   [`src/tests/roles/adapter.rs`](../src/tests/roles/adapter.rs)); and a
   requirement is compared with a provision by the fit alone.
