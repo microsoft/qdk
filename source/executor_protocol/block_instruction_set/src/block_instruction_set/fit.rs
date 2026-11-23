@@ -114,8 +114,8 @@ impl BoundaryCompatible for BlockInstructionSet {
         if !other_set.is_empty() {
             let other_set = InstructionMismatch::OtherSet {
                 mnemonics: other_set,
-                sending_set: self.name.clone(),
-                receiving_set: receiver.name.clone(),
+                sending_set_name: self.name.clone(),
+                receiving_set_name: receiver.name.clone(),
             };
             mismatches.insert(other_set_at, other_set);
         }
@@ -241,9 +241,9 @@ pub enum InstructionMismatch {
         /// The instructions' mnemonics, in the sent set's order.
         mnemonics: Vec<String>,
         /// The name of the set the instructions are sent in.
-        sending_set: String,
+        sending_set_name: String,
         /// The name of the receiver's set.
-        receiving_set: String,
+        receiving_set_name: String,
     },
     /// The receiver has no instruction of this mnemonic, nor one doing the
     /// same with the same blocks, parameters and readouts.
@@ -284,8 +284,8 @@ impl fmt::Display for InstructionMismatch {
         match self {
             InstructionMismatch::OtherSet {
                 mnemonics,
-                sending_set,
-                receiving_set,
+                sending_set_name,
+                receiving_set_name,
             } => {
                 f.write_str("no meaning is declared for ")?;
                 let mut separator = "";
@@ -295,7 +295,7 @@ impl fmt::Display for InstructionMismatch {
                 }
                 write!(
                     f,
-                    ", and the sets' names, `{sending_set}` and `{receiving_set}`, \
+                    ", and the sets' names, `{sending_set_name}` and `{receiving_set_name}`, \
                      differ, so a mnemonic proves nothing"
                 )
             }

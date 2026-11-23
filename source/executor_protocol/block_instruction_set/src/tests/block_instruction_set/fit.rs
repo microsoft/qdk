@@ -107,8 +107,8 @@ fn undeclared_instructions_match_by_mnemonic_between_sets_of_one_name() {
 fn undeclared_instructions_of_sets_of_other_names_are_refused_once() {
     let other_set = |mnemonics: &[&str]| InstructionMismatch::OtherSet {
         mnemonics: mnemonics.iter().map(|&m| m.to_owned()).collect(),
-        sending_set: "Gates".to_owned(),
-        receiving_set: "Device".to_owned(),
+        sending_set_name: "Gates".to_owned(),
+        receiving_set_name: "Device".to_owned(),
     };
     for (row, sent, accepted, expected) in [
         (
@@ -467,8 +467,8 @@ fn a_mismatch_names_its_instruction_and_what_differs() {
         (
             InstructionMismatch::OtherSet {
                 mnemonics: vec![cz(), "ccx".to_owned()],
-                sending_set: "Gates".to_owned(),
-                receiving_set: "Device".to_owned(),
+                sending_set_name: "Gates".to_owned(),
+                receiving_set_name: "Device".to_owned(),
             },
             vec!["cz", "ccx", "`Gates`", "`Device`"],
             None,
