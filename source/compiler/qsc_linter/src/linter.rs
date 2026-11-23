@@ -10,7 +10,7 @@ use crate::{
     lints::{ast::AstLint, hir::HirLint},
 };
 use miette::{Diagnostic, LabeledSpan};
-use qsc_data_structures::span::Span;
+use qsc_data_structures::{span::Span, target::TargetCapabilityFlags};
 use qsc_frontend::compile::{CompileUnit, PackageStore};
 use qsc_hir::hir::{Item, ItemId};
 use rustc_hash::FxHashMap;
@@ -18,14 +18,17 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 
 /// The entry point to the linter. It takes a [`qsc_frontend::compile::CompileUnit`]
-/// as input and outputs a [`Vec<Lint>`](Lint).
+/// and the capabilities of the target it is compiled for as input,
+/// and outputs a [`Vec<Lint>`](Lint).
 #[must_use]
 pub fn run_lints(
     package_store: &PackageStore,
     compile_unit: &CompileUnit,
+    capabilities: TargetCapabilityFlags,
     config: Option<&[LintOrGroupConfig]>,
 ) -> Vec<Lint> {
-    let mut lints = run_lints_without_deduplication(package_store, compile_unit, config);
+    let mut lints =
+        run_lints_without_deduplication(package_store, compile_unit, capabilities, config);
     remove_duplicates(&mut lints);
     lints
 }
@@ -37,11 +40,13 @@ pub fn run_lints(
 pub(crate) fn run_lints_without_deduplication(
     package_store: &PackageStore,
     compile_unit: &CompileUnit,
+    capabilities: TargetCapabilityFlags,
     config: Option<&[LintOrGroupConfig]>,
 ) -> Vec<Lint> {
     let compilation = Compilation {
         package_store,
         compile_unit,
+        capabilities,
     };
 
     let unfolded_config = config.map(unfold_groups);
@@ -101,6 +106,8 @@ pub(crate) fn remove_duplicates<T: Eq + std::hash::Hash + Clone>(vec: &mut Vec<T
 pub(crate) struct Compilation<'a> {
     pub package_store: &'a PackageStore,
     pub compile_unit: &'a CompileUnit,
+    /// The capabilities of the target the code is compiled for.
+    pub capabilities: TargetCapabilityFlags,
 }
 
 impl Compilation<'_> {

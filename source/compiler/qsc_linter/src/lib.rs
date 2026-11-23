@@ -10,7 +10,8 @@
 //! # Usage
 //!
 //! The entry points to the linter is the `run_lints` function, which takes
-//! a [`qsc_frontend::compile::CompileUnit`] as input and outputs a [`Vec<Lint>`](Lint).
+//! a [`qsc_frontend::compile::CompileUnit`] and the capabilities of the target
+//! it is compiled for as input, and outputs a [`Vec<Lint>`](Lint).
 //!
 //! ## Example
 //!
@@ -20,8 +21,8 @@
 //!
 //! let unit: CompileUnit = compile(...);
 //!
-//! // The second argument is an optional user configuration.
-//! let lints: Vec<Lint> = run_ast_lints(&package, None);
+//! // The last argument is an optional user configuration.
+//! let lints: Vec<Lint> = run_lints(&package_store, &unit, capabilities, None);
 //! ```
 //!
 //! # How to add a new Lint

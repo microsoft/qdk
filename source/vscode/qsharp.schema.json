@@ -73,7 +73,8 @@
                   "deprecatedWithOperator",
                   "deprecatedDoubleColonOperator",
                   "ambiguousUnaryOperatorAfterIf",
-                  "avoidNamespaceBlock"
+                  "avoidNamespaceBlock",
+                  "preferMResetZ"
                 ]
               },
               "level": {
