@@ -24,8 +24,11 @@ mod runner;
 
 use std::any::type_name;
 use std::cell::Cell;
+use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::pin::pin;
 use std::rc::Rc;
 use std::sync::mpsc;
+use std::task::{Context, Waker};
 use std::thread;
 use std::time::Duration;
 
@@ -38,8 +41,8 @@ use crate::tests::fake_parts::{
 };
 use crate::tests::runner;
 use crate::{
-    CompositionFaults, DriveError, Failure, Features, PartId, Resources, RunError, RunRefusal,
-    RunRequirement, Runner, ShotSet, StatesLimits, TranslatingAdapter,
+    Batch, BatchReadouts, CompositionFaults, DriveError, Failure, Features, PartId, Resources,
+    RunError, RunRefusal, RunRequirement, Runner, Seed, ShotSet, StatesLimits, TranslatingAdapter,
 };
 
 const SEED: u64 = 7;
@@ -572,6 +575,42 @@ fn a_joined_part_is_named_for_its_top_part() {
         ),
     ] {
         assert_eq!(named, top, "{row}");
+    }
+}
+
+/// An encoding joined on bits, used by a user's code as an executor and
+/// sent a batch before any run got it ready: it panics, saying a part is
+/// got ready before it is called, whether its halves fit, where no run has
+/// yet given its boundary the limits each batch is checked against, or
+/// do not, where each run's `ready` would refuse with their mismatch.
+#[test]
+fn a_joined_part_called_before_its_ready_panics() {
+    let log = Log::default();
+    let shots = ShotSet::ids(0..1);
+    let instructions = [coin_gate("h", 0)];
+    for (row, mut joined) in [
+        ("fit halves", Spread::new(1, &log).on(Bits::new(&log))),
+        (
+            "unfit halves",
+            Spread::new(1, &log).on(Bits::accepting(Measuring::new(&["x", "mz"]), &log)),
+        ),
+    ] {
+        let batches = [Batch::new(&shots, &instructions, 0)];
+        let mut readouts = [BatchReadouts::new(1, 0)];
+        let panic = catch_unwind(AssertUnwindSafe(|| {
+            let mut execute = pin!(joined.execute(&batches, Seed::new(SEED), &mut readouts));
+            let _ = execute
+                .as_mut()
+                .poll(&mut Context::from_waker(Waker::noop()));
+        }))
+        .expect_err(row);
+        let message = (panic.downcast_ref::<String>().map(String::as_str))
+            .or_else(|| panic.downcast_ref::<&str>().copied())
+            .unwrap_or_else(|| panic!("{row}: the panic has a message"));
+        assert!(
+            message.contains("ready"),
+            "{row}: {message:?} says a part is got ready before it is called"
+        );
     }
 }
 

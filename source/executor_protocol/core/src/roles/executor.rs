@@ -142,6 +142,10 @@ pub trait Executor {
     /// protocol's boundary, which answers one of no batches `Ok` itself,
     /// so an executor need not handle that case.
     ///
+    /// A joined part, such as an adapter joined
+    /// [`on`](crate::AdapterJoins::on) an executor, runs only on a run:
+    /// called before its [`ready`](Self::ready), it panics.
+    ///
     /// Three rules hold between the part that calls it and the executor:
     ///
     /// - the caller puts a shot in at most one batch of an `execute`;
