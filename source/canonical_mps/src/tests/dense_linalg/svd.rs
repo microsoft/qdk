@@ -171,39 +171,93 @@ mod accuracy {
     use crate::dense_linalg::{Matrix, Qr};
     use num_complex::Complex64;
 
-    /// The upper bidiagonal `[[1, 0, 0], [0, d, ε], [0, 0, d + ulp]]`, with
-    /// `d` = 0.928…: a degenerate pair one ulp apart, coupled by `ε`, as an
-    /// MPS simulation meets them (its singular values come in degenerate
-    /// pairs), here alone. faer 0.24.4's QR algorithm reported that it does
-    /// not converge on it, and its divide and conquer took the same QR
-    /// algorithm at this size. The SVD gives the pair to rounding, and so
-    /// with a phase on each row, which leaves the singular values as they
-    /// are and makes the products of the pair's columns complex.
+    /// Degenerate pairs, as an MPS simulation meets them (its singular
+    /// values come in degenerate pairs), here alone, coupled at the
+    /// threshold's scale (`√n · ε` of the pair's norms, `n` the smaller
+    /// side). The SVD gives each pair to rounding, and so with a phase on
+    /// each row, which leaves the singular values as they are and makes the
+    /// products of the pair's columns complex:
+    /// - the upper bidiagonal `[[1, 0, 0], [0, d, ε], [0, 0, d + ulp]]`,
+    ///   with `d` = 0.928…: a pair one ulp apart, coupled by `ε`. faer
+    ///   0.24.4's QR algorithm reported that it does not converge on it,
+    ///   and its divide and conquer took the same QR algorithm at this size;
+    /// - the same pair in a 64 × 64 matrix, coupled by `30 ε`: above the
+    ///   threshold (`8 ε`), so the pair is rotated. A threshold of `n · ε`
+    ///   (`64 ε`) leaves it, and the values 15 ε off;
+    /// - [`paired_by_a_rotation`]: a pair that only a rotation of two other
+    ///   columns brings together, whose coupling is tested again once one
+    ///   of its columns rotates. Skipping it because its other column has
+    ///   not rotated leaves the values about 8 ε off.
     #[test]
-    fn decomposes_a_degenerate_pair_one_ulp_apart() {
+    fn decomposes_degenerate_pairs_to_rounding() {
         let (d, d_next) = (9.282_350_173_388_935e-1, 9.282_350_173_388_936e-1);
-        for phase in [0.0, 0.7] {
-            let a = Matrix::from_fn(3, 3, |i, j| {
-                let x = match (i, j) {
-                    (0, 0) => 1.0,
-                    (1, 1) => d,
-                    (1, 2) => f64::EPSILON,
-                    (2, 2) => d_next,
-                    _ => 0.0,
-                };
-                #[expect(clippy::cast_precision_loss, reason = "a row index")]
-                let row_phase = Complex64::from_polar(1.0, phase * i as f64);
-                row_phase * x
-            });
-            let values = check_svd(&a);
-            assert_eq!(values.len(), 3, "phase {phase}");
-            for (value, expected) in values.iter().zip([1.0, d_next, d]) {
-                assert!(
-                    (value - expected).abs() <= 2.0 * f64::EPSILON,
-                    "phase {phase}"
-                );
+        let pair = |n, coupling| {
+            let entries = vec![(0, 0, 1.0), (1, 1, d), (1, 2, coupling), (2, 2, d_next)];
+            let [larger, smaller] = upper_triangular_values(d, coupling, d_next);
+            (n, entries, [1.0, larger, smaller])
+        };
+        let scenes = [
+            pair(3, f64::EPSILON),
+            pair(64, 30.0 * f64::EPSILON),
+            paired_by_a_rotation(),
+        ];
+        for (n, entries, expected) in scenes {
+            for phase in [0.0, 0.7] {
+                let mut elements = vec![Complex64::new(0.0, 0.0); n * n];
+                for &(i, j, x) in &entries {
+                    #[expect(clippy::cast_precision_loss, reason = "a row index")]
+                    let row_phase = Complex64::from_polar(1.0, phase * i as f64);
+                    elements[i + n * j] = row_phase * x;
+                }
+                let values = check_svd(&Matrix::new(n, n, elements));
+                assert_eq!(values.len(), 3, "n {n}, phase {phase}");
+                for (value, expected) in values.iter().zip(expected) {
+                    assert!(
+                        (value - expected).abs() <= 2.0 * f64::EPSILON,
+                        "n {n}, phase {phase}: {values:?} vs {expected}"
+                    );
+                }
             }
         }
+    }
+
+    /// The singular values of `[[a, b], [0, e]]`, larger first.
+    fn upper_triangular_values(a: f64, b: f64, e: f64) -> [f64; 2] {
+        let sum = (a + e).hypot(b);
+        let difference = (a - e).hypot(b);
+        [f64::midpoint(sum, difference), (sum - difference) / 2.0]
+    }
+
+    /// The entries `(row, column, value)` of a 64 × 64 matrix of rank 3,
+    /// and its values. The pivoted QR keeps its rows, up to a phase each,
+    /// and the rotations see them as columns:
+    /// - row 0 is `e₀` but for `20 ε` and `−20 ε` in columns 1 and 2: it
+    ///   couples to rows 1 and 2 by `15 ε` and `−10 ε`, each below the
+    ///   threshold, and is never rotated in the first sweep;
+    /// - rows 1 and 2, of squared norms 4 and 1.75, couple by 1.5, and
+    ///   their rotation leaves a column of squared norm 1, as row 0's, to
+    ///   which row 0 couples by `35 ε / √5`, above the threshold.
+    ///
+    /// The pair's values are `√(1 ± 35 ε / √5)`, up to terms of order `ε²`.
+    fn paired_by_a_rotation() -> (usize, Vec<(usize, usize, f64)>, [f64; 3]) {
+        let (r01, r02) = (20.0 * f64::EPSILON, -20.0 * f64::EPSILON);
+        let mut entries = vec![
+            (0, 0, 1.0),
+            (0, 1, r01),
+            (0, 2, r02),
+            (1, 1, 0.75),
+            (2, 2, 0.5),
+        ];
+        entries.extend((3..27).flat_map(|j| [(1, j, 0.25), (2, j, 0.25)]));
+        entries.extend((27..34).map(|j| (1, j, 0.5)));
+        entries.extend((34..37).map(|j| (1, j, 0.25)));
+        let coupling = (0.75 * r01 - 2.0 * 0.5 * r02).abs() / 5_f64.sqrt();
+        let values = [
+            4.75_f64.sqrt(),
+            (1.0 + coupling).sqrt(),
+            (1.0 - coupling).sqrt(),
+        ];
+        (64, entries, values)
     }
 
     /// A 128 × 128 matrix of rank 64, the size of a split of an MPS at
