@@ -457,11 +457,11 @@ fn a_full_piece_before_a_call_that_ends_its_batch_comes_as_the_batch() {
 }
 
 /// Split at 1, the resume after the first split given an outcome, for a
-/// result the batch writes or for one it does not: after measurements into
-/// results 0 and 1, the first a split; and after a measurement into
-/// result 0 then a division by a register holding 0, whose split holds
-/// the trap. The outcome, the resumer's fault, is reported before the
-/// program's trap.
+/// result the batch writes or for one it does not, or given two, results
+/// 3 then 0, which trap by the first: after measurements into results 0
+/// and 1, the first a split; and after a measurement into result 0 then a
+/// division by a register holding 0, whose split holds the trap. The
+/// outcome, the resumer's fault, is reported before the program's trap.
 #[test]
 fn an_outcome_given_after_a_split_is_a_trap() {
     let two_measurements = program(&[&[measure(OPID_MZ, 0, 0), measure(OPID_MZ, 1, 1), ret()]]);
@@ -476,18 +476,21 @@ fn an_outcome_given_after_a_split_is_a_trap() {
     ] {
         let program = built(&bytecode);
         let machine = QirMachine::new(&program).with_split(at_most(1));
-        for result in [0, 3] {
+        for results in [&[0][..], &[3], &[3, 0]] {
             let mut context = machine.start_shot();
             let stop = machine.resume(&mut context, &[]).expect("a context starts");
             assert!(matches!(stop, QirStop::Split([_])), "{name}: {stop:?}");
-            let outcome = QirOutcome {
-                result,
-                value: QirReadout::One,
-            };
+            let outcomes: Vec<_> = results
+                .iter()
+                .map(|&result| QirOutcome {
+                    result,
+                    value: QirReadout::One,
+                })
+                .collect();
             assert_eq!(
-                machine.resume(&mut context, &[outcome]),
-                Err(QirTrap::UnexpectedOutcome { result }),
-                "{name}, result {result}"
+                machine.resume(&mut context, &outcomes),
+                Err(QirTrap::UnexpectedOutcome { result: results[0] }),
+                "{name}, results {results:?}"
             );
         }
     }

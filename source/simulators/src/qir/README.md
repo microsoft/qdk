@@ -234,8 +234,7 @@ None changes what a shot records; each waits for the case that needs it.
   shots, would run its circuit once rather than 1,000 times (to be
   measured). Telling such a program apart before any shot takes an
   analysis of the bytecode, which must be conservative so that its "no"
-  can be trusted. The analysis and the sampled form were written and
-  tested, then removed until their first user: they return with it.
+  can be trusted.
 - **Resumers' optimizations** (grouping shots, threads) need no change
   to the machine: see the table of [Why this design](#why-this-design).
 

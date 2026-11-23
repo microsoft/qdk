@@ -144,8 +144,8 @@ the choice is a type parameter of the machine and of its stops:
 
 Under `WholeBatches`, the walk is compiled with no count of calls, so
 on the default path the walk pays nothing for the choice; a resume
-checks once for a trap held by a split, and a context holds room for
-one.
+checks twice, for a split whose batch goes on and for a trap it held,
+and a context holds room for both.
 
 Planned, each kept out until a case needs it:
 
