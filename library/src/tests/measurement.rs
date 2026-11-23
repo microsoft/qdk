@@ -1,7 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use super::test_expression;
+use super::{test_expression, test_expression_fails};
+use expect_test::expect;
 use indoc::indoc;
 use qsc::interpret::Value;
 
@@ -132,6 +133,17 @@ fn check_mreset_z() {
         }"#},
         &Value::Array(vec![Value::RESULT_ZERO, Value::RESULT_ONE].into()),
     );
+}
+
+#[test]
+fn check_joint_measurement_on_same_qubit_fails() {
+    let out = test_expression_fails(
+        "{
+            use q = Qubit();
+            Std.Measurement.MZZ(q, q)
+        }",
+    );
+    expect!["program failed: MZZ operation requires two distinct qubits."].assert_eq(&out);
 }
 
 #[test]

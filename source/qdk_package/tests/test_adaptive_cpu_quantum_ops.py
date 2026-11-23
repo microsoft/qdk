@@ -669,3 +669,28 @@ def test_branch_on_my_result(sim_type):
     qsharp.init(target_profile=TargetProfile.Adaptive_RIF)
     qir = str(qsharp.compile(MY_CORRECTION_QSHARP))
     assert set(_run(qir, shots=100, sim_type=sim_type)) == {"0"}
+
+
+# |Φ+> is a joint eigenstate of ZZ, XX and YY with parities 0, 0 and 1. ZY anticommutes
+# with ZZ, so the first MZY is random; X on the first qubit flips its ZY parity, so after
+# correcting on it the second MZY is always Zero.
+JOINT_MEASUREMENTS_QSHARP = """{
+    import Std.Measurement.*;
+    use (a, b) = (Qubit(), Qubit());
+    H(a);
+    CNOT(a, b);
+    let zz = MZZ(a, b);
+    let xx = MXX(a, b);
+    let yy = MYY(a, b);
+    if MZY(a, b) == One { X(a); }
+    let zy = MZY(a, b);
+    ResetAll([a, b]);
+    [zz, xx, yy, zy]
+}"""
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_joint_measurements_on_bell_pair(sim_type):
+    qsharp.init(target_profile=TargetProfile.Adaptive_RIF)
+    qir = str(qsharp.compile(JOINT_MEASUREMENTS_QSHARP))
+    assert set(_run(qir, shots=100, sim_type=sim_type)) == {"0010"}

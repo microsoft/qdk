@@ -776,6 +776,38 @@ def test_mx_my_do_not_reset(sim_type):
     assert {r[2] for r in results} == {"0", "1"}
 
 
+@pytest.mark.parametrize("sim_type", ["cpu", "stabilizer"])
+def test_joint_measurements_keep_bell_pair(sim_type):
+    # |Φ+> is a joint eigenstate of ZZ, XX and YY with parities 0, 0 and 1. H then S on the
+    # second qubit maps ZZ to ZY, so the rotated pair has ZY parity 0. The qubits are reused
+    # afterwards, so in Base profile `reindex_qubits` replaces each joint measurement with an
+    # ancilla parity check, which must leave the Bell pair intact for the uncompute.
+    check_qsharp(
+        """{
+            use qs = Qubit[2];
+            H(qs[0]);
+            CNOT(qs[0], qs[1]);
+            let rs = [
+                Std.Measurement.MZZ(qs[0], qs[1]),
+                Std.Measurement.MXX(qs[0], qs[1]),
+                Std.Measurement.MYY(qs[0], qs[1]),
+            ];
+            H(qs[1]);
+            S(qs[1]);
+            let zy = Std.Measurement.MZY(qs[0], qs[1]);
+            Adjoint S(qs[1]);
+            H(qs[1]);
+            CNOT(qs[0], qs[1]);
+            H(qs[0]);
+            rs + [zy, MResetZ(qs[0]), MResetZ(qs[1])]
+        }""",
+        expected=["001000"] * 10,
+        shots=10,
+        seed=SEED,
+        sim_type=sim_type,
+    )
+
+
 # ===========================================================================
 # Multi-qubit state tests
 # ===========================================================================

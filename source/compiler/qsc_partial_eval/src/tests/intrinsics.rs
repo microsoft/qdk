@@ -745,6 +745,46 @@ fn call_to_intrinsic_mresetz_adds_callable_and_generates_instruction() {
 }
 
 #[test]
+fn call_to_intrinsic_mzz_adds_callable_and_generates_instruction() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {
+                use (q0, q1) = (Qubit(), Qubit());
+                QIR.Intrinsic.__quantum__qis__mzz__body(q0, q1);
+            }
+        }
+        "#,
+    });
+    let op_callable_id = CallableId(2);
+    assert_callable(
+        &program,
+        op_callable_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__qis__mzz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Qubit
+                    [2]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    assert_block_instructions(
+        &program,
+        BlockId(0),
+        &expect![[r#"
+            Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Qubit(1), Result(0), )
+                Call id(3), args( Integer(0), Tag(0, 3), )
+                Return Integer(0)"#]],
+    );
+}
+
+#[test]
 fn calls_to_intrinsic_begin_estimate_caching_with_classical_values_always_yield_true() {
     let program = get_rir_program(indoc! {
         r#"

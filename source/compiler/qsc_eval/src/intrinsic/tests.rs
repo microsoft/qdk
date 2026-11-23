@@ -1746,6 +1746,12 @@ fn mxx_myy_mzz_mzy() {
         "",
         indoc! {r#"{
             use qs = Qubit[2];
+            X(qs[1]);
+            let res0 = QIR.Intrinsic.__quantum__qis__mzz__body(qs[0], qs[1]);
+            if Zero == res0 {
+                fail "Qubits parity in ZZ basis should measure One"
+            }
+            X(qs[1]);
             let res1 = QIR.Intrinsic.__quantum__qis__mzz__body(qs[0], qs[1]);
             if One == res1 {
                 fail "Qubits parity in ZZ basis should measure Zero"
