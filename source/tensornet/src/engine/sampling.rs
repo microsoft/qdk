@@ -11,14 +11,6 @@
 //! writes it once: an engine keeps only its own probability call
 //! ([`sample_by_conditionals`]), and every engine that uses it keeps
 //! `sample`'s promises of reproducibility, layout and memory the same way.
-//!
-//! [`sample_by_conditionals`] draws the shots in order, and each shot's
-//! values in the order of its sites, each from the next uniform of the
-//! `SplitMix64` stream of the seed (Steele, Lea and Flood, 2014). It keeps
-//! P(One) of each distinct prefix of values drawn, so shots that share a
-//! prefix ask for it once, in a tree of the prefixes: one node per distinct
-//! prefix, so the memory it keeps grows with the values drawn, not with
-//! their square.
 
 pub(crate) mod splitmix64;
 

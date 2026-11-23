@@ -11,9 +11,8 @@ use crate::Refusal;
 /// a failure with [`refusal`](Self::refusal), and drops the state after a
 /// failure.
 ///
-/// An engine's error is its own, because each fails in its own ways (a
-/// device error, a limit of its own), and holds a [`Refusal`] beside them,
-/// built from one by `From`, so that an engine's method passes a check's
+/// An engine's error holds a [`Refusal`] beside its own failures, built
+/// from one by `From`, so that an engine's method passes a check's
 /// refusal on with `?`. It displays as the refusal it holds, word for word,
 /// so a user reads the same message whatever engine refused the call.
 ///

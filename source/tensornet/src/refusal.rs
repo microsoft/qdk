@@ -4,8 +4,8 @@
 //! [`Refusal`]: why an engine refused a call whose arguments break the
 //! contract, the same on every engine.
 //!
-//! A refusal is a bug in the caller, and leaves the state unchanged; an
-//! engine's error exposes it through
+//! A refusal leaves the state unchanged, and a refusal of the arguments is
+//! a bug in the caller; an engine's error exposes a refusal through
 //! [`MpsEngineError::refusal`](crate::MpsEngineError::refusal), which
 //! tells it apart from the engine's own failures.
 
@@ -13,11 +13,8 @@
 /// [`MpsEngine`](crate::MpsEngine). Each variant names the methods that
 /// make it, and the method's `# Errors` section names the variants.
 ///
-/// Every engine refuses a call with one fault with the same refusal: each
-/// makes the refusals of the arguments with the [`checks`](crate::checks)
-/// function of its method, before the state changes. Which refusal a call
-/// with several faults gets is unspecified, but for `apply`, whose
-/// [`checks::apply`](crate::checks::apply) states the order it checks in.
+/// Every engine makes the refusals of the arguments with
+/// [`checks`](crate::checks), so all refuse a call with one fault alike.
 #[derive(Clone, Debug, PartialEq, thiserror::Error)]
 #[non_exhaustive]
 pub enum Refusal {

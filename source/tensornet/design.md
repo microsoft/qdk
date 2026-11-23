@@ -110,7 +110,7 @@ differently on another. That is why the refusals are the crate's
 (`Refusal`), made in one place (`checks`, one function per method that
 can refuse a call), and why an engine's error holds one and displays as it
 (`MpsEngineError`). Which refusal a call with several faults gets is
-unspecified (`Refusal`), so no caller relies on it, but for `apply`, which
+unspecified (`checks`), so no caller relies on it, but for `apply`, which
 refuses an operator on more than two sites as such, whatever its other
 faults (`checks::apply`).
 

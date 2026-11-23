@@ -37,10 +37,6 @@
 //! The trait states what a simulation method needs, in terms every MPS
 //! library shares; what one library needs stays in its engine
 //! (`design.md` lists the libraries checked, and what each needs).
-//! Reads that every library offers but no method needs yet (the amplitude
-//! of a basis state, the reduced density matrix of a few sites, the
-//! Schmidt values at a cut) are planned, for a debugger that shows a
-//! state.
 
 pub mod checks;
 mod mps_engine_error;
@@ -68,10 +64,8 @@ use num_complex::Complex64;
 /// [`Refusal`] its method's `# Errors` section names, and leaves the state
 /// unchanged: the method's [`checks`] function makes the refusal, before
 /// the method changes anything. The one refusal that reads the state,
-/// [`Refusal::ZeroProbabilityOutcome`], is the projection's and the
-/// conditional probability's own, made after their checks, and `sample`
-/// passes it on in an engine that draws from its conditional
-/// probabilities. Any other error is the engine's own failure
+/// [`Refusal::ZeroProbabilityOutcome`], comes after the checks, and also
+/// leaves the state unchanged. Any other error is the engine's own failure
 /// ([`MpsEngineError::refusal`] tells them apart). After a failure the
 /// state is unspecified, and the caller must drop it: no use case
 /// continues after a device error (the method fails the shot), so no
@@ -115,13 +109,13 @@ pub trait MpsEngine {
     /// sites is refused, the same on every engine, so a caller learns the
     /// limit from the contract rather than from an engine's failure.
     ///
-    /// The matrix is checked to be unitary ([`checks::apply`], the sparse
-    /// simulator's rule), because an engine relies on it: a unitary keeps
-    /// the chain's canonical form and the state's norm, which every later
-    /// read assumes, so a matrix that is not unitary would make every later
-    /// read wrong without any error. A non-unitary operation (a Kraus
-    /// operator of amplitude damping) is a planned `apply_kraus`, of which
-    /// [`project`](Self::project) is the special case it generalizes.
+    /// The matrix is checked to be unitary ([`checks::apply`]), because an
+    /// engine relies on it: a unitary keeps the chain's canonical form and
+    /// the state's norm, which every later read assumes, so a matrix that is
+    /// not unitary would make every later read wrong without any error. A
+    /// non-unitary operation (a Kraus operator of amplitude damping) is a
+    /// planned `apply_kraus`, of which [`project`](Self::project) is the
+    /// special case it generalizes.
     ///
     /// Where the state the gate leaves fits the capacity in the caller's
     /// sites, the gate drops nothing but what the engine's cutoff discards,
@@ -176,20 +170,13 @@ pub trait MpsEngine {
     /// `shape` costs a synchronization or a contraction should override
     /// this method.
     ///
-    /// A condition is refused only when its probability is exactly zero (as
-    /// the QDK's `PostSelectZ` refuses it) or NaN. An impossible condition
-    /// may keep a tiny probability from rounding, and the answer given it
-    /// is then meaningless: a method that must refuse such a condition does
-    /// so by its own threshold, before it calls the engine.
-    ///
     /// # Errors
     ///
     /// Refused ([`checks::conditional_probability_of_one`]) with
     /// [`Refusal::SiteOutOfRange`] or [`Refusal::RepeatedSite`] for a site
     /// of `given` out of range or named twice, or `site` out of range; and,
     /// once those pass, with [`Refusal::ZeroProbabilityOutcome`] when
-    /// `given` has probability exactly zero (as the QDK's `PostSelectZ`
-    /// refuses it) or NaN. Fails as every method may.
+    /// `given` has probability zero or NaN. Fails as every method may.
     fn conditional_probability_of_one(
         &self,
         state: &Self::State,
@@ -231,12 +218,7 @@ pub trait MpsEngine {
     ///
     /// Refused ([`checks::project`]) with [`Refusal::SiteOutOfRange`]; and,
     /// once that passes, with [`Refusal::ZeroProbabilityOutcome`] when `p` is
-    /// exactly zero (as the QDK's `PostSelectZ` refuses it) or NaN, leaving
-    /// the state unchanged. A value that is
-    /// impossible may keep a tiny probability from rounding, and is then
-    /// projected on, which gives a meaningless state: a method that must
-    /// refuse it does so by its own threshold, before it calls the engine.
-    /// Fails as every method may.
+    /// zero or NaN, leaving the state unchanged. Fails as every method may.
     fn project(&self, state: &mut Self::State, site: usize, one: bool) -> Result<f64, Self::Error>;
 
     /// An independent copy of `state`: what one changes, the other does

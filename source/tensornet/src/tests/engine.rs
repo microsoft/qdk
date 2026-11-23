@@ -1,9 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The contract's own code, which every engine inherits: here the
-//! default conditional probability, through an engine that keeps it;
-//! the checks, the reference and the sampler in their own files.
+//! The trait's default `conditional_probability_of_one`, through an engine
+//! that keeps it and samples from it; the contract's other code is tested
+//! in its own files.
 
 mod checks;
 mod reference;
@@ -177,8 +177,7 @@ fn the_default_conditional_probability_runs_the_checks() {
 /// projection on the second value refuses it, and the default passes its
 /// refusal on. On a state whose norm is NaN or zero, every probability is
 /// NaN, and with no condition nothing is projected: the default refuses the
-/// empty condition itself, as the reference does for such a norm (on an
-/// infinite norm the reference answers NaN instead).
+/// empty condition itself, as the reference does for such a norm.
 #[test]
 fn the_default_conditional_probability_refuses_a_condition_of_probability_zero_or_nan() {
     let capacity = MpsShape::qubit_chain(3, usize::MAX).expect("three sites form a chain");

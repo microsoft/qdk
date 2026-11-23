@@ -3,23 +3,14 @@
 
 //! [`SplitMix64`]: the generator the shared sampler
 //! ([`sample_by_conditionals`](super::sample_by_conditionals))
-//! draws its uniforms from, and the tests their streams.
-//!
-//! `sample` draws every shot from one `u64` seed, and the same seed gives
-//! the same values on the same engine. So the sampler needs a stream of
-//! uniforms from that seed, and the tests need streams of numbers that are
-//! the same on every run.
+//! draws its uniforms from, and the tests their streams. Both need streams
+//! of numbers from a `u64` seed that are the same on every run.
 //!
 //! It is `SplitMix64` (Steele, Lea and Flood, 2014), written here rather
 //! than taken from a dependency: small, and fixed by this crate, so a
 //! seed's values do not change with a dependency's version. It is internal:
-//! an engine reaches it only through the sampler.
-//!
-//! Each step adds the odd constant `0x9E37_79B9_7F4A_7C15` (2⁶⁴ over the
-//! golden ratio) to the state, wrapping, and returns the state mixed by a
-//! finalizer of two multiplications and three shifts: the values of the
-//! published algorithm. A uniform is the top 53 bits of the next value, as
-//! a multiple of 2⁻⁵³, in [0, 1). It is no cryptographic generator.
+//! an engine reaches it only through the sampler. It is no cryptographic
+//! generator.
 
 /// The `SplitMix64` generator: the stream of 64-bit values, and of uniforms
 /// in [0, 1), that a seed gives.

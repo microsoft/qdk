@@ -5,7 +5,7 @@
 //! against, a full state vector that never truncates.
 //!
 //! It exists because a contract needs an engine whose answers are known to
-//! be right, and that runs anywhere, with no GPU and no library:
+//! be right:
 //!
 //! - an engine's tests compare its answers with the reference's, the exact
 //!   answer every engine with enough bond must give;
@@ -22,25 +22,24 @@
 //! every operation, and it reports the exact chain: the bond at each cut is
 //! the numerical Schmidt rank of the state there, or 1 when that rank is 0,
 //! found by an elimination that counts a pivot below 1e-10 as zero. It
-//! holds up to [`ExactReference::MAX_SITES`] sites, and depends on nothing
-//! but this crate, so it runs wherever the crate builds.
+//! holds up to [`ExactReference::MAX_SITES`] sites.
 //!
 //! Its arithmetic is its own, with no library beneath it, so its answers do
-//! not depend on a library's version:
+//! not depend on a library's version, and it runs wherever the crate
+//! builds, with no GPU:
 //!
 //! - basis state `i` has site `k` as bit `k` of `i`, the order its dense
 //!   vector is stored in, on which no engine call depends;
 //! - its reads divide by ⟨ψ|ψ⟩, so they are of the normalized state:
 //!   `apply` accepts a matrix within [`UNITARITY_TOLERANCE`] of unitary,
-//!   which may change the norm by as much, and such changes add up (sixteen
-//!   gates `diag(1, 1 + 4·10⁻¹⁰)` raise it by 1.3·10⁻⁸); the identity's
-//!   coefficient of an observable is added as it is;
+//!   which may change the norm by as much, and such changes add up gate by
+//!   gate; the identity's coefficient of an observable is added as it is;
 //! - it squares amplitudes as they are, so its conditional probabilities
 //!   and projections hold, to rounding, for conditions and outcomes whose
-//!   probability is well above [`f64::MIN_POSITIVE`] (about 2.2·10⁻³⁰⁸;
-//!   one of about 10⁻³⁰⁰ is pinned); near and below it, squared amplitudes
-//!   lose precision or underflow, so a conditional probability may be off
-//!   or read 0 and a projection may lose weight (untested).
+//!   probability is well above [`f64::MIN_POSITIVE`] (about 2.2·10⁻³⁰⁸);
+//!   near and below it, squared amplitudes lose precision or underflow, so
+//!   a conditional probability may be off or read 0 and a projection may
+//!   lose weight.
 //!
 //! [`UNITARITY_TOLERANCE`]: crate::checks::UNITARITY_TOLERANCE
 //!
@@ -94,11 +93,9 @@ impl ReferenceState {
     }
 
     /// The state with these amplitudes, basis state `i` with site `k` as
-    /// bit `k`, for tests: a state a test need not reach by calls, or one
-    /// no sequence of calls on the reference reaches, such as a truncated
-    /// one. Other engines reach such states (a truncated chain, a norm
-    /// drifted by rounding), and the reference is the oracle they are
-    /// checked against, so its answers on them are its contract.
+    /// bit `k`, for tests: one that calls on the reference need not reach,
+    /// such as a truncated chain, which other engines reach; the
+    /// reference's answers on it are its contract too.
     #[cfg(test)]
     pub(crate) fn from_amplitudes(amplitudes: &[Complex64]) -> Self {
         let sites = amplitudes.len().trailing_zeros() as usize;
@@ -242,8 +239,7 @@ pub enum ReferenceError {
         /// [`ExactReference::MAX_SITES`].
         max: usize,
     },
-    /// A sample whose values do not fit in memory: a failure, not a
-    /// refusal, since the arguments break no rule.
+    /// [`TooManyValues`].
     #[error(transparent)]
     TooManyValues(#[from] TooManyValues),
 }
@@ -337,7 +333,9 @@ impl MpsEngine for ExactReference {
     }
 
     /// Sums the probabilities of the basis states that agree with `given`,
-    /// as a marginal with projected modes contracts them: no copy.
+    /// as a marginal with projected modes contracts them: no copy. On a
+    /// state of infinite norm it may answer NaN, where the trait's default
+    /// refuses (an open question).
     fn conditional_probability_of_one(
         &self,
         state: &ReferenceState,
@@ -406,12 +404,8 @@ impl MpsEngine for ExactReference {
     }
 
     /// Draws by [`sampling::sample_by_conditionals`] from this engine's
-    /// conditional probabilities: each shot's values in order, One when a
-    /// uniform from the `SplitMix64` stream seeded
-    /// with `seed` is below P(One | the shot's earlier values), computed
-    /// once per distinct prefix. Fails with
-    /// [`ReferenceError::TooManyValues`] when the values cannot be held
-    /// (`shots × sites.len()` overflows a `usize`, or the allocation fails).
+    /// conditional probabilities; fails with
+    /// [`ReferenceError::TooManyValues`] when the values cannot be held.
     fn sample(
         &self,
         state: &ReferenceState,

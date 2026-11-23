@@ -18,15 +18,15 @@
 //!   every engine; and `reference::ExactReference`, the exact engine every
 //!   other one is checked against, for an engine's tests (feature
 //!   `conformance`);
-//! - the refusals: [`Refusal`], why a call whose arguments break the
-//!   contract was refused, and [`MpsEngineError`], how an engine's own error
-//!   exposes it;
 //! - the chain's shape: [`MpsShape`], the shape of a chain of site tensors
 //!   by the extents of its sites alone (the capacity a caller asks for, and
 //!   the chain an engine holds, which is what the run pays for), and
 //!   [`MpsShapeError`];
 //! - the observables: [`PauliSum`], of [`PauliTerm`]s of [`Pauli`] factors,
-//!   on sites, and [`PauliSumError`].
+//!   on sites, and [`PauliSumError`];
+//! - the refusals: [`Refusal`], why a call whose arguments break the
+//!   contract was refused, and [`MpsEngineError`], how an engine's own error
+//!   exposes it.
 //!
 //! A Bell pair on the reference (feature `conformance`), read three ways:
 //!
@@ -71,18 +71,18 @@
 // When a module or a public type is added, moved or renamed, update the
 // README's "Files" table with it.
 mod engine;
+mod mps_shape;
 mod pauli_sum;
 mod refusal;
-mod shape;
 
 pub use engine::checks;
 #[cfg(any(test, feature = "conformance"))]
 pub use engine::reference;
 pub use engine::sampling;
 pub use engine::{MpsEngine, MpsEngineError};
+pub use mps_shape::{MpsShape, MpsShapeError};
 pub use pauli_sum::{Pauli, PauliSum, PauliSumError, PauliTerm};
 pub use refusal::Refusal;
-pub use shape::{MpsShape, MpsShapeError};
 
 #[cfg(test)]
 mod tests;

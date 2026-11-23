@@ -1,6 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+//! The observable's promises: each Pauli's matrix in the layout `apply`
+//! takes, the terms and sums it refuses, and the order it keeps.
+
 use super::c;
 use crate::reference::ExactReference;
 use crate::{MpsEngine, MpsShape, Pauli, PauliSum, PauliSumError, PauliTerm};

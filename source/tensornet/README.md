@@ -27,11 +27,11 @@ The crate states what a library does for a simulation method as one trait,
 in its engine. So a method is written once, against the trait, and a new
 library is a new engine, with no change to the method or to the other
 engines. Each promise is stated once, in the rustdoc of the item that keeps
-it: the contract an implementer reads in their editor. The refusal of a call
-whose arguments break the contract is made once, by the functions of
-`checks`, which every engine calls, so engines agree on it. An exact engine,
-`ExactReference`, gives the answer every engine with enough bond must give,
-so that an engine's answers can be checked against it.
+it: the contract an implementer reads in their editor. The refusals of the
+arguments are made once, by the functions of `checks`, which every engine
+calls, so engines agree on them. An exact engine, `ExactReference`, gives
+the answer every engine with enough bond must give, so that an engine's
+answers can be checked against it.
 
 ## The model
 
@@ -42,24 +42,19 @@ Today the crate holds:
   [The engine](#the-engine). It speaks in tensor terms (sites, matrices,
   probabilities and seeds); the method keeps its instructions, its shots
   and its generator. Beside it:
-  - the functions of [`checks`](src/engine/checks.rs), one per method that
-    can refuse a call (all but `fork`, `shape` and `retained_weight`), make
-    the refusals of the arguments;
+  - [`checks`](src/engine/checks.rs) is one function per method that can
+    refuse a call, which makes the refusals of its arguments;
   - [`sampling`](src/engine/sampling.rs) is what every engine's `sample`
     shares: `sample_by_conditionals` draws the values from the engine's
     conditional probabilities, so an engine that draws them itself writes
     only its probability call, and `TooManyValues` is its failure when the
     values do not fit in memory;
   - [`ExactReference`](src/engine/reference.rs) is a dense state vector of
-    at most 20 sites that never truncates: the exact answer every engine
-    with enough bond must give, within the limits its rustdoc states. It is
-    for tests, not for simulation (feature `conformance`).
-- **The refusals.** [`Refusal`](src/refusal.rs) is why an engine refused a
-  call whose arguments break the contract, the same on every engine; each
-  engine's error exposes it through the `refusal` method of
-  [`MpsEngineError`](src/engine/mps_engine_error.rs), the bound of an
-  engine's error, which tells a refusal from the engine's own failure.
-- **The chain's shape.** [`MpsShape`](src/shape.rs) is the shape of a
+    at most `ExactReference::MAX_SITES` sites that never truncates: the
+    exact answer every engine with enough bond must give, within the limits
+    its rustdoc states. It is for tests, not for simulation (feature
+    `conformance`).
+- **The chain's shape.** [`MpsShape`](src/mps_shape.rs) is the shape of a
   chain, by the extents of its sites alone: the capacity a caller asks for,
   and the chain an engine holds. `MpsShape::qubit_chain(n, χ)` is the
   capacity of `n` qubits with max bond dimension χ: bonds at most χ.
@@ -69,10 +64,14 @@ Today the crate holds:
   engine reads, on sites: an identity coefficient and `PauliTerm`s, each a
   coefficient times `Pauli` factors on distinct sites. `PauliSumError` says
   why a term or a sum was not built.
+- **The refusals.** [`Refusal`](src/refusal.rs) is why an engine refused a
+  call whose arguments break the contract, the same on every engine; each
+  engine's error exposes it through the `refusal` method of
+  [`MpsEngineError`](src/engine/mps_engine_error.rs), the bound of an
+  engine's error, which tells a refusal from the engine's own failure.
 
 A Bell pair on the reference, read three ways (the crate's doctest in
-[`src/lib.rs`](src/lib.rs), which every `cargo test` runs: the crate's
-dev-dependency on itself enables the `conformance` feature for its tests):
+[`src/lib.rs`](src/lib.rs), which every `cargo test` runs):
 
 ```rust
 use num_complex::Complex64;
@@ -172,13 +171,14 @@ its sampler and a default `conditional_probability_of_one`:
 - implement [`MpsEngine`](src/engine.rs), with its `State` and an `Error`
   that implements [`MpsEngineError`](src/engine/mps_engine_error.rs) and is
   built from a `Refusal`;
-- start each method that can refuse a call (all but `fork`, `shape` and
-  `retained_weight`) with its function of
+- start each method that can refuse a call with its function of
   [`checks`](src/engine/checks.rs), so that the engine refuses what every
   engine refuses;
-- build `sample` on [`sample_by_conditionals`](src/engine/sampling.rs),
-  with an `Error` built from `TooManyValues` too (`From`), which keeps its
-  promises of reproducibility, layout and memory;
+- where the engine draws the values itself from its conditional
+  probabilities, build `sample` on
+  [`sample_by_conditionals`](src/engine/sampling.rs), with an `Error` built
+  from `TooManyValues` too (`From`), which keeps its promises of
+  reproducibility, layout and memory;
 - keep the trait's default `conditional_probability_of_one`, which forks
   the state and projects the fork, or override it where the library can
   contract with projected sites;
@@ -202,10 +202,10 @@ its sampler and a default `conditional_probability_of_one`:
 ## Tests
 
 The crate's tests are in [`src/tests/`](src/tests/), one file per module
-with run-time behaviour (the generator is tested through the sampler):
-each check refuses each fault and accepts its edges, the shared sampler
-draws the published `SplitMix64` stream, and the reference's chain has the
-Schmidt ranks a singular value decomposition gives on random circuits.
+with run-time behaviour: each check refuses each fault and accepts its
+edges, the shared sampler draws the published `SplitMix64` stream, and the
+reference's chain has the Schmidt ranks a singular value decomposition
+gives on random circuits.
 
 ## Files
 
@@ -218,8 +218,8 @@ Schmidt ranks a singular value decomposition gives on random circuits.
 | `src/engine/reference.rs`           | `ExactReference`, the exact engine, with `ReferenceState` and `ReferenceError` (feature `conformance`)                                    |
 | `src/engine/sampling.rs`            | `sample_by_conditionals` and `TooManyValues`: the sampling every engine shares                                                            |
 | `src/engine/sampling/splitmix64.rs` | `SplitMix64`, the generator the shared sampler draws its uniforms from (internal)                                                         |
-| `src/refusal.rs`                    | `Refusal`, why a call was refused                                                                                                         |
-| `src/shape.rs`                      | `MpsShape`, the shape of a chain, and `MpsShapeError`                                                                                     |
+| `src/mps_shape.rs`                  | `MpsShape`, the shape of a chain, and `MpsShapeError`                                                                                     |
 | `src/pauli_sum.rs`                  | `PauliSum`, `PauliTerm`, `Pauli` and `PauliSumError`: the observables of `expectation`                                                    |
+| `src/refusal.rs`                    | `Refusal`, why a call was refused                                                                                                         |
 | `src/tests/`                        | the crate's tests, one file per module with run-time behaviour, in the same folders                                                       |
 | `design.md`                         | why a chain is described by its extents, refusals versus failures, what libraries offer, the reference's arithmetic, and what is left out |

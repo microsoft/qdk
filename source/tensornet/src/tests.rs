@@ -4,8 +4,8 @@
 //! The crate's tests, one module per module with run-time behaviour.
 
 mod engine;
+mod mps_shape;
 mod pauli_sum;
-mod shape;
 
 use num_complex::Complex64;
 
