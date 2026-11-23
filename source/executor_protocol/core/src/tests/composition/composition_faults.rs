@@ -38,19 +38,12 @@ fn a_composition_fault_names_its_parts_and_every_mismatch() {
         .to_string()
     };
     let (nine_over_eight, nine_over_four) = (batches_of_nine(8), batches_of_nine(4));
-    let qubits = QubitsAndResetShort {
-        qubits: Some(TooFewQubits {
-            required: 10,
-            provided: 8,
-        }),
-        reset: false,
-    }
-    .to_string();
-    let reset = QubitsAndResetShort {
-        qubits: None,
-        reset: true,
-    }
-    .to_string();
+    let short = |qubits, reset| QubitsAndResetShort { qubits, reset }.to_string();
+    let ten_over_eight = TooFewQubits {
+        required: 10,
+        provided: 8,
+    };
+    let (qubits, reset) = (short(Some(ten_over_eight), false), short(None, true));
     let said = |faults: CompositionFaults| {
         let named: Vec<_> = (faults.faults().iter())
             .map(|fault| (fault.requirer.clone(), fault.provider.clone()))
