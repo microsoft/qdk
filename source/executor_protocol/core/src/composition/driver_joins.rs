@@ -57,6 +57,12 @@ pub trait DriverJoins: Driver + Sized {
     ///
     /// [`CompositionFaults`] when a part does not accept the set the part
     /// above sends, or does not provide what arrives at it.
+    ///
+    /// # Panics
+    ///
+    /// When the chain falls short of a set's capabilities and that set's
+    /// [`split_mismatch`](crate::InstructionSet::split_mismatch) gives no
+    /// piece of the mismatch, against its contract.
     fn on<E: Executor<Accepts = Self::Sends>>(
         mut self,
         executor: E,

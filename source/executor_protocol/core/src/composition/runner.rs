@@ -148,6 +148,11 @@ impl<D: Driver, E: Executor<Accepts = D::Sends>> Runner<D, E> {
     /// unwinding, such as when a caller's panic drops the run's future: a
     /// second panic would abort the process, so its payload is dropped.
     ///
+    /// The run panics too, before any part is asked, when it falls short of
+    /// a set's capabilities and that set's
+    /// [`split_mismatch`](crate::InstructionSet::split_mismatch) gives no
+    /// piece of the mismatch, against its contract.
+    ///
     /// The protocol guards the futures it drops, not the values parts
     /// return, as std's containers do not: when a part's future panics as
     /// it is dropped once ready, or the protocol's end of the shots panics,

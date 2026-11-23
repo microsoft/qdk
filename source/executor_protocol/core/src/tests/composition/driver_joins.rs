@@ -9,13 +9,15 @@
 
 use std::any::type_name;
 use std::cell::Cell;
+use std::convert::Infallible;
 use std::error::Error;
 use std::rc::Rc;
 
 use crate::prelude::*;
 use crate::tests::composition::faults;
 use crate::tests::example_sets::{
-    Measuring, QubitsAndResetShort, Resettable, ToffoliGate, TooFewQubits, qubits_and_reset,
+    BitReadout, Measuring, OnQubit, QubitsAndReset, QubitsAndResetShort, Resettable, ShotFlags,
+    ToffoliGate, TooFewQubits, qubits_and_reset,
 };
 use crate::tests::fake_parts::{
     AncillaReuse, Bits, CczDecomposition, CliffordTRegister, CoinCopy, Log, Profiler, Program,
@@ -24,8 +26,9 @@ use crate::tests::fake_parts::{
 };
 use crate::{
     Batch, BatchReadouts, BoundaryCompatible, BoundaryMismatch, Capabilities, CapabilitiesMismatch,
-    CompositionFault, CompositionFaults, ExecuteError, FeatureMismatch, Features, PartId,
-    ResourceMismatch, Resources, RunRequirement, Seed, StatesLimits, TranslatingAdapter,
+    CompositionFault, CompositionFaults, DriveError, ExecuteError, FeatureMismatch, Features,
+    InstructionSet, PartId, ReadoutSlots, ResourceMismatch, Resources, RunRequirement, SameNeed,
+    Seed, ShotSet, StatesLimits, TranslatingAdapter,
 };
 
 /// `h`, `x` and `mz` without `x`.
@@ -769,6 +772,108 @@ fn inserting_a_profiler_changes_only_the_positions_of_the_faults() {
             short_batches(10, 9)
         )])
     );
+}
+
+/// A driver needing 10 qubits of a set that breaks the split's contract,
+/// over an executor of 8: `on` panics rather than refuse the chain with no
+/// fault, and the message names the set, so that its author knows which
+/// `split_mismatch` to fix.
+#[test]
+#[should_panic(expected = "SplitGivingNoPiece")]
+fn a_split_giving_no_piece_of_a_mismatch_panics_naming_the_set() {
+    let provides = Capabilities::new(
+        Resources::nothing_stated(),
+        Features::nothing_stated(),
+        QubitsAndReset {
+            qubits: 8,
+            reset: false,
+        },
+    );
+    let chain = TenQubitsProgram
+        .stating_limits()
+        .on(Zeros::providing(SplitGivingNoPiece, Some(provides)));
+    drop(chain);
+}
+
+/// A set breaking [`InstructionSet::split_mismatch`]'s contract, which
+/// asks for at least one piece: its capabilities are qubits and a reset,
+/// as [`Resettable`]'s, and its split gives none.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SplitGivingNoPiece;
+
+impl BoundaryCompatible for SplitGivingNoPiece {
+    type Fit = ();
+    type Mismatch = Infallible;
+
+    fn fits(&self, _accepted: &Self) -> Result<(), Infallible> {
+        Ok(())
+    }
+}
+
+impl InstructionSet for SplitGivingNoPiece {
+    type Instruction = OnQubit;
+    type SetCapabilities = QubitsAndReset;
+    type Requirement = ();
+    type Fault = Infallible;
+    type Readout = BitReadout;
+    type ShotConditions = ShotFlags;
+    const UNWRITTEN_READOUT: BitReadout = BitReadout::Unwritten;
+
+    fn needs_nothing() -> QubitsAndReset {
+        QubitsAndReset {
+            qubits: 0,
+            reset: false,
+        }
+    }
+
+    /// No piece, against the contract.
+    fn split_mismatch(_: QubitsAndResetShort) -> Vec<(QubitsAndResetShort, SameNeed<Self>)> {
+        Vec::new()
+    }
+
+    fn readout_slots(&self, _gate: &OnQubit) -> ReadoutSlots {
+        0
+    }
+
+    fn requirement(&self, _required: &QubitsAndReset) {}
+
+    fn check(&self, _gate: &OnQubit, (): &()) -> Result<ReadoutSlots, Infallible> {
+        Ok(0)
+    }
+}
+
+/// A declaration fake of a driver needing 10 qubits of
+/// [`SplitGivingNoPiece`], and no reset. It is never run.
+struct TenQubitsProgram;
+
+impl DriverRequirements for TenQubitsProgram {
+    fn requires(&self, run: &RunRequirement) -> Capabilities<SplitGivingNoPiece> {
+        let needs = QubitsAndReset {
+            qubits: 10,
+            reset: false,
+        };
+        Capabilities::new(run.resources, run.features, needs)
+    }
+}
+
+impl Driver for TenQubitsProgram {
+    type Sends = SplitGivingNoPiece;
+    type Output = ();
+
+    fn sends(&self) -> &SplitGivingNoPiece {
+        &SplitGivingNoPiece
+    }
+
+    fn bind(&mut self, (): ()) {}
+
+    async fn drive(
+        &mut self,
+        _shots: &ShotSet,
+        _seed: Seed,
+        _below: &mut impl Executor<Accepts = SplitGivingNoPiece>,
+    ) -> Result<Vec<()>, DriveError> {
+        unreachable!("a declaration fake is never run")
+    }
 }
 
 // ---------------------------------------------------------- the joined

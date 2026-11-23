@@ -114,9 +114,12 @@ pub trait InstructionSet:
     /// alike when their capabilities are equal: a set whose capabilities
     /// hold several independent needs overrides it, or its faults name the
     /// last part to change any of them. An override puts each need of
-    /// `mismatch` in exactly one piece, and gives at least one piece: the
-    /// protocol, which does not check it, relies on it to name a part for
-    /// each need, and to refuse every mismatch with a fault.
+    /// `mismatch` in exactly one piece, so that a fault names a part for
+    /// each need; the protocol cannot check that. It gives at least one
+    /// piece, so that every mismatch refuses its chain or run with a fault:
+    /// the protocol checks that, and panics, naming the set and the
+    /// mismatch, where it splits one, in the `on` that makes a runner or in
+    /// a run refused at its start.
     fn split_mismatch(
         mismatch: <Self::SetCapabilities as BoundaryCompatible>::Mismatch,
     ) -> Vec<(

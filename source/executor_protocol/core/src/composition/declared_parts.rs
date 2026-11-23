@@ -157,10 +157,18 @@ impl<'a> DeclaredParts<'a> {
             split.entry(at).or_default().features.push(mismatch);
         }
         for mismatch in set_capabilities {
-            let whole = mismatch
+            let whole = *mismatch
                 .downcast::<<S::SetCapabilities as BoundaryCompatible>::Mismatch>()
                 .expect("`Capabilities::<S>::fits` boxes the mismatch of `S`'s capabilities");
-            for (piece, same_need) in S::split_mismatch(*whole) {
+            let shown = whole.to_string();
+            let pieces = S::split_mismatch(whole);
+            assert!(
+                !pieces.is_empty(),
+                "`{}::split_mismatch` broke its contract, to give at least one piece: it gave \
+                 none of the mismatch \"{shown}\", so no fault would refuse it",
+                std::any::type_name::<S>(),
+            );
+            for (piece, same_need) in pieces {
                 // A part above a translating adapter, whose set's
                 // capabilities are of another type, states no need of `S`.
                 let at = origin(&|a, b| {
