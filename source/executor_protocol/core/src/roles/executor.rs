@@ -144,10 +144,10 @@ pub trait Executor {
     ///
     /// A joined part, such as an adapter joined
     /// [`on`](crate::AdapterJoins::on) an executor, is called only once a
-    /// run got it ready: an `execute` with a batch, before any
-    /// [`ready`](Self::ready), panics once polled, and so does every
-    /// `execute` where its halves do not fit, which each run's `ready`
-    /// refuses.
+    /// run got it ready: an `execute` that sends a batch on to its lower
+    /// half before any [`ready`](Self::ready) panics once polled, and so
+    /// does every `execute` where its halves do not fit, which each run's
+    /// `ready` refuses.
     ///
     /// Three rules hold between the part that calls it and the executor:
     ///

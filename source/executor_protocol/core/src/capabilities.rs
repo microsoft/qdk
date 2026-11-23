@@ -191,9 +191,9 @@ impl<S: InstructionSet> BoundaryCompatible for Capabilities<S> {
 }
 
 /// Every way a provision falls short of what arrives: each resource
-/// provided short, each feature required and not provided, and the
-/// instruction set's capabilities' mismatch. In the mismatch a failed fit
-/// returns, at least one is there.
+/// provided short, each feature required and not provided, and how the
+/// instruction set's capabilities fall short, whole or in pieces. In the
+/// mismatch a failed fit returns, at least one is there.
 #[derive(Debug, Default)]
 #[non_exhaustive]
 pub struct CapabilitiesMismatch {
