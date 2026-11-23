@@ -2,8 +2,9 @@
 // Licensed under the MIT License.
 
 //! The checks of a set's declaration, its opcodes by name, and the sets
-//! the macro writes, and the check of an instruction written by hand
-//! against the shots' requirement, with the readout slots it agrees with.
+//! the macro writes, the check of an instruction written by hand against
+//! the shots' requirement, with the readout slots it agrees with, and the
+//! part each short need of the set's capabilities is blamed on.
 //! The faults of a meaning, which a set's declaration reports
 //! ([`DeclarationFault::Meaning`]), are in `meaning.rs`, Pauli operators'
 //! in `pauli.rs`.
@@ -17,7 +18,7 @@ mod pauli;
 mod shot_conditions;
 
 use crate::BlockCapabilitiesMismatch;
-use crate::tests::fake_parts::{ParityMeasurement, QubitProgram, QubitRegister};
+use crate::tests::fake_parts::{BlockProgram, BlockRegister, Measurement};
 use crate::{
     Angle, Argument, Bit, BlockCapabilities, BlockInstruction, BlockInstructionSet, BlockOperand,
     BlockType, DeclarationFault, InstructionDef, InstructionFault, Meaning, MeaningFault, Opcode,
@@ -898,33 +899,88 @@ fn an_instruction_s_readout_slots_are_those_its_check_answers() {
     }
 }
 
-/// A driver needing 10 qubits, through an adapter measuring by readout
-/// parities, which adds a need of them below, on an executor of 8 qubits
-/// taking no readout parity: the qubits are the driver's need, which the
-/// adapter passes on unchanged, and the readout parities the adapter's.
-/// So the chain's faults are two, each against the executor and naming
-/// the part that stated its need, in either bracketing, as whoever fixes
-/// the chain reads which part to change. A set whose mismatch is not split
-/// names the adapter for both.
+/// Each need short below names the part that stated it, against the
+/// executor, in either bracketing, as whoever fixes the chain reads which
+/// part to change. A driver needing 10 qubits, through an adapter
+/// measuring by readout parities, on an executor of 8 qubits taking none:
+/// the qubits, which the adapter passes on unchanged, are the driver's, and
+/// the readout parities the adapter's. A driver needing 10 qubits and 2
+/// carbon blocks, through an adapter measuring through an ancilla qubit, on
+/// an executor of 8 qubits and 1 carbon block: the carbon blocks are the
+/// driver's, though the adapter changes the qubits, and the 11 qubits the
+/// adapter's. A set whose mismatch is not split names the adapter for
+/// every need; one whose pieces compare every block count, for the
+/// carbon blocks.
 #[test]
 fn each_short_need_of_the_block_set_names_the_part_that_stated_it() {
-    let chains = [
+    let carbon = || BlockType::new("carbon");
+    let qubits = || BlockProgram::new(BlockCapabilities::NONE.with_qubits(10));
+    let qubits_and_carbon = || {
+        BlockProgram::new(
+            BlockCapabilities::NONE
+                .with_qubits(10)
+                .with_blocks(carbon(), 2),
+        )
+    };
+    let no_parity = || {
+        BlockRegister::new(
+            BlockCapabilities::NONE
+                .with_qubits(8)
+                .with_readout_parity(false),
+        )
+    };
+    let one_carbon = || {
+        BlockRegister::new(
+            BlockCapabilities::NONE
+                .with_qubits(8)
+                .with_blocks(carbon(), 1),
+        )
+    };
+    let parity_faults = || {
+        vec![
+            (0, 2, vec![(vec![(BlockType::qubit(), 10, 8)], false)]),
+            (1, 2, vec![(vec![], true)]),
+        ]
+    };
+    let ancilla_faults = || {
+        vec![
+            (0, 2, vec![(vec![(carbon(), 2, 1)], false)]),
+            (1, 2, vec![(vec![(BlockType::qubit(), 11, 8)], false)]),
+        ]
+    };
+    for (row, faults, expected) in [
         (
-            "d.through(a).on(e)",
-            QubitProgram::new(10)
-                .through(ParityMeasurement::new())
-                .on(QubitRegister::new(8))
+            "readout parities added, d.through(a).on(e)",
+            qubits()
+                .through(Measurement::by_readout_parity())
+                .on(no_parity())
                 .err(),
+            parity_faults(),
         ),
         (
-            "d.on(a.on(e))",
-            QubitProgram::new(10)
-                .on(ParityMeasurement::new().on(QubitRegister::new(8)))
+            "readout parities added, d.on(a.on(e))",
+            qubits()
+                .on(Measurement::by_readout_parity().on(no_parity()))
                 .err(),
+            parity_faults(),
         ),
-    ];
-    for (brackets, faults) in chains {
-        let faults = faults.expect("the executor is short of both needs");
+        (
+            "qubits changed, d.through(a).on(e)",
+            qubits_and_carbon()
+                .through(Measurement::through_an_ancilla())
+                .on(one_carbon())
+                .err(),
+            ancilla_faults(),
+        ),
+        (
+            "qubits changed, d.on(a.on(e))",
+            qubits_and_carbon()
+                .on(Measurement::through_an_ancilla().on(one_carbon()))
+                .err(),
+            ancilla_faults(),
+        ),
+    ] {
+        let faults = faults.unwrap_or_else(|| panic!("{row}: the executor is short of both needs"));
         let read: Vec<_> = (faults.faults().iter())
             .map(|fault| {
                 let pieces: Vec<_> = (fault.mismatch.capabilities.set_capabilities.iter())
@@ -947,13 +1003,6 @@ fn each_short_need_of_the_block_set_names_the_part_that_stated_it() {
                 (fault.requirer.position, fault.provider.position, pieces)
             })
             .collect();
-        assert_eq!(
-            read,
-            vec![
-                (0, 2, vec![(vec![(BlockType::qubit(), 10, 8)], false)]),
-                (1, 2, vec![(vec![], true)]),
-            ],
-            "{brackets}"
-        );
+        assert_eq!(read, expected, "{row}");
     }
 }

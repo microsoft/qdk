@@ -2,11 +2,11 @@
 // Licensed under the MIT License.
 
 //! The fake parts on the block set, for the tests of a composition fault
-//! naming the part that stated each need: a driver needing qubits, an
-//! adapter needing readout parities below, and an executor of a few
-//! qubits taking none. They are composed, never run: the driver sends
-//! nothing, the adapter passes on what it is sent, and the executor runs
-//! nothing.
+//! naming the part that stated each need: a driver needing blocks, an
+//! adapter adding a need of readout parities or of an ancilla qubit below,
+//! and an executor of a few blocks. They are composed, never run: the
+//! driver sends nothing, the adapter passes on what it is sent, and the
+//! executor runs nothing.
 
 use executor_protocol_core::prelude::*;
 use executor_protocol_core::{
@@ -14,7 +14,7 @@ use executor_protocol_core::{
     Resources, RunRequirement, Seed, ShotSet, StatesLimits,
 };
 
-use crate::{BlockCapabilities, BlockInstructionSet, OpcodeMap};
+use crate::{BlockCapabilities, BlockInstructionSet, BlockType, OpcodeMap};
 use gates::Gates;
 
 #[expect(dead_code, reason = "the parts are composed, never sent a gate")]
@@ -29,28 +29,28 @@ mod gates {
     }
 }
 
-/// A driver whose program needs `qubits` qubits.
-pub(crate) struct QubitProgram {
+/// A driver whose program needs `needs`: blocks of each type, such as
+/// qubits.
+pub(crate) struct BlockProgram {
     sends: BlockInstructionSet,
-    qubits: u32,
+    needs: BlockCapabilities,
 }
 
-impl QubitProgram {
-    pub(crate) fn new(qubits: u32) -> StatesLimits<Self> {
+impl BlockProgram {
+    pub(crate) fn new(needs: BlockCapabilities) -> StatesLimits<Self> {
         let sends = Gates::set();
-        Self { sends, qubits }.stating_limits()
+        Self { sends, needs }.stating_limits()
     }
 }
 
-impl DriverRequirements for QubitProgram {
-    /// The run's, with its qubits.
+impl DriverRequirements for BlockProgram {
+    /// The run's, with its blocks.
     fn requires(&self, run: &RunRequirement) -> Capabilities<BlockInstructionSet> {
-        let needs = BlockCapabilities::NONE.with_qubits(self.qubits);
-        Capabilities::new(run.resources, run.features, needs)
+        Capabilities::new(run.resources, run.features, self.needs.clone())
     }
 }
 
-impl Driver for QubitProgram {
+impl Driver for BlockProgram {
     type Sends = BlockInstructionSet;
     type Output = ();
 
@@ -70,31 +70,47 @@ impl Driver for QubitProgram {
     }
 }
 
-/// An adapter measuring each logical qubit as the parity of its block's
-/// outcomes: it requires what arrives, with readout parities, below.
-pub(crate) struct ParityMeasurement {
+/// An adapter measuring each logical qubit in a way that adds a need
+/// below: it requires what arrives, with that need.
+pub(crate) struct Measurement {
     set: BlockInstructionSet,
+    adds: fn(BlockCapabilities) -> BlockCapabilities,
 }
 
-impl ParityMeasurement {
-    pub(crate) fn new() -> StatesLimits<Self> {
+impl Measurement {
+    /// Measuring each logical qubit as the parity of its block's outcomes,
+    /// which needs readout parities.
+    pub(crate) fn by_readout_parity() -> StatesLimits<Self> {
+        Self::adding(|needs| needs.with_readout_parity(true))
+    }
+
+    /// Measuring each logical qubit through an ancilla qubit, which needs
+    /// one more qubit.
+    pub(crate) fn through_an_ancilla() -> StatesLimits<Self> {
+        Self::adding(|needs| {
+            let qubits = needs.blocks(&BlockType::qubit()).unwrap_or(0);
+            needs.with_qubits(qubits + 1)
+        })
+    }
+
+    fn adding(adds: fn(BlockCapabilities) -> BlockCapabilities) -> StatesLimits<Self> {
         let set = Gates::set();
-        Self { set }.stating_limits()
+        Self { set, adds }.stating_limits()
     }
 }
 
-impl AdapterLimits for ParityMeasurement {
-    /// What arrives, with readout parities.
+impl AdapterLimits for Measurement {
+    /// What arrives, with the need its measurement adds.
     fn requires(
         &self,
         above: &Capabilities<BlockInstructionSet>,
     ) -> Capabilities<BlockInstructionSet> {
-        let needs = above.set_capabilities().clone().with_readout_parity(true);
+        let needs = (self.adds)(above.set_capabilities().clone());
         Capabilities::new(*above.resources(), *above.features(), needs)
     }
 }
 
-impl Adapter for ParityMeasurement {
+impl Adapter for Measurement {
     type Set = BlockInstructionSet;
 
     fn accepts(&self) -> &BlockInstructionSet {
@@ -118,17 +134,14 @@ impl Adapter for ParityMeasurement {
     }
 }
 
-/// An executor holding `qubits` qubits, which takes no readout parity.
-pub(crate) struct QubitRegister {
+/// An executor holding the blocks `limits` states, such as a few qubits.
+pub(crate) struct BlockRegister {
     accepts: BlockInstructionSet,
     provides: Capabilities<BlockInstructionSet>,
 }
 
-impl QubitRegister {
-    pub(crate) fn new(qubits: u32) -> StatesLimits<Self> {
-        let limits = BlockCapabilities::NONE
-            .with_qubits(qubits)
-            .with_readout_parity(false);
+impl BlockRegister {
+    pub(crate) fn new(limits: BlockCapabilities) -> StatesLimits<Self> {
         Self {
             accepts: Gates::set(),
             provides: Capabilities::new(
@@ -141,13 +154,13 @@ impl QubitRegister {
     }
 }
 
-impl ExecutorLimits for QubitRegister {
+impl ExecutorLimits for BlockRegister {
     fn provides(&self) -> Option<&Capabilities<BlockInstructionSet>> {
         Some(&self.provides)
     }
 }
 
-impl Executor for QubitRegister {
+impl Executor for BlockRegister {
     type Accepts = BlockInstructionSet;
 
     fn accepts(&self) -> &BlockInstructionSet {
