@@ -8,7 +8,7 @@
 //! quantum instruction's quantum calls to the context's batch: its
 //! prebuilt calls, or the call the context builds from its registers
 //! (`shot_context.rs`), up to a cut where the machine's split choice
-//! leaves no room for the next (`batch_split.rs`). Function calls push and
+//! leaves no room for the next (`split_choice.rs`). Function calls push and
 //! pop the context's frames.
 //!
 //! The walk is generic over the split choice, so it is compiled in the
@@ -24,11 +24,11 @@ use super::super::program::prepared_quantum_calls::CallSource;
 use super::super::program::prepared_quantum_calls::PreparedQuantumCalls;
 use super::super::quantum_instruction_encoding::Register;
 use super::super::{QirReadout, QirTrap};
-use super::batch_split::QirBatchSplit;
-#[cfg(doc)]
-use super::batch_split::SplitBatches;
 use super::classical_ops::{binary, bit, float_compare, int_compare, signed, unary, unsigned};
-use super::shot_context::{Frame, program_result};
+use super::shot_context::{Frame, carry_readout, program_result};
+use super::split_choice::QirSplitChoice;
+#[cfg(doc)]
+use super::split_choice::SplitBatches;
 use super::{QirMachine, QirShotContext, block_start};
 use crate::bytecode::encoding::{
     OP_ADD, OP_ALLOCA, OP_AND, OP_ASHR, OP_BRANCH, OP_CALL, OP_CALL_RETURN, OP_CONST, OP_FADD,
@@ -51,7 +51,7 @@ pub(super) enum Stop {
     Ended,
 }
 
-impl<S: QirBatchSplit> QirMachine<'_, S> {
+impl<S: QirSplitChoice> QirMachine<'_, S> {
     /// Runs `context` from its position to its next batch, split or end,
     /// reading each bytecode instruction as it runs it: its opcode, and
     /// the immediate flag of each operand it reads. A quantum instruction
@@ -149,7 +149,7 @@ impl<S: QirBatchSplit> QirMachine<'_, S> {
                             let ends_batch =
                                 result.is_some_and(|result| context.pending[result as usize]);
                             let joining = calls.len() - usize::from(ends_batch);
-                            if let Some(room) = self.split.room(context.batch.len())
+                            if let Some(room) = self.split_choice.room(context.batch.len())
                                 && joining > room
                             {
                                 // The batch is cut inside the run, before its
@@ -168,6 +168,14 @@ impl<S: QirBatchSplit> QirMachine<'_, S> {
                                 context.batch_results.push(result);
                             }
                             context.batch.extend_from_slice(calls);
+                            if result.is_some()
+                                && let Some(last) = context.batch.last_mut()
+                            {
+                                // The run's last call writes the result:
+                                // readout noise, prebuilt with no readout,
+                                // takes the one its result holds.
+                                carry_readout(last, &context.results);
+                            }
                             // To the run's last call: the `pc += 1` below
                             // goes past it.
                             pc = end - 1;
@@ -195,7 +203,7 @@ impl<S: QirBatchSplit> QirMachine<'_, S> {
                             }
                             // Built again on the next resume, which runs on
                             // from it.
-                            if self.split.room(context.batch.len()) == Some(0) {
+                            if self.split_choice.room(context.batch.len()) == Some(0) {
                                 break Stop::Split;
                             }
                             if let Some(result) = result {
@@ -212,7 +220,7 @@ impl<S: QirBatchSplit> QirMachine<'_, S> {
                                 context.aux1(instruction),
                                 context.aux2(instruction),
                             )?;
-                            if self.split.room(context.batch.len()) == Some(0) {
+                            if self.split_choice.room(context.batch.len()) == Some(0) {
                                 break Stop::Split;
                             }
                             context.batch.push(call);

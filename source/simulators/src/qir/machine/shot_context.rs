@@ -165,7 +165,7 @@ impl QirShotContext {
     pub(super) fn take_outcomes(&mut self, outcomes: &[QirOutcome]) -> Result<(), QirTrap> {
         if self.after_split {
             if let Some(outcome) = outcomes.first() {
-                return Err(QirTrap::UnexpectedOutcome {
+                return Err(QirTrap::OutcomeAfterSplit {
                     result: outcome.result,
                 });
             }
@@ -245,10 +245,10 @@ impl QirShotContext {
                 program_result(bytecode, pc, self.registers[register as usize])?
             }
         };
-        Ok(quantum_instruction_encoding::build(
-            call.instruction,
-            (qubits, reals, result),
-        ))
+        let mut built =
+            quantum_instruction_encoding::build(call.instruction, (qubits, reals, result));
+        carry_readout(&mut built, &self.results);
+        Ok(built)
     }
 
     /// The call of correlated noise from the noise table `table`, at the
@@ -309,6 +309,22 @@ impl QirShotContext {
             }
         }
         Ok(())
+    }
+}
+
+/// Gives `call`, when it is readout noise, the readout its result holds in
+/// `results`, a context's: no operand of the instruction holds it, since a
+/// result's value comes from an earlier batch's outcome or from the
+/// program's `WRITE_RESULT`. Readout noise on a result that a call of the
+/// batch writes ends the batch before it (and is built again), so the call
+/// that joins a batch carries the value the program has there.
+#[inline]
+pub(super) fn carry_readout(call: &mut QirCall, results: &[QirReadout]) {
+    if let QirCall::ReadoutNoise {
+        result, readout, ..
+    } = call
+    {
+        *readout = results[*result as usize];
     }
 }
 

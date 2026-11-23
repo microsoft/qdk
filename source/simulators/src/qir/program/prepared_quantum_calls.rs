@@ -68,7 +68,9 @@ pub(in crate::qir) enum CallSource {
     /// instructions after it in its run, as one slice. A run ends at its
     /// first call that writes a result, `result`, since that call may have
     /// to start the next batch: it is the only call of the run that writes
-    /// one.
+    /// one. Where that call is readout noise, its readout is a context's,
+    /// so the machine gives it the one its result holds as the call joins
+    /// a batch.
     Prebuilt {
         first: u32,
         end: u32,

@@ -6,7 +6,7 @@
 //! past the program's or a value that is no result.
 
 use super::super::{
-    SIZE, binary, gate, measure, program, read, record, record_bool, record_int, record_result,
+    SIZE, binary, gate, measure, op, program, read, record, record_bool, record_int, record_result,
     ret, set, write,
 };
 use super::{
@@ -14,11 +14,11 @@ use super::{
 };
 use crate::MeasurementResult::{One, Zero};
 use crate::OutputRecord;
-use crate::bytecode::AdaptiveProgram;
 use crate::bytecode::encoding::{
-    FLAG_SRC0_IMM, FLAG_SRC1_IMM, OP_READ_LOSS, OP_READ_RESULT, OP_WRITE_RESULT, OPID_MX, OPID_MY,
-    OPID_MZ, OPID_X,
+    FLAG_AUX0_IMM, FLAG_AUX1_IMM, FLAG_AUX2_IMM, FLAG_SRC0_IMM, FLAG_SRC1_IMM, OP_READ_LOSS,
+    OP_READ_RESULT, OP_READOUT_NOISE, OP_WRITE_RESULT, OPID_MX, OPID_MY, OPID_MZ, OPID_X,
 };
+use crate::bytecode::{AdaptiveProgram, Instruction};
 use crate::qir::{QirCall, QirMachine, QirOutcome, QirReadout, QirStop, QirTrap};
 use qsc_data_structures::measurement::MeasurementBasis;
 
@@ -141,6 +141,61 @@ fn a_written_result_is_read_back_without_a_call() {
                 OutputRecord::Bool(read_back),
                 OutputRecord::Result(recorded)
             ]
+        );
+    }
+}
+
+/// Readout noise that always flips, on result 0 as a constant and from a
+/// register, then a record of result 0, after the result is written 0 or
+/// 1, measured `One`, or measured `One` then written 0: the noise flips
+/// the value the result holds, which only the machine knows when the
+/// program wrote it, so the call carries it to the resumer.
+#[test]
+fn readout_noise_carries_the_readout_its_result_holds() {
+    let noise = |result, flags| Instruction {
+        aux0: 1.0_f64.to_bits(),
+        aux1: 1.0_f64.to_bits(),
+        aux2: result,
+        ..op(OP_READOUT_NOISE, FLAG_AUX0_IMM | FLAG_AUX1_IMM | flags)
+    };
+    let measured = [gate(OPID_X, 0, 0), measure(OPID_MZ, 0, 0)];
+    let cases: [(&str, &[Instruction<u64>], _); 4] = [
+        ("written 0", &[write(0, 0)], One),
+        ("written 1", &[write(1, 0)], Zero),
+        ("measured One", &measured, Zero),
+        (
+            "measured One, then written 0",
+            &[measured[0], measured[1], write(0, 0)],
+            One,
+        ),
+    ];
+    for (source, noise) in [
+        ("constant", noise(0, FLAG_AUX2_IMM)),
+        ("register", noise(3, 0)),
+    ] {
+        for (name, before, recorded) in cases {
+            let mut block = vec![set(3, 0)];
+            block.extend_from_slice(before);
+            block.extend([noise, record_result(0), ret()]);
+            let (machine, run_shot) = both(&program(&[&block]));
+            assert_eq!(
+                machine,
+                [OutputRecord::Result(recorded)],
+                "{name}, result {source}"
+            );
+            // COMPATIBILITY NOTE: this behavior was present in `run_shot`
+            // (bytecode/runtime.rs, `OP_READOUT_NOISE`: the simulator flips
+            // the measurement buffer, which `WRITE_RESULT` writes too),
+            // hence we keep it so that the machine is a drop-in replacement.
+            assert_eq!(machine, run_shot, "{name}, result {source}");
+        }
+        let bytecode = program(&[&[set(3, 0), measure(OPID_MZ, 0, 0), noise, ret()]]);
+        let (batches, end) = run(&bytecode, |_| QirReadout::Loss);
+        end.expect("the context does not trap");
+        assert_eq!(
+            batches.last().map(String::as_str),
+            Some("readout_noise(zero_as_one 1, one_as_zero 1, result 0, readout Loss)"),
+            "a measured loss, result {source}"
         );
     }
 }
@@ -499,10 +554,16 @@ fn an_outcome_for_no_quantum_call_of_the_batch_is_a_trap() {
             result,
             value: QirReadout::One,
         });
+        let trap = answered(&outcomes).expect_err("an outcome for no call traps");
         assert_eq!(
-            answered(&outcomes),
-            Err(QirTrap::UnexpectedOutcome { result: extra }),
+            trap,
+            QirTrap::UnexpectedOutcome { result: extra },
             "result {extra}"
+        );
+        let message = trap.to_string();
+        assert!(
+            message.contains(&format!("result {extra}")) && !message.contains("split"),
+            "{message:?} names the result and blames no split"
         );
     }
     let outcomes = [0, 1].map(|result| QirOutcome {

@@ -2,90 +2,24 @@
 // Licensed under the MIT License.
 
 //! The quantum calls a [`QirMachine`] yields in its batches ([`QirCall`]),
-//! the instructions they are of ([`QirInstruction`]), and the outcomes it
-//! takes back ([`QirOutcome`], [`QirReadout`]).
+//! with the qubits of a call on any number of them ([`QirQubits`]).
 //!
 //! They are where the machine and a resumer meet: a resumer reads a
 //! batch's calls, runs them on its quantum state, and answers each call
-//! that writes a result. They are the machine's own types, not the
-//! bytecode's, so that a resumer depends on QIR's instructions only, not
-//! on how the bytecode encodes them. They name the qubits and results of
-//! the program by their indices, as its bytecode does.
+//! that writes a result ([`QirOutcome`]). They are the machine's own
+//! types, not the bytecode's, so that a resumer depends on QIR's
+//! instructions only ([`QirInstruction`]), not on how the bytecode encodes
+//! them. They name the qubits and results of the program by their
+//! indices, as its bytecode does.
 
 use std::fmt;
 use std::ops::Deref;
 
 use qsc_data_structures::measurement::MeasurementBasis;
 
-use super::QirGate;
+use super::{QirGate, QirInstruction, QirReadout};
 #[cfg(doc)]
-use super::{QirMachine, QirProgram, QirTrap};
-
-/// A QIR instruction of the machine: what a [`QirCall`] does, apart from
-/// its qubits, results and parameters. These are the quantum instructions
-/// of QIR's Adaptive Profile that a [`QirProgram`] runs, each named by its
-/// QIR mnemonic ([`mnemonic`](Self::mnemonic)); a program lists those it
-/// uses ([`QirProgram::instructions`]).
-///
-/// The identity (`i`, operation 0) is not one, so a program using it is
-/// refused when built: no producer emits it (Q#'s `I` compiles to nothing,
-/// and an explicit wait is `move`), and an instruction doing nothing would
-/// skip the idle noise the GPU simulator applies to it. If a producer emits
-/// it, it is to be added as an instruction that a simulator charges with
-/// idle noise, as `move` is. Nor is `ccx` one, which the passes that write
-/// the bytecode decompose first.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum QirInstruction {
-    /// A unitary gate.
-    Gate(QirGate),
-    /// `mx`, `my` or `mz`: measures a qubit in the X, Y or Z basis into a
-    /// result.
-    Measure(MeasurementBasis),
-    /// `mresetz`: measures a qubit in the Z basis into a result, then
-    /// resets it to |0⟩. It has no X or Y form, as the bytecode has no
-    /// operation for one.
-    MeasureReset,
-    /// `reset`: resets a qubit to |0⟩.
-    Reset,
-    /// `move`: moves a qubit, which a noisy simulator may charge with idle
-    /// noise or loss; it changes no state otherwise.
-    Move,
-    /// `correlated_noise`: draws a fault from a noise table and applies it
-    /// to its qubits.
-    CorrelatedNoise,
-    /// `peek_loss`: writes into a result whether a qubit is lost.
-    PeekLoss,
-    /// `readout_noise`: flips the readout a result holds, with a
-    /// probability for each value.
-    ReadoutNoise,
-}
-
-impl QirInstruction {
-    /// Its QIR mnemonic: the name of its QIR function less the prefix
-    /// (`__quantum__qis__`, or `__quantum__rt__` for `readout_noise`) and
-    /// any `__body`, as `mz`, `cx` or `correlated_noise`.
-    #[must_use]
-    pub fn mnemonic(self) -> &'static str {
-        match self {
-            Self::Gate(gate) => gate.mnemonic(),
-            Self::Measure(MeasurementBasis::X) => "mx",
-            Self::Measure(MeasurementBasis::Y) => "my",
-            Self::Measure(MeasurementBasis::Z) => "mz",
-            Self::MeasureReset => "mresetz",
-            Self::Reset => "reset",
-            Self::Move => "move",
-            Self::CorrelatedNoise => "correlated_noise",
-            Self::PeekLoss => "peek_loss",
-            Self::ReadoutNoise => "readout_noise",
-        }
-    }
-}
-
-impl fmt::Display for QirInstruction {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.mnemonic())
-    }
-}
+use super::{QirMachine, QirOutcome, QirProgram};
 
 /// A call of a [`QirInstruction`], as a [`QirMachine`] yields it in a batch: an
 /// instruction with its qubits, the result it writes and its parameters,
@@ -126,12 +60,18 @@ pub enum QirCall {
     CorrelatedNoise { qubits: QirQubits, table: u32 },
     /// `peek_loss` of `qubit` into `result`: `One` when it is lost.
     PeekLoss { qubit: u32, result: u32 },
-    /// `readout_noise` on `result`: reads `Zero` as `One` with probability
-    /// `zero_as_one`, and `One` as `Zero` with probability `one_as_zero`.
+    /// `readout_noise` on `result`, which holds `readout`: reads `Zero` as
+    /// `One` with probability `zero_as_one`, and `One` as `Zero` with
+    /// probability `one_as_zero`. Its outcome is `readout`, flipped or not:
+    /// the call carries the value, since a program may write it
+    /// (`WRITE_RESULT`), which only the machine sees. A `Loss` or a
+    /// `Missing` readout is no bit to flip, so its outcome is `readout`
+    /// itself.
     ReadoutNoise {
         zero_as_one: f64,
         one_as_zero: f64,
         result: u32,
+        readout: QirReadout,
     },
 }
 
@@ -199,9 +139,11 @@ impl fmt::Display for QirCall {
                 zero_as_one,
                 one_as_zero,
                 result,
+                readout,
             } => write!(
                 f,
-                "zero_as_one {zero_as_one}, one_as_zero {one_as_zero}, result {result}"
+                "zero_as_one {zero_as_one}, one_as_zero {one_as_zero}, result {result}, \
+                 readout {readout:?}"
             )?,
         }
         f.write_str(")")
@@ -272,31 +214,4 @@ impl fmt::Debug for QirQubits {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_list().entries(self.iter()).finish()
     }
-}
-
-/// The outcome of a call that writes a result ([`QirCall::result`]): the
-/// value the call gives the result.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct QirOutcome {
-    /// The result the call writes.
-    pub result: u32,
-    /// The value it gives the result.
-    pub value: QirReadout,
-}
-
-/// The value a call gives the result it writes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum QirReadout {
-    /// The readout `Zero`; for a loss check, the qubit is not lost.
-    Zero,
-    /// The readout `One`; for a loss check, the qubit is lost.
-    One,
-    /// A lost qubit's readout: the result holds `Loss`, which QIR reads as
-    /// `Zero` and a loss check (`READ_LOSS`) as lost.
-    Loss,
-    /// A readout that came back with no value, for a reason other than a
-    /// loss (a device's failed readout): QIR has no value for it, so the
-    /// result holds none, and an instruction that uses it traps
-    /// ([`QirTrap::MissingValue`]).
-    Missing,
 }

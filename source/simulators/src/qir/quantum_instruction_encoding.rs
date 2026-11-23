@@ -29,7 +29,7 @@
 
 use qsc_data_structures::measurement::MeasurementBasis;
 
-use super::{QirCall, QirGate, QirInstruction};
+use super::{QirCall, QirGate, QirInstruction, QirReadout};
 #[cfg(doc)]
 use crate::bytecode::AdaptiveProgram;
 use crate::bytecode::encoding::{
@@ -237,7 +237,9 @@ impl CallOperands {
 
 /// The call of `instruction`, any but correlated noise, on the operands
 /// its [`Shape`] takes from `qubits`, `reals` and `result`, in their
-/// order; the other values are not read.
+/// order; the other values are not read. Readout noise's readout, which no
+/// operand holds but the context's results, is `Zero` until the machine
+/// gives it the one its result holds as the call joins a batch.
 #[inline]
 pub(super) fn build(
     instruction: QirInstruction,
@@ -263,6 +265,7 @@ pub(super) fn build(
             zero_as_one: reals[0],
             one_as_zero: reals[1],
             result,
+            readout: QirReadout::Zero,
         },
         QirInstruction::CorrelatedNoise => {
             unreachable!("correlated noise is built from its call arguments")

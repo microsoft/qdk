@@ -78,19 +78,19 @@
 //! The walk is in `machine/walk.rs`; the shot's context, and what the walk
 //! asks of it, in `machine/shot_context.rs`; what the classical
 //! instructions compute, in `machine/classical_ops.rs`; whether a batch is
-//! split, in `machine/batch_split.rs`.
+//! split, in `machine/split_choice.rs`.
 //!
 //! The model: `README.md`; why the machine is pulled rather than pushing
 //! its batches, one shot traced from QIR to its records, and the design's
 //! other notes: `design.md`.
 
-mod batch_split;
 mod classical_ops;
 mod shot_context;
+mod split_choice;
 mod walk;
 
-pub use batch_split::{QirBatchSplit, SplitBatches, WholeBatches};
 pub use shot_context::QirShotContext;
+pub use split_choice::{QirSplitChoice, SplitBatches, WholeBatches};
 
 #[cfg(doc)]
 use super::QirResumer;
@@ -115,7 +115,7 @@ use walk::Stop;
 ///   result, `WRITE_RESULT`), and before a call that writes a result a call
 ///   of the batch already writes, so that a result names one call of a
 ///   batch: readout noise on a result its batch writes ends the batch
-///   before it;
+///   before it, so that the readout it carries is the result's outcome;
 /// - it stops there even when that instruction or call would trap, since
 ///   a valid one would end the batch there too: the trap comes on the next
 ///   resume, once the batch has run, as `run_shot` measures before it
@@ -172,7 +172,7 @@ use walk::Stop;
 ///
 /// [`QirError::NoSuchResult`]: super::QirError::NoSuchResult
 #[derive(Clone, Copy, Debug)]
-pub struct QirMachine<'p, S: QirBatchSplit = WholeBatches> {
+pub struct QirMachine<'p, S: QirSplitChoice = WholeBatches> {
     /// The program it runs ([`Self::program`]).
     program: &'p QirProgram,
     /// The program's bytecode, which the machine walks; held apart from the
@@ -184,7 +184,7 @@ pub struct QirMachine<'p, S: QirBatchSplit = WholeBatches> {
     /// the batch as they are, or the operands it builds its call from.
     prepared_quantum_calls: &'p PreparedQuantumCalls,
     /// Whether it splits a batch, and where ([`Self::with_split`]).
-    split: S,
+    split_choice: S,
 }
 
 /// Where [`QirMachine::resume`] stopped a context, lent from the context
@@ -193,7 +193,7 @@ pub struct QirMachine<'p, S: QirBatchSplit = WholeBatches> {
 /// [`WholeBatches`], it holds a type with no value, so a `match` has no
 /// arm for it.
 #[derive(Debug, PartialEq)]
-pub enum QirStop<'c, S: QirBatchSplit = WholeBatches> {
+pub enum QirStop<'c, S: QirSplitChoice = WholeBatches> {
     /// The quantum calls to run next, in order, on the program's qubits:
     /// the batch's, or its last ones after its splits. The next resume
     /// takes the outcome of each call of the batch that writes a result
@@ -221,22 +221,22 @@ impl<'p> QirMachine<'p> {
             program,
             bytecode: program.bytecode(),
             prepared_quantum_calls: program.prepared_quantum_calls(),
-            split: WholeBatches,
+            split_choice: WholeBatches,
         }
     }
 }
 
-impl<'p, S: QirBatchSplit> QirMachine<'p, S> {
-    /// This machine, handing its batches over as `split` says: whole
+impl<'p, S: QirSplitChoice> QirMachine<'p, S> {
+    /// This machine, handing its batches over as `split_choice` says: whole
     /// ([`WholeBatches`]), or in pieces ([`SplitBatches`]). Its contexts
     /// are those of any machine of the program, whatever its split choice.
     #[must_use]
-    pub fn with_split<T: QirBatchSplit>(self, split: T) -> QirMachine<'p, T> {
+    pub fn with_split<T: QirSplitChoice>(self, split_choice: T) -> QirMachine<'p, T> {
         QirMachine {
             program: self.program,
             bytecode: self.bytecode,
             prepared_quantum_calls: self.prepared_quantum_calls,
-            split,
+            split_choice,
         }
     }
 
@@ -312,7 +312,9 @@ impl<'p, S: QirBatchSplit> QirMachine<'p, S> {
     /// # Errors
     ///
     /// When the outcomes do not answer the last batch (one missing, or given
-    /// for no call of it, or twice, or any given after a split), or when the
+    /// for no call of it, or twice: [`QirTrap::MissingOutcome`],
+    /// [`QirTrap::UnexpectedOutcome`]; or any given after a split, whose
+    /// batch goes on: [`QirTrap::OutcomeAfterSplit`]), or when the
     /// context reaches a value that building the program could not check: a
     /// qubit or a result past the program's, an integer division or remainder
     /// by zero, a value other than 0 and 1 where a bit is read, a load or a
@@ -324,7 +326,7 @@ impl<'p, S: QirBatchSplit> QirMachine<'p, S> {
     /// ends the batch's walk, as the split choice says ([`WholeBatches`],
     /// [`SplitBatches`]); a resume that gives a trap held by a split takes no
     /// outcomes, and one given is reported first
-    /// ([`QirTrap::UnexpectedOutcome`]). An `ALLOCA` of a huge number of words
+    /// ([`QirTrap::OutcomeAfterSplit`]). An `ALLOCA` of a huge number of words
     /// or a recursion without end is no trap (see [`QirMachine`]). A context
     /// that traps is not to be resumed again: what a later resume does is
     /// unspecified; [`restart_shot`](Self::restart_shot) reuses it.
@@ -342,7 +344,8 @@ impl<'p, S: QirBatchSplit> QirMachine<'p, S> {
             // `room` is `None` where batches are never split: whole batches
             // give the trap at once.
             Err(trap)
-                if self.split.room(context.batch.len()).is_some() && !context.batch.is_empty() =>
+                if self.split_choice.room(context.batch.len()).is_some()
+                    && !context.batch.is_empty() =>
             {
                 context.held_trap = Some(trap);
                 Stop::Split
@@ -353,7 +356,7 @@ impl<'p, S: QirBatchSplit> QirMachine<'p, S> {
             Stop::Batch => QirStop::Batch(&context.batch),
             Stop::Split => {
                 context.after_split = true;
-                QirStop::Split(S::split(context.batch.as_slice()))
+                QirStop::Split(S::piece(context.batch.as_slice()))
             }
             Stop::Ended => QirStop::Ended(&context.records),
         })

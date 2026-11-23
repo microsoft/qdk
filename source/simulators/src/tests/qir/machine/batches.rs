@@ -135,7 +135,7 @@ fn a_context_stops_before_readout_noise_on_a_result_its_batch_measures() {
         batches(&bytecode),
         [
             "mz(qubit 0, result 0)",
-            "readout_noise(zero_as_one 0.25, one_as_zero 0.5, result 0)"
+            "readout_noise(zero_as_one 0.25, one_as_zero 0.5, result 0, readout One)"
         ]
     );
 }

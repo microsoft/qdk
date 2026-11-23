@@ -5,7 +5,7 @@
 
 use std::convert::Infallible;
 
-use super::{QirBatchSplit, sealed::Sealed};
+use super::{QirSplitChoice, sealed::Sealed};
 #[cfg(doc)]
 use crate::qir::{QirMachine, QirStop};
 
@@ -16,7 +16,7 @@ use crate::qir::{QirMachine, QirStop};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct WholeBatches;
 
-impl QirBatchSplit for WholeBatches {
+impl QirSplitChoice for WholeBatches {
     type Split<T> = Infallible;
 }
 
@@ -27,7 +27,7 @@ impl Sealed for WholeBatches {
     }
 
     #[inline]
-    fn split<T>(_calls: T) -> Infallible {
+    fn piece<T>(_calls: T) -> Infallible {
         unreachable!("the walk never splits a whole batch: `room` is `None`")
     }
 }

@@ -4,7 +4,7 @@
 //! A simulator that logs the quantum calls it gets ([`LoggingSimulator`]),
 //! for comparing `run_shot`'s calls with the machine's.
 
-use qdk_simulators::qir::{QirCall, QirGate};
+use qdk_simulators::qir::{QirCall, QirGate, QirReadout};
 use qdk_simulators::{MeasurementResult, QubitID, ResultID, Simulator};
 use qsc_data_structures::measurement::MeasurementBasis;
 
@@ -180,10 +180,16 @@ impl Simulator for LoggingSimulator {
         unreachable!("no measured program has loss noise, which no QirCall stands for");
     }
     fn apply_readout_noise(&mut self, p_zero_as_one: f64, p_one_as_zero: f64, result_id: ResultID) {
+        let readout = match self.simulator.measurements()[result_id] {
+            MeasurementResult::Zero => QirReadout::Zero,
+            MeasurementResult::One => QirReadout::One,
+            MeasurementResult::Loss => QirReadout::Loss,
+        };
         self.calls.push(QirCall::ReadoutNoise {
             zero_as_one: p_zero_as_one,
             one_as_zero: p_one_as_zero,
             result: index(result_id),
+            readout,
         });
     }
     fn write_result(&mut self, value: bool, result_id: ResultID) {

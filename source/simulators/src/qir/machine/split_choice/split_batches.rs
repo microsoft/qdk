@@ -5,7 +5,7 @@
 
 use std::num::NonZeroUsize;
 
-use super::{QirBatchSplit, sealed::Sealed};
+use super::{QirSplitChoice, sealed::Sealed};
 #[cfg(doc)]
 use crate::qir::{QirCall, QirMachine, QirStop};
 
@@ -85,7 +85,7 @@ impl SplitBatches {
     }
 }
 
-impl QirBatchSplit for SplitBatches {
+impl QirSplitChoice for SplitBatches {
     type Split<T> = T;
 }
 
@@ -96,7 +96,7 @@ impl Sealed for SplitBatches {
     }
 
     #[inline]
-    fn split<T>(calls: T) -> T {
+    fn piece<T>(calls: T) -> T {
         calls
     }
 }

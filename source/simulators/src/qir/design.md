@@ -50,7 +50,9 @@ block_3:
 The `qis` functions are mostly quantum calls, sent to the resumer, and
 the `rt` functions mostly classical, run by the machine. The exceptions:
 `__quantum__qis__read_result__body` is a read, run by the machine;
-`__quantum__rt__readout_noise` is sent to the resumer in the batch; and
+`__quantum__rt__readout_noise` is sent to the resumer in the batch,
+carrying the readout its result holds, which a program may have written
+(`WRITE_RESULT`) and only the machine sees; and
 the pass drops `__quantum__qis__barrier__body`, `__quantum__rt__initialize`
 and `__quantum__rt__{begin,end}_parallel`.
 
@@ -114,9 +116,9 @@ rest. Only the machine can bound what a context holds; a resumer can
 split further what it receives on its own.
 
 So the machine hands a batch over whole
-([`WholeBatches`](machine/batch_split/whole_batches.rs), the default) or
+([`WholeBatches`](machine/split_choice/whole_batches.rs), the default) or
 in pieces of at most `n` calls
-([`SplitBatches`](machine/batch_split/split_batches.rs), whose doc
+([`SplitBatches`](machine/split_choice/split_batches.rs), whose doc
 states what the pieces keep). A batch is cut inside a run of prebuilt
 calls too, since one run can hold thousands of calls (an unrolled
 Trotter step).

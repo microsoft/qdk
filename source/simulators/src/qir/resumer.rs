@@ -27,8 +27,9 @@ use crate::OutputRecord;
 
 /// The id of a shot: what a resumer derives the shot's randomness from
 /// (its seed), so that a shot gives the same records whichever shots run
-/// beside it and wherever it is among them. Shots are named by id, not by
-/// their position, so that a position cannot pass for an id.
+/// beside it and wherever it is among them, to rounding (see
+/// [`QirResumer::run`]). Shots are named by id, not by their position, so
+/// that a position cannot pass for an id.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct QirShotId(pub u32);
 
@@ -65,7 +66,11 @@ pub trait QirResumer {
     /// distinct, and gives their records, each shot's at its place in
     /// `shots`; no shots, no records. A shot's records do not depend on the
     /// other shots of `shots`, nor on its place there, nor on the runs
-    /// before on the same resumer. What the resumer
+    /// before on the same resumer, beyond rounding: exactly, for a resumer
+    /// whose arithmetic does not depend on them. A resumer that groups or
+    /// forks shots' states may compute a shot's probabilities in another
+    /// order, and a probability rounded to the other side of the shot's
+    /// random draw changes its record. What the resumer
     /// needs to know of the program before a shot runs (its qubits, to make
     /// a state) it reads from [`QirMachine::program`] ([`QirProgram`]).
     ///

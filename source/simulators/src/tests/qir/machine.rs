@@ -8,7 +8,6 @@
 //! The tests are filed by behaviour, one file each; this file holds the
 //! helpers they share.
 
-mod batch_split;
 mod batches;
 mod classical_ops;
 mod contexts;
@@ -17,6 +16,7 @@ mod memory;
 mod quantum_calls;
 mod records;
 mod results;
+mod split_choice;
 
 use std::sync::Arc;
 
@@ -79,7 +79,7 @@ fn run_on(
 /// What a new context of `bytecode` gives, as [`run_on`] gives it. Its
 /// batches split give the same, and, where it traps, the same calls in
 /// the splits after its last batch at every size
-/// ([`batch_split::assert_split_alike`]), so that every test of where a
+/// ([`split_choice::assert_split_alike`]), so that every test of where a
 /// context stops checks its splits too.
 fn run(
     bytecode: &AdaptiveProgram<u64>,
@@ -91,7 +91,7 @@ fn run(
         &mut QirMachine::new(&program).start_shot(),
         &answer,
     );
-    batch_split::assert_split_alike(bytecode, &whole, &answer);
+    split_choice::assert_split_alike(bytecode, &whole, &answer);
     whole
 }
 
@@ -152,10 +152,18 @@ fn shot(
 }
 
 /// Runs `batch` on `bits`, one bit per qubit, and gives the outcome of each
-/// measurement. The programs compared with `run_shot` make only `x`, `reset`,
-/// `mz` and `mresetz` quantum calls, from qubits all `Zero`, so that each
+/// measurement and readout noise. The programs compared with `run_shot` make
+/// only `x`, `reset`, `mz` and `mresetz` quantum calls, from qubits all
+/// `Zero`, and readout noise whose probabilities are 0 or 1, so that each
 /// outcome is certain, and a bit per qubit holds what a simulator's state does.
 fn run_on_bits(bits: &mut [bool], batch: &[QirCall], outcomes: &mut Vec<QirOutcome>) {
+    let certain = |probability: f64| match probability {
+        0.0 => false,
+        1.0 => true,
+        _ => panic!(
+            "a program compared with `run_shot` has certain readout noise, not {probability}"
+        ),
+    };
     for call in batch {
         match *call {
             QirCall::Gate {
@@ -183,6 +191,19 @@ fn run_on_bits(bits: &mut [bool], batch: &[QirCall], outcomes: &mut Vec<QirOutco
                     *bit = false;
                 }
             }
+            QirCall::ReadoutNoise {
+                zero_as_one,
+                one_as_zero,
+                result,
+                readout,
+            } => outcomes.push(QirOutcome {
+                result,
+                value: match readout {
+                    QirReadout::Zero if certain(zero_as_one) => QirReadout::One,
+                    QirReadout::One if certain(one_as_zero) => QirReadout::Zero,
+                    unflipped => unflipped,
+                },
+            }),
             ref other => panic!("a program compared with `run_shot` makes no call {other}"),
         }
     }

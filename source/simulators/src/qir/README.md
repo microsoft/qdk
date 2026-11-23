@@ -44,14 +44,14 @@ Three parts, which meet at a batch of quantum calls and its outcomes:
   than call a simulator, it returns to its caller at each batch of quantum
   calls, whole or, for a resumer that streams them to its target, in
   pieces of at most `n` calls
-  ([`SplitBatches`](machine/batch_split/split_batches.rs)). A shot's
+  ([`SplitBatches`](machine/split_choice/split_batches.rs)). A shot's
   state lives in its own [`QirShotContext`](machine/shot_context.rs), so
   one machine, which holds only the program and that choice, serves any
   number of shots, on any thread.
 - A [`QirResumer`](resumer.rs) holds each shot's quantum state. It
   resumes a shot's context, gets the batch of quantum calls
   ([`QirCall`](call.rs)) at which it stops, runs them on that state, and
-  resumes the context with their outcomes ([`QirOutcome`](call.rs)).
+  resumes the context with their outcomes ([`QirOutcome`](outcome.rs)).
 
 ```mermaid
 flowchart TD
@@ -111,7 +111,7 @@ loop {
 ```
 
 A resumer that streams each batch to its target takes the machine with
-[`SplitBatches`](machine/batch_split/split_batches.rs), in pieces of at
+[`SplitBatches`](machine/split_choice/split_batches.rs), in pieces of at
 most `n` calls. Its loop has one arm more, `QirStop::Split(calls)`, which
 sends the calls to the target (`send`) and resumes with no outcomes; the
 batch's outcomes are given once, after its last calls are sent
@@ -163,16 +163,16 @@ encoding.
 
 ## Which type for what
 
-| Type                                                                                                                                                      | A caller uses it to                                                                   |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| [`QirProgram`, `TwoQubitGate`, `MeasuredQubit`](program.rs)                                                                                               | build a program once, and learn what its shots need                                   |
-| [`QirMachine`, `QirStop`](machine.rs), [`QirShotContext`](machine/shot_context.rs)                                                                        | run the classical part: start a context, then resume it with outcomes at each stop    |
-| [`QirBatchSplit`](machine/batch_split.rs), [`WholeBatches`](machine/batch_split/whole_batches.rs), [`SplitBatches`](machine/batch_split/split_batches.rs) | choose whether the machine hands a batch over whole or in pieces of at most `n` calls |
-| [`QirResumer`, `QirShotId`, `QirResumeError`](resumer.rs)                                                                                                 | run shots on a quantum state of one's own, and learn which shot failed first          |
-| [`QirCall`, `QirInstruction`, `QirQubits`, `QirOutcome`, `QirReadout`](call.rs)                                                                           | read a batch's calls, and answer each call that writes a result                       |
-| [`QirGate`](gate.rs)                                                                                                                                      | take a gate call's matrix, at its angle                                               |
-| [`QirFaults`, `QirFault`, `QirFaultSite`, `QirError`, `SideTable`](fault.rs)                                                                              | learn every fault building found in the bytecode, where it is and what it is          |
-| [`QirTrap`](trap.rs)                                                                                                                                      | learn why a context stopped on a fault found while it runs                            |
+| Type                                                                                                                                                          | A caller uses it to                                                                   |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| [`QirProgram`, `TwoQubitGate`, `MeasuredQubit`](program.rs)                                                                                                   | build a program once, and learn what its shots need                                   |
+| [`QirMachine`, `QirStop`](machine.rs), [`QirShotContext`](machine/shot_context.rs)                                                                            | run the classical part: start a context, then resume it with outcomes at each stop    |
+| [`QirSplitChoice`](machine/split_choice.rs), [`WholeBatches`](machine/split_choice/whole_batches.rs), [`SplitBatches`](machine/split_choice/split_batches.rs) | choose whether the machine hands a batch over whole or in pieces of at most `n` calls |
+| [`QirResumer`, `QirShotId`, `QirResumeError`](resumer.rs)                                                                                                     | run shots on a quantum state of one's own, and learn which shot failed first          |
+| [`QirCall`, `QirQubits`](call.rs), [`QirInstruction`](instruction.rs), [`QirOutcome`, `QirReadout`](outcome.rs)                                               | read a batch's calls, and answer each call that writes a result                       |
+| [`QirGate`](gate.rs)                                                                                                                                          | take a gate call's matrix, at its angle                                               |
+| [`QirFaults`, `QirFault`, `QirFaultSite`, `QirError`, `SideTable`](fault.rs)                                                                                  | learn every fault building found in the bytecode, where it is and what it is          |
+| [`QirTrap`](trap.rs)                                                                                                                                          | learn why a context stopped on a fault found while it runs                            |
 
 Each file's header gives the rules of its part.
 

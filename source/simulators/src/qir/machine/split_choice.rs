@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 //! Whether a [`QirMachine`] hands a batch over whole or in pieces
-//! ([`QirBatchSplit`]), chosen once by its resumer
+//! ([`QirSplitChoice`]), chosen once by its resumer
 //! ([`QirMachine::with_split`]). Why a batch may need splitting:
 //! `design.md`, "A batch whole or in pieces".
 //!
@@ -23,14 +23,14 @@ use std::fmt::Debug;
 /// Whether a machine hands a batch over whole ([`WholeBatches`]) or in
 /// pieces ([`SplitBatches`]). Sealed: the machine's walk implements each
 /// choice.
-pub trait QirBatchSplit: Copy + Debug + sealed::Sealed {
+pub trait QirSplitChoice: Copy + Debug + sealed::Sealed {
     /// What a [`QirStop::Split`] holds: `T`, the calls of a piece, where
     /// a batch is split; a type with no value where none is.
     type Split<T>;
 }
 
 pub(super) mod sealed {
-    use super::QirBatchSplit;
+    use super::QirSplitChoice;
 
     /// What the walk asks of a split choice: hidden from resumers, which
     /// only choose one.
@@ -39,9 +39,9 @@ pub(super) mod sealed {
         /// since its last stop: `None` where a batch is never split.
         fn room(self, held: usize) -> Option<usize>;
 
-        /// The [`QirBatchSplit::Split`] of `calls`, the calls of a piece.
-        fn split<T>(calls: T) -> <Self as QirBatchSplit>::Split<T>
+        /// The [`QirSplitChoice::Split`] of `calls`, the calls of a piece.
+        fn piece<T>(calls: T) -> <Self as QirSplitChoice>::Split<T>
         where
-            Self: QirBatchSplit;
+            Self: QirSplitChoice;
     }
 }

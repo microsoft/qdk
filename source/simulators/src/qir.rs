@@ -11,8 +11,8 @@
 //!   `fault`, `quantum_instruction_encoding`;
 //! - the machine running a context: `machine`, `trap`;
 //! - the contract between the machine and a resumer: `call`, `gate`,
-//!   `operator_matrix`, `resumer`, `program`'s public face
-//!   ([`QirProgram`]).
+//!   `instruction`, `operator_matrix`, `outcome`, `resumer`, `program`'s
+//!   public face ([`QirProgram`]).
 //!
 //! A resumer drives a context through [`QirMachine::resume`], and never
 //! sees the bytecode or how it encodes the quantum instructions: it reads
@@ -49,18 +49,24 @@
 mod call;
 mod fault;
 mod gate;
+mod instruction;
 mod machine;
 mod operator_matrix;
+mod outcome;
 mod program;
 mod quantum_instruction_encoding;
 mod resumer;
 mod trap;
 
-pub use call::{QirCall, QirInstruction, QirOutcome, QirQubits, QirReadout};
+pub use call::{QirCall, QirQubits};
 pub use fault::{QirError, QirFault, QirFaultSite, QirFaults, SideTable};
 pub use gate::QirGate;
-pub use machine::{QirBatchSplit, QirMachine, QirShotContext, QirStop, SplitBatches, WholeBatches};
+pub use instruction::QirInstruction;
+pub use machine::{
+    QirMachine, QirShotContext, QirSplitChoice, QirStop, SplitBatches, WholeBatches,
+};
 pub use operator_matrix::OperatorMatrix;
+pub use outcome::{QirOutcome, QirReadout};
 pub use program::{MeasuredQubit, QirProgram, TwoQubitGate};
 #[cfg(test)]
 pub(crate) use quantum_instruction_encoding::QIR_INSTRUCTIONS;

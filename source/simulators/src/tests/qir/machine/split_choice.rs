@@ -487,10 +487,18 @@ fn an_outcome_given_after_a_split_is_a_trap() {
                     value: QirReadout::One,
                 })
                 .collect();
+            let trap = machine
+                .resume(&mut context, &outcomes)
+                .expect_err("an outcome after a split traps");
             assert_eq!(
-                machine.resume(&mut context, &outcomes),
-                Err(QirTrap::UnexpectedOutcome { result: results[0] }),
+                trap,
+                QirTrap::OutcomeAfterSplit { result: results[0] },
                 "{name}, results {results:?}"
+            );
+            let message = trap.to_string();
+            assert!(
+                message.contains(&format!("result {}", results[0])) && message.contains("split"),
+                "{name}: {message:?} names the result and the split"
             );
         }
     }
