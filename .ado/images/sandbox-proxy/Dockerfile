@@ -9,9 +9,10 @@ RUN tdnf -y upgrade && tdnf -y install squid socat ca-certificates shadow-utils 
     find / -xdev -type f -perm /6000 -exec chmod a-s {} + && \
     usermod -L root
 COPY squid.conf allowlist.txt allowlist.local.txt /etc/squid/
-COPY --chmod=0555 entrypoint.sh /usr/local/bin/proxy-entrypoint
+COPY entrypoint.sh /usr/local/bin/proxy-entrypoint
 # Named volumes copy this ownership on first mount, so only squid can create the relay socket.
-RUN install -d -o squid -g squid -m 0755 /run/qdk-relay
+RUN chmod 0555 /usr/local/bin/proxy-entrypoint && \
+    install -d -o squid -g squid -m 0755 /run/qdk-relay
 # Squid needs a certificate to peek at SNI; nothing trusts it and splice never decrypts.
 RUN openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 36500 \
         -subj /CN=copilot-sandbox-proxy-unused \

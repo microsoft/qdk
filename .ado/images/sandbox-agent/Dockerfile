@@ -59,7 +59,7 @@ RUN git clone https://github.com/microsoft/qdk-chemistry.git /opt/qdk-chemistry
 
 # Lock things down (proxy, copilot hooks, etc)
 FROM prepared AS runtime-base
-COPY --chmod=0444 runtime/policy/copilot-sandbox.json /etc/github-copilot/policy.d/copilot-sandbox.json
+COPY runtime/policy/copilot-sandbox.json /etc/github-copilot/policy.d/copilot-sandbox.json
 RUN chown 0:0 /etc/github-copilot/policy.d/copilot-sandbox.json \
     && chmod 0444 /etc/github-copilot/policy.d/copilot-sandbox.json \
     && chmod 0755 /etc/github-copilot /etc/github-copilot/policy.d \
@@ -93,10 +93,11 @@ RUN --network=none --mount=type=bind,from=qdk,target=/qdk,readonly \
     bash -c 'source /opt/sandbox/runtime/entrypoint.sh; verify_policy' \
     && /opt/qdk-venv/bin/qir-runner --version \
     && bash /opt/sandbox/scripts/build_qdk.sh \
-    && printf '%s\n' "$QDK_BUILD_ARGS" > /tmp/offline-verified
+    && printf '%s\n' "$QDK_BUILD_ARGS" > /tmp/offline-verified \
+    && chmod 0444 /tmp/offline-verified
 
 # Actual image for running copilot
 FROM runtime-base AS runtime
-COPY --from=verify --chmod=0444 /tmp/offline-verified /opt/sandbox/offline-verified
+COPY --from=verify /tmp/offline-verified /opt/sandbox/offline-verified
 ENTRYPOINT ["/opt/sandbox/runtime/entrypoint.sh"]
 CMD ["copilot", "--allow-all"]
