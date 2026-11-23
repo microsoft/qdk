@@ -494,11 +494,11 @@ fn capacity_of<E>(
 /// The value of the shots that go on as the group, given each shot's draw
 /// (One when true): the value they all drew, or, where they differ, the
 /// value of the fewer. So a group that splits keeps at most half its
-/// shots, and a run holds few states at once. A tie goes to Zero, as the
-/// README promises, so which group goes on depends only on the draws: no
-/// record and no bound depends on it, but which group runs first does, and
-/// with it which groups still run after a failure, and which shots a
-/// failure settling the fork fails (see `split`).
+/// shots, and a run holds few states at once. A tie goes to Zero, so which
+/// group goes on depends only on the draws: no record and no bound depends
+/// on it, but which group runs first does, and with it which groups still
+/// run after a failure, and which shots a failure settling the fork fails
+/// (see `split`).
 fn value_going_on(draws: &[bool]) -> bool {
     let ones = draws.iter().filter(|&&one| one).count();
     if ones == 0 || ones == draws.len() {
