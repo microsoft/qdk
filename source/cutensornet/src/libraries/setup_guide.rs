@@ -13,6 +13,7 @@
 //! keeps the guide of each library it opens, in the order opened, and
 //! gives them to the check. So a library bound later brings its own, and
 //! the check changes nothing.
+//!
 //! [`or_unread`] and [`cuda_version`] are how a guide, and the check, show
 //! one of a report's values.
 
@@ -55,23 +56,18 @@ pub(crate) trait LibrarySetupGuide: super::NativeLibrary {
 /// A library's `LibrarySetupGuide` as a value, so that the guides of
 /// different libraries sit in one list, kept by discovery as it opens
 /// them: what the setup check shows of the library and what it advises.
+/// Each field is the item of its name that `SetupGuide::of` copies: of
+/// the library's `NativeLibrary` (`library` its `NAME`, `variable` its
+/// `VARIABLE`), and of its `LibrarySetupGuide` (the others).
 #[derive(Clone, Debug)]
 pub(crate) struct SetupGuide {
-    /// The library's name, as its report gives it.
     pub(crate) library: &'static str,
-    /// The variable that overrides its path.
     pub(crate) variable: &'static str,
-    /// What to install, for instance `cuTensorNet 2.13`.
     pub(crate) install: &'static str,
-    /// The oldest NVIDIA driver it runs on, if it sets a floor.
     pub(crate) minimum_driver: Option<DriverFloor>,
-    /// The oldest compute capability it runs on, if it sets a floor.
     pub(crate) minimum_compute_capability: Option<(i32, i32)>,
-    /// What to do when a version probe fails, if one can.
     pub(crate) version_probe_advice: fn() -> Option<String>,
-    /// The lines that show the library once loaded, usable or not.
     pub(crate) describe: fn(&LibraryReport) -> Vec<String>,
-    /// A problem of the host that the usable library reveals.
     pub(crate) host_problem: fn(&LibraryReport) -> Option<String>,
 }
 

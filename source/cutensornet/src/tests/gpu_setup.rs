@@ -512,6 +512,7 @@ mod on_unix {
     /// the earlier one's consequence (a driver too old for the CUDA Runtime
     /// sees no device; no device fails the trial run), and the user fixes one
     /// thing at a time.
+    ///
     /// Each row is a scene, a word of the advice about the problem met first,
     /// and one of the advice about the problem after it.
     #[test]

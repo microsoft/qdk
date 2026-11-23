@@ -32,6 +32,8 @@ fn the_audited_libraries_are_discovered() {
     println!("{report:#?}");
 }
 
+/// A host with the audited libraries and a CUDA device is ready for a GPU
+/// run.
 #[test]
 #[ignore = "requires the audited libraries and a CUDA device"]
 fn the_gpu_setup_of_a_cuda_host_is_ready() {

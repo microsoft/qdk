@@ -18,11 +18,10 @@
 //! `cudaDeviceGetAttribute`, keeps its obligation where it is made
 //! (`gpu_setup/device_report/device_calls/loaded_libraries.rs`). It owns
 //! nothing: its callers create the streams, handles, objects and buffers,
-//! and release them.
-//! Discovery has checked the versions, so this code assumes cuTensorNet
-//! 2.13 and the CUDA Runtime 12.9. It compiles only on Linux x86-64, and no
-//! host test reaches it; a new native call needs its function's row in its
-//! library's table first
+//! and release them. Discovery has checked the versions, so this code
+//! assumes cuTensorNet 2.13 and the CUDA Runtime 12.9. It compiles only on
+//! Linux x86-64, and no host test reaches it; a new native call needs its
+//! function's row in its library's table first
 //! (`libraries::cuda_runtime::CudaFunctions`,
 //! `libraries::cutensornet::CuTensorNetFunctions`).
 
