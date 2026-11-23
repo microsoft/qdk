@@ -271,9 +271,12 @@ def _run_session(
         if args.save:
             config.update({"image_source": image_source, "tag": tag})
     allowlist, _ = _load_local_allowlist(directory)
+    print("Preparing exchange directories...", flush=True)
     incoming.mkdir(parents=True, exist_ok=True)
     outgoing.mkdir(parents=True, exist_ok=True)
+    print("Sanitizing outgoing exchange directory...", flush=True)
     sanitize_exchange_folder(outgoing)
+    print("Configuring Git outbox...", flush=True)
     outbox = configure_outbox_repo(REPO, directory, args.instance)
     config["repo"] = str(REPO)
     if args.save:
@@ -304,15 +307,19 @@ def _run_session(
     status = 1
     cleanup_failed = False
     try:
+        print("Removing previous sandbox containers...", flush=True)
         run(podman("rm", "--force", "--ignore", session.proxy, session.agent))
         # The relay volume holds only the proxy's socket; recreating it discards anything stale.
+        print("Recreating proxy relay volume...", flush=True)
         run(podman("volume", "rm", "--force", session.volume("relay")))
+        print("Starting sandbox proxy...", flush=True)
         run(
             podman(
                 "run", "--detach", "--name", session.proxy, *session.proxy_arguments()
             )
         )
         # The relay is the agent's main process; the workload starts only after verification.
+        print("Starting sandbox agent relay...", flush=True)
         run(
             podman(
                 "run",
