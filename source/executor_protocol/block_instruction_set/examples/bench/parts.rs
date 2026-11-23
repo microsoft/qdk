@@ -5,10 +5,11 @@
 //! instruction sets they speak:
 //!
 //! - drivers: [`ProgramInBatches`], which sends a program in batches, and
-//!   [`Direct`], which sends it past the chain, the baseline;
+//!   [`ChainBypass`], which sends it past the chain, the baseline;
 //! - adapters: [`Forward`], which forwards every batch;
 //! - executors: [`Profiler`], which counts what it gets, and
-//!   [`FromWorker`], which answers from a worker thread.
+//!   [`WorkerThreadProfiler`], which counts on a worker thread and answers
+//!   from it.
 
 mod adapters;
 mod drivers;

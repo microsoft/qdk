@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! What an instruction's check compares ([`Layout`]), derived once per
+//! An instruction's check ([`InstructionCheck`]), derived once per
 //! instruction when its set is built, so that checking an instruction
 //! compares integers only: its block count, each block's index against
 //! the shot's blocks of its type, its arguments' kinds, its expected flags.
@@ -20,9 +20,10 @@ use super::{
     InstructionFault, ParameterKind,
 };
 
-/// What an instruction's check compares, derived from its declaration.
+/// An instruction's check, derived from its declaration: what it compares
+/// an instruction of a batch with.
 #[derive(Clone, Debug)]
-pub(crate) struct Layout {
+pub(crate) struct InstructionCheck {
     /// One per position, in order.
     slots: Vec<Slot>,
     /// Whether the last slot takes any positive number of blocks.
@@ -66,14 +67,14 @@ impl Slot {
 /// The most flags an instruction may declare: a flag pattern is a `u64`.
 const MAX_FLAGS: usize = 64;
 
-impl Layout {
+impl InstructionCheck {
     /// How many readout slots each of its instructions reads: its outcomes,
     /// then its flags.
     pub(crate) const fn readout_slots(&self) -> u32 {
         self.readout_slots
     }
 
-    /// The layout of `def`, whose set declares `block_types`; or every
+    /// The check of `def`, whose set declares `block_types`; or every
     /// fault of its operands and flags: a block type the set does not
     /// declare, a variadic operand out of place, more than 64 flags, or
     /// more readout slots than a `u32` counts.
@@ -139,16 +140,16 @@ impl Layout {
         })
     }
 
-    /// Checks `instruction`, of `def`, against this layout, and, given what
-    /// its shots require, `required`, each block's index against their
-    /// blocks of its type and each readout parity against whether they
-    /// use any; the
-    /// first fault: a block count other than the layout's (or, for a
-    /// variadic operand, below its least), a block beyond the shot's, a
-    /// block given twice, an argument missing, extra or of another kind, a
-    /// readout parity counting back 0 or not required, a select of
-    /// no patterns, or a flag pattern over flags it lacks.
-    pub(crate) fn check(
+    /// Checks `instruction`, of `def`, against its declaration, and, given
+    /// what its shots require, `required`, each block's index against
+    /// their blocks of its type and each readout parity against whether
+    /// they use any; the first fault: a block count other than the
+    /// declared one (or, for a variadic operand, below its least), a block
+    /// beyond the shot's, a block given twice, an argument missing, extra
+    /// or of another kind, a readout parity counting back 0 or not
+    /// required, a select of no patterns, or a flag pattern over flags it
+    /// lacks.
+    pub(crate) fn run(
         &self,
         def: &InstructionDef,
         instruction: &BlockInstruction,

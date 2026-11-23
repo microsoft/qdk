@@ -139,12 +139,12 @@ impl BlockInstructionSet {
         required: Option<&BlockRequirement>,
     ) -> Result<u32, InstructionFault> {
         let index = instruction.opcode.index();
-        let (Some(def), Some(layout)) = (self.instructions.get(index), self.layouts.get(index))
+        let (Some(def), Some(check)) = (self.instructions.get(index), self.checks.get(index))
         else {
             return Err(InstructionFault::UnknownOpcode(instruction.opcode));
         };
-        layout.check(def, instruction, required)?;
-        Ok(layout.readout_slots())
+        check.run(def, instruction, required)?;
+        Ok(check.readout_slots())
     }
 }
 

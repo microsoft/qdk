@@ -152,9 +152,9 @@ impl ExecutorLimits for Profiler {
     }
 }
 
-/// An executor of `MixGates` whose worker thread counts each batch, from a
+/// A profiler of `MixGates` whose worker thread counts each batch, from a
 /// copy, and hands its readouts back, waking the run's waker.
-pub(crate) struct FromWorker {
+pub(crate) struct WorkerThreadProfiler {
     accepts: BlockInstructionSet,
     /// Each `execute`'s batches, copied, to the worker; closed by `finish`.
     jobs: Option<mpsc::Sender<Job>>,
@@ -173,7 +173,7 @@ pub(crate) struct Handover {
     waker: Option<Waker>,
 }
 
-impl FromWorker {
+impl WorkerThreadProfiler {
     pub(crate) fn spawn() -> Self {
         let (jobs, inbox) = mpsc::channel::<Job>();
         let handover = Arc::new(Mutex::new(Handover::default()));
@@ -214,7 +214,7 @@ impl FromWorker {
     }
 }
 
-impl Executor for FromWorker {
+impl Executor for WorkerThreadProfiler {
     type Accepts = BlockInstructionSet;
 
     fn accepts(&self) -> &BlockInstructionSet {

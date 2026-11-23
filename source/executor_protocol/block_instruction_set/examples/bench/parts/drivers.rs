@@ -175,9 +175,9 @@ pub(crate) fn slots_per_batch(
 /// it is composed with, awaiting each `execute` itself: the baseline. A
 /// driver, because only a run gives a seed to call `execute` with; it
 /// requires what its [`ProgramInBatches`] does.
-pub(crate) struct Direct<'p, E>(pub(crate) ProgramInBatches<'p>, pub(crate) E);
+pub(crate) struct ChainBypass<'p, E>(pub(crate) ProgramInBatches<'p>, pub(crate) E);
 
-impl<E: Executor<Accepts = BlockInstructionSet>> Driver for Direct<'_, E> {
+impl<E: Executor<Accepts = BlockInstructionSet>> Driver for ChainBypass<'_, E> {
     type Sends = BlockInstructionSet;
 
     fn sends(&self) -> &BlockInstructionSet {
@@ -205,7 +205,7 @@ impl<E: Executor<Accepts = BlockInstructionSet>> Driver for Direct<'_, E> {
     }
 }
 
-impl<E: Executor<Accepts = BlockInstructionSet>> DriverRequirements for Direct<'_, E> {
+impl<E: Executor<Accepts = BlockInstructionSet>> DriverRequirements for ChainBypass<'_, E> {
     fn requires(&self, run: &RunRequirement) -> Capabilities<BlockInstructionSet> {
         self.0.requires(run)
     }

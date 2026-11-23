@@ -13,7 +13,7 @@ use executor_protocol_core::prelude::*;
 
 use crate::Size;
 use crate::parts::{
-    Direct, Forward, MixGates, Profile, Profiler, ProgramInBatches, Received, run_once,
+    ChainBypass, Forward, MixGates, Profile, Profiler, ProgramInBatches, Received, run_once,
     slots_per_batch,
 };
 use crate::timing::{PER_CALL_UP_TO, best, per, per_call};
@@ -103,9 +103,13 @@ fn send_down<E: Executor<Accepts = BlockInstructionSet>>(
 ) -> Received {
     match chain {
         Chain::Direct => {
-            // The chain's executor is sent no batch: `Direct` sends past it.
+            // The chain's executor is sent no batch: `ChainBypass` sends past it.
             let unused = Profiler::new(Resources::nothing_stated());
-            run_once(Direct(in_batches, executor).stating_limits().on(unused))
+            run_once(
+                ChainBypass(in_batches, executor)
+                    .stating_limits()
+                    .on(unused),
+            )
         }
         Chain::Bare | Chain::Limited(_) => run_once(in_batches.stating_limits().on(executor)),
         Chain::OneAdapter => run_once(

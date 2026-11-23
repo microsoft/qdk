@@ -25,12 +25,12 @@
 //!
 //! A set is checked once, when it is built ([`BlockInstructionSet::new`]), which
 //! refuses every fault of its declaration at once ([`DeclarationFault`]), and
-//! derives what each instruction's check compares. Its submodules hold the rest
-//! of the vocabulary: an instruction's declaration (`instruction_def`) and its
+//! derives each instruction's check. Its submodules hold the rest of the
+//! vocabulary: an instruction's declaration (`instruction_def`) and its
 //! place in the set (`opcode`), the kinds of blocks (`block_type`) and an
 //! instruction's operands of them (`block_operand`), its classical inputs
 //! (`parameter`), Pauli operators (`pauli`), what an instruction does
-//! (`meaning`), what each instruction's check compares (`layout`), the
+//! (`meaning`), each instruction's check (`instruction_check`), the
 //! instructions a batch holds and their checks (`block_instruction`), the fit of one
 //! set to another (`fit`), the translation of opcodes it gives
 //! (`opcode_map`), the set's capabilities, the blocks of each type a shot
@@ -50,8 +50,8 @@ mod block_operand;
 mod block_requirement;
 mod block_type;
 mod fit;
+mod instruction_check;
 mod instruction_def;
-mod layout;
 mod meaning;
 mod opcode;
 mod opcode_map;
@@ -79,7 +79,7 @@ pub use readout_value::{ReadoutFailure, ReadoutValue};
 pub use shot_conditions::ShotConditions;
 
 use executor_protocol_core::{ReadoutSlots, SameNeed};
-use layout::Layout;
+use instruction_check::InstructionCheck;
 use std::collections::BTreeMap;
 use std::fmt;
 
@@ -99,9 +99,9 @@ pub struct BlockInstructionSet {
     block_types: Vec<(BlockType, u32)>,
     /// An opcode is an instruction's index here.
     instructions: Vec<InstructionDef>,
-    /// Derived once, when the set is built: what an instruction's check
-    /// compares, per opcode.
-    layouts: Vec<Layout>,
+    /// Derived once, when the set is built: each instruction's check, per
+    /// opcode.
+    checks: Vec<InstructionCheck>,
     /// Each mnemonic's opcode, for resolving names.
     opcodes: BTreeMap<String, Opcode>,
 }
@@ -146,7 +146,7 @@ impl BlockInstructionSet {
             }
         }
         let mut opcodes = BTreeMap::new();
-        let mut layouts = Vec::with_capacity(instructions.len());
+        let mut checks = Vec::with_capacity(instructions.len());
         for (index, def) in instructions.iter().enumerate() {
             let opcode =
                 Opcode::at(u32::try_from(index).expect("a set has fewer than 2^32 instructions"));
@@ -155,8 +155,8 @@ impl BlockInstructionSet {
                     mnemonic: def.mnemonic.clone(),
                 });
             }
-            match Layout::derive(def, &block_types) {
-                Ok(layout) => layouts.push(layout),
+            match InstructionCheck::derive(def, &block_types) {
+                Ok(check) => checks.push(check),
                 Err(found) => faults.extend(found),
             }
             faults.extend(def.naming_faults());
@@ -177,7 +177,7 @@ impl BlockInstructionSet {
             name: name.into(),
             block_types,
             instructions,
-            layouts,
+            checks,
             opcodes,
         })
     }
@@ -218,7 +218,9 @@ impl BlockInstructionSet {
     #[inline]
     #[must_use]
     pub fn readout_slots_at(&self, opcode: Opcode) -> Option<u32> {
-        self.layouts.get(opcode.index()).map(Layout::readout_slots)
+        self.checks
+            .get(opcode.index())
+            .map(InstructionCheck::readout_slots)
     }
 
     /// The readout slots of `instructions`, in this set's opcodes: the sum

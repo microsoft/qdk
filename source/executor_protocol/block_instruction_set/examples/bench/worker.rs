@@ -10,7 +10,7 @@ use executor_protocol_core::prelude::*;
 
 use crate::Size;
 use crate::parts::{
-    FromWorker, MixGates, Profile, Profiler, ProgramInBatches, run_once, slots_per_batch,
+    MixGates, Profile, Profiler, ProgramInBatches, WorkerThreadProfiler, run_once, slots_per_batch,
 };
 use crate::timing::{clock_floor, median_call};
 use crate::workload::QUBITS;
@@ -44,7 +44,7 @@ pub(crate) fn bench(size: &Size, program: &[BlockInstruction], checked: bool) {
         let expected = Profile::of(program, checked);
         let slots = slots_per_batch(&MixGates::set(), program, batch);
         let worker = median_call(repeats, || {
-            let mut worker = FromWorker::spawn();
+            let mut worker = WorkerThreadProfiler::spawn();
             let mut in_batches =
                 ProgramInBatches::new(MixGates::set(), program, &slots, QUBITS, batch)
                     .checked_if(checked);
