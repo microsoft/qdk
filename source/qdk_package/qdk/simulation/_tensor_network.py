@@ -14,8 +14,10 @@ needs no setup.
 from dataclasses import dataclass
 from importlib import metadata
 import os
-from typing import List, Literal, Optional, Sequence, Tuple, Union
+from typing import List, Literal, Optional, Sequence, Tuple, Union, cast
 import warnings
+
+import pyqir
 
 from .. import _native
 from .._adaptive_pass import AdaptiveProfilePass, Bytecode
@@ -27,8 +29,10 @@ from ._simulation import (
     preprocess_simulation_input,
 )
 
-# The NVIDIA wheels that `qdk[tensornetwork]` installs, and where each puts
-# its library, relative to the environment's site-packages.
+# The NVIDIA wheels of `qdk[tensornetwork]` whose libraries the QDK opens,
+# and where each puts its library, relative to the environment's
+# site-packages. The extra's cuBLAS and cuSOLVER wheels are not listed:
+# cuTensorNet's library finds them itself, in their wheels' folders.
 _PACKAGED_LIBRARIES = (
     ("cutensornet-cu12", "cuquantum/lib/libcutensornet.so.2"),
     ("nvidia-cuda-runtime-cu12", "nvidia/cuda_runtime/lib/libcudart.so.12"),
@@ -185,10 +189,9 @@ def tensornetwork_qir(
     its results only after its last measurement is one batch: a Ctrl-C
     during it lets the group of shots under way run it to its end, and
     stops each group a measurement split off before it runs on. Noise is
-    not simulated: a noise intrinsic
-    (a function with the ``qdk_noise`` attribute) runs as identity, as no
-    noise model is given, and a readout-noise call or a loss check raises
-    ``ValueError``.
+    not yet supported by this method, and is planned: a call to a noise
+    intrinsic (a function with the ``qdk_noise`` attribute) or to readout
+    noise, or a loss check, raises ``ValueError``.
 
     :param input: The QIR program, Base or Adaptive profile, as text or
         bitcode.
@@ -215,10 +218,10 @@ def tensornetwork_qir(
         that is not an ``int`` in [0, 2**32) (``1.5``, ``True`` or ``"7"``,
         say), an ``engine`` other than ``"gpu"`` and ``"cpu"``, ``queries``
         not holding exactly one query, a program the MPS simulation method
-        does not run (a readout-noise call, a loss check, a gate on one
-        qubit twice), a max bond dimension too large for the program's
-        qubits, or a call the engine refuses (a rotation by an angle that is
-        not finite, say).
+        does not run (a noise intrinsic, a readout-noise call, a loss check,
+        a gate on one qubit twice), a max bond dimension too large for the
+        program's qubits, or a call the engine refuses (a rotation by an
+        angle that is not finite, say).
     :raises TypeError: When ``options`` is not an :class:`MpsOptions`,
         ``queries`` is not iterable (a bare :class:`Sample`, say), a query
         is not a :class:`Sample`, ``engine`` is not a ``str``, or ``input``
@@ -256,9 +259,12 @@ def tensornetwork_qir(
     (sample,) = queries
 
     # Lowered as `run_qir`'s CPU simulators lower an Adaptive program, with
-    # no noise config; the native side builds it, makes the engine and runs
-    # the shots; each shot's records are formatted as `run_qir` formats them.
+    # no noise config, which runs a noise intrinsic as identity: so a call
+    # to one is refused first. The native side builds the program, makes
+    # the engine and runs the shots; each shot's records are formatted as
+    # `run_qir` formats them.
     mod, _, _, seed = preprocess_simulation_input(input, None, None, seed)
+    _refuse_noise_intrinsics(mod)
     DecomposeCcxPass().run(mod)
     program = AdaptiveProfilePass(Bytecode.Bit64).run(mod).as_dict()
     records, report = _native._tensor_network_sample(
@@ -306,6 +312,26 @@ def check_tensornetwork_setup() -> TensorNetworkSetup:
     return TensorNetworkSetup(
         ready=ready, report=report, advice=advice, warnings=tuple(native_warnings)
     )
+
+
+def _refuse_noise_intrinsics(mod: pyqir.Module) -> None:
+    """Refuses a program that calls a noise intrinsic (a function with the
+    ``qdk_noise`` attribute), naming the intrinsic: the MPS simulation
+    method runs no noise yet."""
+    for function in mod.functions:
+        for block in function.basic_blocks:
+            for instruction in block.instructions:
+                if instruction.opcode != pyqir.Opcode.CALL:
+                    continue
+                callee = cast(pyqir.Call, instruction).callee
+                if (
+                    isinstance(callee, pyqir.Function)
+                    and "qdk_noise" in callee.attributes.func
+                ):
+                    raise ValueError(
+                        f"Unsupported noise intrinsic: {callee.name}. Noise is not "
+                        "yet supported by the MPS simulation method; it is planned."
+                    )
 
 
 def _packaged_libraries() -> List[str]:
