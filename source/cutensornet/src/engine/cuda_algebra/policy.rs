@@ -11,9 +11,9 @@
 //! A gate split runs cuTensorNet's reduced algorithm
 //! (`CUTENSORNET_GATE_SPLIT_ALGO_REDUCED`, which `gate_split.rs`
 //! describes) rather than the direct one, as the GPU prototype did: its SVD
-//! is of the small core alone, not of the whole gated pair. It is applied
-//! where the gate split is called, in `native_calls/loaded_libraries`,
-//! since the native calls offer no other.
+//! is of the small core alone, not of the whole gated pair. The native
+//! calls fix it (`TensorCalls::gate_split_workspace_sizes`), so no setting
+//! here holds it.
 
 use crate::engine::native_calls::tensor_calls::SvdSetting;
 

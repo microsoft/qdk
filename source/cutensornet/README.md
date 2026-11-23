@@ -51,7 +51,7 @@ Today the crate holds:
 
 The extension point is an MPS simulation method: written once against
 `tensornet::MpsEngine`, it runs on this engine as on `canonical_mps`'s
-`CpuMpsEngine`, and gets the GPU for free. A simulator calls
+`CpuMpsEngine`, and runs on the GPU unchanged. A simulator calls
 `discover()`, then makes the engine with
 `CudaMpsEngine::try_from(&availability)` (Linux x86-64), at the engine's
 default cutoff (`.with_cutoff(c)` sets another), as the example on
@@ -143,14 +143,13 @@ The settings the algebra fixes, with how each was chosen, are in
 
 A caller can rely on each from the step named, whatever the method:
 
-- **At discovery** (`discover`): no device selected and no GPU work;
-  every fault found at once; the audited versions only.
 - **At the opening** (`CudaAlgebra::new`, `CudaMpsEngine::try_from`):
   `CudaAlgebraError::NoDevice` on a host without device 0, before any
   device is selected; a failed opening releases what it had made.
 - **At each method:** another engine's tensor refused before the device
-  is selected; a tensor shorter than the call reads, an empty one, or
-  extents whose product overflows, refused before any native object; the
+  is selected; a tensor shorter than the call reads, an upload or a
+  duplicate of no element, or extents whose product overflows, refused
+  before any native object; the
   inputs left unchanged; a return with the device idle; on a failure, the
   outputs freed once the device is waited for, or the algebra poisoned
   when that wait fails; a failed release leaked, the method failing with
