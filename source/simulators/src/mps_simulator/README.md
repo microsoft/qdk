@@ -53,8 +53,8 @@ Each file's header gives the rules it implements.
 - **One implementation.** The resumer is written once, and runs on any
   `MpsEngine`: a new engine needs no change here, and gets shots grouped by
   their draws, the qubit order, the stop flag and the truncation report;
-  what it must keep is `tensornet`'s contract, checked by `tensornet`'s
-  conformance kit.
+  what it must keep is `tensornet`'s contract, which an engine's tests
+  check against `tensornet`'s exact reference.
 - **One state per group.** The shots that drew the same values share one
   state, forked only where their draws differ: a program whose draws never
   differ runs every shot on at most one state, and a run holds few states
@@ -177,7 +177,8 @@ assert!(records.iter().all(|shot| shot[0] == shot[1]));
 ## Planned extensions
 
 Each item names a case that needs it;
-[the design notes](design.md#planned-extensions) give each in detail.
+[the design notes](design.md#planned-extensions) give the mechanics of
+those that need them.
 
 - **Noise and loss** on matrix product states, the calls refused today in
   [`lowering.rs`](lowering.rs), with a noise model setting. Its case: a

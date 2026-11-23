@@ -176,7 +176,7 @@ fn a_run_holds_at_most_log2_of_its_shots_plus_one_states() {
     );
     assert!(
         resumer.engine().most_live() <= 5,
-        "{}",
+        "at most ⌊log₂ 16⌋ + 1 = 5 states at once, not {}",
         resumer.engine().most_live()
     );
 }

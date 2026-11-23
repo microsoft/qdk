@@ -100,13 +100,16 @@ fn a_gate_on_one_qubit_twice_fails_naming_the_qubit() {
         &ids(&[0]),
     )
     .expect_err("cx(1, 1) has no matrix on distinct qubits");
-    assert!(matches!(
-        error,
-        QirResumeError::Resumer {
-            error: MpsResumerError::RepeatedQubit { qubit: 1, .. },
-            ..
-        }
-    ));
+    assert!(
+        matches!(
+            error,
+            QirResumeError::Resumer {
+                error: MpsResumerError::RepeatedQubit { qubit: 1, .. },
+                ..
+            }
+        ),
+        "{error:?}"
+    );
 }
 
 /// The values of qubits 0 to 3 in [`moved`]'s programs.
