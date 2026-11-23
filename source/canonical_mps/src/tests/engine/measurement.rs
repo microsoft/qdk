@@ -369,10 +369,6 @@ fn a_sample_never_draws_a_value_of_probability_zero() {
         // and the rule is the same for both). A precondition asks to find
         // such a site again when the splits' rounding changes.
         ("One where Zero has probability zero", |engine, name| {
-            // COMPATIBILITY NOTE: this behavior was present in the earlier
-            // CPU MPS engine's sampling (`qdk_cpu_mps`, not merged), hence
-            // we keep its rule. The site differs from its test's, because
-            // this crate's splits round differently from that engine's SVD.
             // 1 − 2⁻⁵³ is the largest `f64` below 1, so a uniform in [0, 1) is
             // not below it only when it is 1 − 2⁻⁵³ exactly.
             assert!(

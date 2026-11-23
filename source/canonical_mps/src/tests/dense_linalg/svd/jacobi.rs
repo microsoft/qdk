@@ -3,7 +3,9 @@
 
 //! The tests of the rotations (`svd::jacobi`): they keep the columns
 //! orthogonal when a rotation leaves one small, and report a failure when
-//! the last sweep allowed still rotates.
+//! the last sweep allowed still rotates. Their threshold and the pairs
+//! they skip are pinned through the SVD, by its degenerate pairs
+//! (`svd::accuracy`).
 
 use super::super::{adjoint, distance, identity, matrix, naive_product};
 use crate::dense_linalg::{
