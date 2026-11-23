@@ -2,8 +2,8 @@
 // Licensed under the MIT License.
 
 //! [`NalgebraMatrixmultiply`]: the [`Kernels`] on the dense linear algebra
-//! the QDK already depends on, nalgebra 0.35 (its simulators' algebra) and
-//! matrixmultiply 0.3 (the product under ndarray's complex products and
+//! the QDK already depends on, nalgebra (its simulators' algebra) and
+//! matrixmultiply (the product under ndarray's complex products and
 //! nalgebra's real ones), with a column-pivoted QR of the module's own:
 //!
 //! - the product: matrixmultiply's complex `zgemm`;
@@ -14,10 +14,9 @@
 //!   reveal the rank the SVD's trim reads.
 //!
 //! Each step runs on the calling thread, in pure Rust, so the module builds
-//! for WebAssembly too. The product (tuned for larger matrices) and the
-//! pivoted QR and its `Q` (unblocked) are slower than a blocked library's
-//! on an MPS simulation's small matrices, the product most. The SVD checks
-//! its answer, so a wrong QR or `Q` cannot pass silently.
+//! for WebAssembly too. The product is tuned for larger matrices than an
+//! MPS simulation's, and the pivoted QR and its `Q` are unblocked. The SVD
+//! checks its answer, so a wrong QR or `Q` cannot pass silently.
 
 mod householder_pivoted_qr;
 

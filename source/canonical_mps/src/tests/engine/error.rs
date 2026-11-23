@@ -7,10 +7,7 @@
 
 use super::stand_ins::failing_fake_algebra::{AlgebraFailure, Operation};
 use super::*;
-use crate::site_algebra::{
-    GateSplitCall, GateSplitOutcome, QrMoveCall, QrMoveOutcome, SiteAlgebra,
-};
-use std::borrow::Cow;
+use crate::site_algebra::SiteAlgebra;
 
 /// Turns of 0.3 and 0.4 and back by 0.7: the site is Zero up to rounding,
 /// so One keeps a weight of rounding, above zero.
@@ -23,42 +20,58 @@ fn one_of_rounding_weight(engine: &Engine) -> State {
     state
 }
 
-/// A condition or a projection on a value of probability exactly zero is
-/// refused with the contract's refusal, a condition on the site read
-/// included: |00⟩'s One, and the One of site 0 turned by 2e-200, whose
-/// elements are not zero but whose squared weight underflows to zero, so it
-/// reads exactly 0, before and after the refusal.
+/// A condition or a projection on a value of probability exactly zero, or
+/// NaN, is refused with the contract's refusal, a condition on the site read
+/// included. Zero: |00⟩'s One, and the One of site 0 turned by 2e-200,
+/// whose elements are not zero but whose squared weight underflows to zero,
+/// so it reads exactly 0, before and after the refusal. NaN: Zero on a
+/// backend whose reads come back NaN, as a device's may after an overflow.
 #[test]
-fn a_value_of_probability_zero_is_refused() {
+fn a_value_of_zero_or_nan_probability_is_refused() {
     for (turn, scene) in [(0.0, "|00⟩"), (2e-200, "a turn by 2e-200")] {
         for (engine, name) in both_fusions(DEFAULT_CUTOFF) {
             let mut state = engine.prepare(&capacity(2, 2)).expect("prepare");
             engine.apply(&mut state, &[0], &ry(turn)).expect("apply");
             let read = engine.probability_of_one(&state, 0).expect("P(One)");
             assert_eq!(read, 0.0, "{scene}, {name}: before");
-            let condition = engine
-                .conditional_probability_of_one(&state, 1, &[(0, true)])
-                .expect_err("an impossible condition");
-            let on_the_site_read = engine
-                .conditional_probability_of_one(&state, 0, &[(0, true)])
-                .expect_err("an impossible condition on the site read");
-            let projection = engine
-                .project(&mut state, 0, true)
-                .expect_err("an impossible value");
-            for (call, error) in [
-                ("condition", condition),
-                ("condition on the site read", on_the_site_read),
-                ("projection", projection),
-            ] {
-                assert_eq!(
-                    error,
-                    Refusal::ZeroProbabilityOutcome.into(),
-                    "{scene}, {name}: {call}"
-                );
-            }
+            assert_refused_on_site_0(&engine, &mut state, true, &format!("{scene}, {name}"));
             let read = engine.probability_of_one(&state, 0).expect("P(One)");
             assert_eq!(read, 0.0, "{scene}, {name}: after");
         }
+    }
+    let engine = CanonicalMpsEngine::new(NanReadingFakeAlgebra);
+    let mut state = engine.prepare(&capacity(2, 2)).expect("prepare");
+    assert_refused_on_site_0(&engine, &mut state, false, "reads of NaN");
+}
+
+/// A condition of site 1 on `one` at site 0, a condition of site 0 on it,
+/// and a projection of site 0 on it are each refused with
+/// [`Refusal::ZeroProbabilityOutcome`].
+fn assert_refused_on_site_0<A: SiteAlgebra<Error = SvdError>>(
+    engine: &CanonicalMpsEngine<A>,
+    state: &mut CanonicalMpsState<A>,
+    one: bool,
+    scene: &str,
+) {
+    let condition = engine
+        .conditional_probability_of_one(state, 1, &[(0, one)])
+        .expect_err("an impossible condition");
+    let on_the_site_read = engine
+        .conditional_probability_of_one(state, 0, &[(0, one)])
+        .expect_err("an impossible condition on the site read");
+    let projection = engine
+        .project(state, 0, one)
+        .expect_err("an impossible value");
+    for (call, error) in [
+        ("condition", condition),
+        ("condition on the site read", on_the_site_read),
+        ("projection", projection),
+    ] {
+        assert_eq!(
+            error,
+            Refusal::ZeroProbabilityOutcome.into(),
+            "{scene}: {call}"
+        );
     }
 }
 
@@ -398,63 +411,6 @@ fn invalid_calls() -> [(&'static str, CheckedCall, Refusal); 14] {
             out_of_range,
         ),
     ]
-}
-
-/// A stub of a backend whose reads come back NaN, as a device's may after
-/// an overflow: [`CpuAlgebra`], except that `read` returns NaN elements.
-#[derive(Clone)]
-struct NanReadsStub;
-
-impl SiteAlgebra for NanReadsStub {
-    type Tensor = Vec<Complex64>;
-    type Error = SvdError;
-
-    fn upload(&self, values: &[Complex64]) -> Result<Self::Tensor, Self::Error> {
-        CpuAlgebra.upload(values)
-    }
-
-    fn read<'t>(
-        &self,
-        _: &'t Self::Tensor,
-        len: usize,
-    ) -> Result<Cow<'t, [Complex64]>, Self::Error> {
-        Ok(Cow::Owned(vec![Complex64::new(f64::NAN, f64::NAN); len]))
-    }
-
-    fn duplicate(&self, tensor: &Self::Tensor, len: usize) -> Result<Self::Tensor, Self::Error> {
-        CpuAlgebra.duplicate(tensor, len)
-    }
-
-    fn gate_split(
-        &self,
-        call: &GateSplitCall<'_, Self::Tensor>,
-    ) -> Result<GateSplitOutcome<Self::Tensor>, Self::Error> {
-        CpuAlgebra.gate_split(call)
-    }
-
-    fn qr_move(
-        &self,
-        call: &QrMoveCall<'_, Self::Tensor>,
-    ) -> Result<QrMoveOutcome<Self::Tensor>, Self::Error> {
-        CpuAlgebra.qr_move(call)
-    }
-}
-
-/// A condition or a projection on a site whose read comes back NaN: its
-/// probability is NaN, and the contract refuses it.
-#[test]
-fn a_value_of_nan_probability_is_refused() {
-    let engine = CanonicalMpsEngine::new(NanReadsStub);
-    let mut state = engine.prepare(&capacity(2, 2)).expect("prepare");
-    let condition = engine
-        .conditional_probability_of_one(&state, 1, &[(0, false)])
-        .expect_err("a condition of probability NaN");
-    let projection = engine
-        .project(&mut state, 0, false)
-        .expect_err("a probability of NaN");
-    for (call, error) in [("condition", condition), ("projection", projection)] {
-        assert_eq!(error, Refusal::ZeroProbabilityOutcome.into(), "{call}");
-    }
 }
 
 /// The error of an engine on [`FailingFakeAlgebra`].
