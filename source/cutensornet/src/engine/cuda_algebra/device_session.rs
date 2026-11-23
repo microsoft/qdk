@@ -26,14 +26,11 @@ use crate::engine::cuda_algebra_error::{
 use crate::engine::native_calls::{NativeCalls, OpaqueHandle, Stream};
 use std::{marker::PhantomData, rc::Rc, sync::Arc};
 
-/// The CUDA algebra's stream and cuTensorNet handle on one device, created
-/// on the calling thread and released when dropped, the handle first.
+/// The CUDA algebra's stream and cuTensorNet handle on one device.
 ///
 /// It holds the native calls, and with them the libraries, but no tensor or
 /// buffer: the algebra and each of its tensors hold it, through their
-/// shared `AlgebraSession`, so it is released after the last of them. The
-/// `PhantomData<Rc<()>>` keeps it `!Send` and `!Sync` whatever the handles'
-/// type.
+/// shared `AlgebraSession`, so it is released after the last of them.
 pub(super) struct DeviceSession {
     calls: Arc<dyn NativeCalls>,
     device_ordinal: i32,
