@@ -50,11 +50,8 @@
 //! device fails too, poisons the algebra: `algebra_session.rs` says what
 //! follows.
 //!
-//! That wait covers only the algebra's own device work, and a tensor is
-//! freed through the session of the algebra that made it: so every call
-//! refuses a tensor another algebra made, with
-//! [`CudaAlgebraError::ForeignTensor`] and before any native call
-//! (`device_tensor.rs`).
+//! Every call refuses a tensor another algebra made, before any native
+//! call ([`CudaAlgebraError::ForeignTensor`]; `device_tensor.rs` says why).
 
 mod algebra_session;
 mod call_scope;

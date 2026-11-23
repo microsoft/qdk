@@ -54,11 +54,12 @@ pub(crate) trait TensorCalls: MemoryCalls {
     /// after the calls that use it.
     fn destroy_tensor_descriptor(&self, descriptor: OpaqueHandle) -> Result<(), CudaAlgebraError>;
 
-    /// A new SVD configuration, with cuTensorNet's defaults: no truncation
-    /// beyond the output descriptors' extents, no normalization, and the
-    /// singular values returned apart.
+    /// A new SVD configuration (`cutensornetCreateTensorSVDConfig`), with
+    /// cuTensorNet's defaults: no truncation beyond the output descriptors'
+    /// extents, no normalization, and the singular values returned apart.
     fn create_svd_config(&self, handle: OpaqueHandle) -> Result<OpaqueHandle, CudaAlgebraError>;
-    /// Sets one setting of `config`.
+    /// Sets one setting of `config`
+    /// (`cutensornetTensorSVDConfigSetAttribute`).
     fn configure_svd(
         &self,
         handle: OpaqueHandle,
@@ -69,10 +70,12 @@ pub(crate) trait TensorCalls: MemoryCalls {
     /// the splits that use it.
     fn destroy_svd_config(&self, config: OpaqueHandle) -> Result<(), CudaAlgebraError>;
 
-    /// A new SVD report, which each gate split given it overwrites.
+    /// A new SVD report (`cutensornetCreateTensorSVDInfo`), which each gate
+    /// split given it overwrites.
     fn create_svd_info(&self, handle: OpaqueHandle) -> Result<OpaqueHandle, CudaAlgebraError>;
-    /// What the last gate split given `info` truncated; valid once the
-    /// stream it ran on is synchronized.
+    /// What the last gate split given `info` truncated
+    /// (`cutensornetTensorSVDInfoGetAttribute`); valid once the stream it
+    /// ran on is synchronized.
     fn svd_truncation(
         &self,
         handle: OpaqueHandle,
@@ -83,7 +86,8 @@ pub(crate) trait TensorCalls: MemoryCalls {
     fn destroy_svd_info(&self, info: OpaqueHandle) -> Result<(), CudaAlgebraError>;
 
     /// Sizes `workspace` for one gate split of these descriptors under
-    /// `config` (`CUTENSORNET_GATE_SPLIT_ALGO_REDUCED`).
+    /// `config` (`cutensornetWorkspaceComputeGateSplitSizes`, with
+    /// `CUTENSORNET_GATE_SPLIT_ALGO_REDUCED`).
     fn gate_split_workspace_sizes(
         &self,
         handle: OpaqueHandle,
@@ -91,10 +95,10 @@ pub(crate) trait TensorCalls: MemoryCalls {
         config: OpaqueHandle,
         workspace: OpaqueHandle,
     ) -> Result<(), CudaAlgebraError>;
-    /// Queues one gate split on `stream`: contracts A, B and the gate, and
-    /// factors the result by a truncated SVD into U and V, which are packed
-    /// at the reduced extent of their shared mode; `info` reports the
-    /// truncation.
+    /// Queues one gate split on `stream` (`cutensornetGateSplit`): contracts
+    /// A, B and the gate, and factors the result by a truncated SVD into U
+    /// and V, which are packed at the reduced extent of their shared mode;
+    /// `info` reports the truncation.
     ///
     /// A, B and the gate "are expected to form a fully connected graph"
     /// (each pair shares a mode), and their modes not contracted go to U
@@ -126,7 +130,8 @@ pub(crate) trait TensorCalls: MemoryCalls {
         stream: Stream,
     ) -> Result<(), CudaAlgebraError>;
 
-    /// Sizes `workspace` for one QR of `input` into `q` and `r`.
+    /// Sizes `workspace` for one QR of `input` into `q` and `r`
+    /// (`cutensornetWorkspaceComputeQRSizes`).
     fn qr_workspace_sizes(
         &self,
         handle: OpaqueHandle,
@@ -135,8 +140,8 @@ pub(crate) trait TensorCalls: MemoryCalls {
         r: OpaqueHandle,
         workspace: OpaqueHandle,
     ) -> Result<(), CudaAlgebraError>;
-    /// Queues one thin QR on `stream`: Q's and R's shared mode has the
-    /// smaller extent of the two sides.
+    /// Queues one thin QR on `stream` (`cutensornetTensorQR`): Q's and R's
+    /// shared mode has the smaller extent of the two sides.
     fn tensor_qr(
         &self,
         handle: OpaqueHandle,
@@ -148,8 +153,9 @@ pub(crate) trait TensorCalls: MemoryCalls {
     ) -> Result<(), CudaAlgebraError>;
 
     /// A network that contracts two tensors into a tensor of the labels
-    /// `output_modes`, in that order: every label absent from the output is
-    /// summed, and each output mode takes its extent from the inputs.
+    /// `output_modes`, in that order (`cutensornetCreateNetwork`): every
+    /// label absent from the output is summed, and each output mode takes
+    /// its extent from the inputs.
     fn create_contraction_network(
         &self,
         handle: OpaqueHandle,
@@ -170,7 +176,8 @@ pub(crate) trait TensorCalls: MemoryCalls {
     /// Releases `info` (`cutensornetDestroyContractionOptimizerInfo`), once,
     /// before its network.
     fn destroy_optimizer_info(&self, info: OpaqueHandle) -> Result<(), CudaAlgebraError>;
-    /// Finds a contraction path for `network`, into `info` and the network,
+    /// Finds a contraction path for `network`
+    /// (`cutensornetContractionOptimize`), into `info` and the network,
     /// passing `workspace_limit` bytes as the optimizer's memory
     /// constraint; the optimizer's configuration is created and destroyed
     /// inside. The path's workspace may exceed the limit, since slicing is
@@ -191,7 +198,8 @@ pub(crate) trait TensorCalls: MemoryCalls {
         workspace_limit: u64,
         info: OpaqueHandle,
     ) -> Result<(), CudaAlgebraError>;
-    /// Sizes `workspace` for contracting `network` along `info`'s path.
+    /// Sizes `workspace` for contracting `network` along `info`'s path
+    /// (`cutensornetWorkspaceComputeContractionSizes`).
     fn contraction_workspace_sizes(
         &self,
         handle: OpaqueHandle,
@@ -200,21 +208,23 @@ pub(crate) trait TensorCalls: MemoryCalls {
         workspace: OpaqueHandle,
     ) -> Result<(), CudaAlgebraError>;
     /// Prepares `network` to be contracted along the path it was last
-    /// optimized to, in `workspace`, which must be sized for that path and
-    /// lent its memory (`MemoryCalls::set_workspace`): cuTensorNet checks
-    /// the device scratch's size here, and [`contract`](Self::contract)
-    /// needs at least the device scratch lent at this preparation.
+    /// optimized to (`cutensornetNetworkPrepareContraction`), in
+    /// `workspace`, which must be sized for that path and lent its memory
+    /// (`MemoryCalls::set_workspace`): cuTensorNet checks the device
+    /// scratch's size here, and [`contract`](Self::contract) needs at least
+    /// the device scratch lent at this preparation.
     fn prepare_contraction(
         &self,
         handle: OpaqueHandle,
         network: OpaqueHandle,
         workspace: OpaqueHandle,
     ) -> Result<(), CudaAlgebraError>;
-    /// Queues the contraction of `inputs` into `output` on `stream`, by the
-    /// prepared `network`, whole: every slice of its path, should it have
-    /// several ([`optimize_contraction`](Self::optimize_contraction)). The
-    /// buffers are given to the network at each call, so one prepared
-    /// network contracts new buffers of its shapes each time.
+    /// Queues the contraction of `inputs` into `output` on `stream`
+    /// (`cutensornetNetworkContract`), by the prepared `network`, whole:
+    /// every slice of its path, should it have several
+    /// ([`optimize_contraction`](Self::optimize_contraction)). The buffers
+    /// are given to the network at each call, so one prepared network
+    /// contracts new buffers of its shapes each time.
     fn contract(
         &self,
         handle: OpaqueHandle,

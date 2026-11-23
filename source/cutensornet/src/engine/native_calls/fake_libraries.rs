@@ -29,16 +29,11 @@
 //!   synchronized, since the fake does not track what a stream's work
 //!   reads. A stream whose writes another stream wrote again since is no
 //!   longer recorded, so these waits do not cover its work;
-//! - a buffer a tensor call wrote is copied (`copy_to_host`, and
-//!   `copy_on_device` from it), copied into (`copy_to_device`,
-//!   `copy_on_device` into it), and an SVD info reported
-//!   (`svd_truncation`), only once the stream last queued to write it is
-//!   synchronized: the copies run on CUDA's legacy stream, which a
-//!   non-blocking stream does not wait for, and another stream's
-//!   synchronization says nothing of it. An object written on two streams
-//!   is released by the later one, and the fake does not flag the race.
-//!   Other reads and writes of a pending write are not checked: a later
-//!   call's inputs and outputs;
+//! - a buffer or SVD info a tensor call wrote is copied, copied into or
+//!   reported only once the stream last queued to write it is
+//!   synchronized, since the copies run on CUDA's legacy stream, which a
+//!   non-blocking stream does not wait for; the fake flags no race of two
+//!   streams writing one object, nor a later call's inputs and outputs;
 //! - a stream destroyed with writes pending keeps them, as its work may
 //!   still run after `cudaStreamDestroy`: no buffer is freed while it is
 //!   their last recorded writer;

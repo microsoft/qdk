@@ -7,10 +7,9 @@
 //! host workspace (`src/engine/cuda_algebra/scratch.rs`). What a host slot
 //! lends must begin on a 256-byte boundary, so a buffer starting one byte
 //! past one skips 255 bytes, every byte the slot holds beyond what it
-//! lends. The
-//! system allocator often starts large buffers on a boundary, where a slot
-//! without those bytes would still pass; under this allocator it never
-//! does, so the scratch tests catch it on every host.
+//! lends. The system allocator often starts large buffers on a boundary,
+//! where a slot without those bytes would still pass; under this allocator
+//! it never does, so the scratch tests catch it on every host.
 //!
 //! It is safe for the whole test binary: every allocation is still one the
 //! system allocator made, aligned at least as its layout asks, and only
