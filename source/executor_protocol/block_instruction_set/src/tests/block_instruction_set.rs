@@ -78,6 +78,16 @@ instruction_set! {
 }
 
 instruction_set! {
+    /// A set compiled out, its constants and `set()` too, by `cfg_attr`s
+    /// whose predicates are written `name = "value"`, as a feature's are:
+    /// `target_has_atomic = "8"` holds on every target the QDK builds for.
+    #[cfg_attr(target_has_atomic = "8", cfg_attr(target_has_atomic = "8", cfg(any())))]
+    OffByValuePredicates {
+        H = h(qubit),
+    }
+}
+
+instruction_set! {
     /// A set a `cfg_attr` would compile out were its predicate true, or
     /// were a nested one's and its outer one's both, also where they are
     /// written `true` and `false`.
@@ -279,7 +289,8 @@ fn macro_set_with_a_declaration_fault_panics() {
 /// constants and `set()` with it, while the predicate is false, also a
 /// nested `cfg_attr`'s, written `any()` or `false` alike; while it is
 /// true, its type, constants and `set()` are all compiled out, or this
-/// crate would not compile (`OffByACfgAttr`, `OffByANestedCfgAttr`).
+/// crate would not compile (`OffByACfgAttr`, `OffByANestedCfgAttr`,
+/// `OffByValuePredicates`).
 #[test]
 fn macro_set_gated_by_a_cfg_attr_follows_its_predicate() {
     let set = OnUnderFalsePredicates::set();
