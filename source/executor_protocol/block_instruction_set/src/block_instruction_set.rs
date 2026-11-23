@@ -468,7 +468,10 @@ impl std::error::Error for DeclarationFault {}
 /// meaning and no flags: a set that needs them is built with
 /// [`BlockInstructionSet::new`]. Attributes before the name go on its
 /// type, and a `#[cfg(…)]`, or one a `#[cfg_attr(…)]` holds, also on its
-/// constants and `set()`, so a set compiled out leaves nothing behind.
+/// constants and `set()`, so a set compiled out leaves nothing behind;
+/// their predicates take every form Rust's do, `true` and `false`
+/// included. Only `cfg` and `cfg_attr` so spelled are read: a raw `r#cfg`
+/// or `r#cfg_attr` goes on the type alone.
 ///
 /// # Panics
 ///
@@ -507,7 +510,9 @@ macro_rules! instruction_set {
     // the set's `impl` too, so a declaration compiled out leaves no `impl`
     // of a missing type; the others (docs, derives) on its type alone. A
     // `cfg_attr` goes on the type whole, and each `cfg` it holds, with its
-    // predicate, on the `impl` too, so its derives stay the type's.
+    // predicate, on the `impl` too, so its derives stay the type's. A
+    // predicate is read by its form (a name, `name = "value"`, or a name
+    // and its list), not as `meta`, which refuses `true` and `false`.
     (@split [$($cfg:tt)*] [$($other:tt)*] #[cfg($($condition:tt)*)] $($rest:tt)*) => {
         $crate::instruction_set!(
             @split [$($cfg)* #[cfg($($condition)*)]] [$($other)*] $($rest)*
@@ -515,36 +520,42 @@ macro_rules! instruction_set {
     };
     (
         @split $cfg:tt [$($other:tt)*]
-        #[cfg_attr($predicate:meta, $($attribute:tt)*)] $($rest:tt)*
+        #[cfg_attr(
+            $key:ident $(= $value:literal)? $(($($list:tt)*))?, $($attribute:tt)*
+        )] $($rest:tt)*
     ) => {
         $crate::instruction_set!(
-            @gating [$predicate] $cfg [$($attribute)*]
-            [$($other)* #[cfg_attr($predicate, $($attribute)*)]] $($rest)*
+            @gating [$key $(= $value)? $(($($list)*))?] $cfg [$($attribute)*]
+            [$($other)* #[cfg_attr($key $(= $value)? $(($($list)*))?, $($attribute)*)]]
+            $($rest)*
         );
     };
     // Finds the `cfg`s of a `cfg_attr`'s attributes, one token at a time,
     // under the predicate in force: a nested `cfg_attr`'s, under both
     // predicates, until `@outer` gives back the outer one.
     (
-        @gating [$predicate:meta] [$($cfg:tt)*]
+        @gating [$($predicate:tt)*] [$($cfg:tt)*]
         [cfg($($condition:tt)*) $($scan:tt)*] $($rest:tt)*
     ) => {
         $crate::instruction_set!(
-            @gating [$predicate] [$($cfg)* #[cfg_attr($predicate, cfg($($condition)*))]]
+            @gating [$($predicate)*]
+            [$($cfg)* #[cfg_attr($($predicate)*, cfg($($condition)*))]]
             [$($scan)*] $($rest)*
         );
     };
     (
-        @gating [$predicate:meta] $cfg:tt
-        [cfg_attr($nested:meta, $($attribute:tt)*) $($scan:tt)*] $($rest:tt)*
+        @gating [$($predicate:tt)*] $cfg:tt
+        [cfg_attr(
+            $key:ident $(= $value:literal)? $(($($list:tt)*))?, $($attribute:tt)*
+        ) $($scan:tt)*] $($rest:tt)*
     ) => {
         $crate::instruction_set!(
-            @gating [all($predicate, $nested)] $cfg
-            [$($attribute)* @outer($predicate) $($scan)*] $($rest)*
+            @gating [all($($predicate)*, $key $(= $value)? $(($($list)*))?)] $cfg
+            [$($attribute)* @outer($($predicate)*) $($scan)*] $($rest)*
         );
     };
-    (@gating $predicate:tt $cfg:tt [@outer($outer:meta) $($scan:tt)*] $($rest:tt)*) => {
-        $crate::instruction_set!(@gating [$outer] $cfg [$($scan)*] $($rest)*);
+    (@gating $predicate:tt $cfg:tt [@outer($($outer:tt)*) $($scan:tt)*] $($rest:tt)*) => {
+        $crate::instruction_set!(@gating [$($outer)*] $cfg [$($scan)*] $($rest)*);
     };
     (@gating $predicate:tt $cfg:tt [$token:tt $($scan:tt)*] $($rest:tt)*) => {
         $crate::instruction_set!(@gating $predicate $cfg [$($scan)*] $($rest)*);

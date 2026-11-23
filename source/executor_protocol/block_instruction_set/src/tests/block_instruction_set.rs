@@ -79,10 +79,12 @@ instruction_set! {
 
 instruction_set! {
     /// A set a `cfg_attr` would compile out were its predicate true, or
-    /// were a nested one's and its outer one's both.
+    /// were a nested one's and its outer one's both, also where they are
+    /// written `true` and `false`.
     #[cfg_attr(any(), cfg(any()))]
     #[cfg_attr(all(), cfg_attr(any(), cfg(any())))]
     #[cfg_attr(any(), cfg_attr(all(), cfg(any())))]
+    #[cfg_attr(true, cfg_attr(false, cfg(false)))]
     OnUnderFalsePredicates {
         H = h(qubit),
     }
@@ -275,9 +277,9 @@ fn macro_set_with_a_declaration_fault_panics() {
 /// A set gated through a `cfg_attr`, as on a feature
 /// (`#[cfg_attr(not(feature = "…"), cfg(any()))]`), is compiled in, its
 /// constants and `set()` with it, while the predicate is false, also a
-/// nested `cfg_attr`'s; while it is true, its type, constants and `set()`
-/// are all compiled out, or this crate would not compile (`OffByACfgAttr`,
-/// `OffByANestedCfgAttr`).
+/// nested `cfg_attr`'s, written `any()` or `false` alike; while it is
+/// true, its type, constants and `set()` are all compiled out, or this
+/// crate would not compile (`OffByACfgAttr`, `OffByANestedCfgAttr`).
 #[test]
 fn macro_set_gated_by_a_cfg_attr_follows_its_predicate() {
     let set = OnUnderFalsePredicates::set();
