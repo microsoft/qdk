@@ -6,16 +6,20 @@
 
 use crate::prelude::*;
 use crate::tests::composition::faults;
-use crate::tests::example_sets::UnacceptedNames;
+use crate::tests::example_sets::{
+    QubitsAndResetShort, Resettable, TooFewQubits, UnacceptedNames, qubits_and_reset,
+};
 use crate::tests::fake_parts::{
-    Bits, CoinCopy, Log, Program, Renamed, Stating, batches_of, coin_gates,
+    AncillaReuse, Bits, CoinCopy, Log, Program, Renamed, ResettableProgram, Stating, Zeros,
+    batches_of, coin_gates,
 };
 use crate::{BoundaryMismatch, CompositionFaults, Features, PartId, ResourceMismatch};
 
 use super::driver_joins::{NO_X, bits_over, instructions, part, program, short_batches};
 
 /// Faults of each kind, a set's and a resource's at one pair included,
-/// with parts named by their types, or, as a part built at run time is, by
+/// and a set's short on two needs at one pair, with parts named by their
+/// types, or, as a part built at run time is, by
 /// what it was built from: each fault names its parts by those names, in
 /// its fields and in its message, beside each mismatch's own message,
 /// whose wording is pinned by its own type's tests. A boundary's mismatch
@@ -34,6 +38,19 @@ fn a_composition_fault_names_its_parts_and_every_mismatch() {
         .to_string()
     };
     let (nine_over_eight, nine_over_four) = (batches_of_nine(8), batches_of_nine(4));
+    let qubits = QubitsAndResetShort {
+        qubits: Some(TooFewQubits {
+            required: 10,
+            provided: 8,
+        }),
+        reset: false,
+    }
+    .to_string();
+    let reset = QubitsAndResetShort {
+        qubits: None,
+        reset: true,
+    }
+    .to_string();
     let said = |faults: CompositionFaults| {
         let named: Vec<_> = (faults.faults().iter())
             .map(|fault| (fault.requirer.clone(), fault.provider.clone()))
@@ -62,6 +79,19 @@ fn a_composition_fault_names_its_parts_and_every_mismatch() {
             ))),
             vec![(part::<Program>(0), part::<Bits>(1))],
             vec![&x, &nine_over_eight],
+        ),
+        (
+            "a set short on qubits and a reset at one pair",
+            said(faults(
+                ResettableProgram::new(10, true)
+                    .through(AncillaReuse::new())
+                    .on(Zeros::providing(
+                        Resettable,
+                        Some(qubits_and_reset(8, false)),
+                    )),
+            )),
+            vec![(part::<ResettableProgram>(0), part::<Zeros<Resettable>>(2))],
+            vec![&qubits, &reset],
         ),
         (
             "parts built at run time",
