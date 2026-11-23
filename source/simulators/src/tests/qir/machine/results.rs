@@ -490,8 +490,8 @@ fn a_missing_outcome_names_the_first_quantum_call_of_the_batch_without_one() {
 }
 
 /// Both results answered, and a third: one of the program's results, or
-/// one past them (as a buggy resumer might give); and an outcome before
-/// the first resume.
+/// one past them (as a buggy resumer might give); an outcome before the
+/// first resume; and one after the program's end.
 #[test]
 fn an_outcome_for_no_quantum_call_of_the_batch_is_a_trap() {
     for extra in [2, SIZE, u32::MAX] {
@@ -513,6 +513,16 @@ fn an_outcome_for_no_quantum_call_of_the_batch_is_a_trap() {
     let machine = QirMachine::new(&program);
     assert_eq!(
         machine.resume(&mut machine.start_shot(), &outcomes[..1]),
+        Err(QirTrap::UnexpectedOutcome { result: 0 })
+    );
+    let mut context = machine.start_shot();
+    machine.resume(&mut context, &[]).expect("a context starts");
+    let stop = machine
+        .resume(&mut context, &outcomes)
+        .expect("both results are answered");
+    assert!(matches!(stop, QirStop::Ended(_)), "{stop:?}");
+    assert_eq!(
+        machine.resume(&mut context, &outcomes[..1]),
         Err(QirTrap::UnexpectedOutcome { result: 0 })
     );
 }

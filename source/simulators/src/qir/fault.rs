@@ -256,7 +256,7 @@ pub enum QirError {
     /// uses. For a read, a loss check or a record of the result, this is
     /// stricter than a run needs: no write can reach the result.
     NoSuchResult { result: u64, results: u32 },
-    /// A division or remainder by the constant zero.
+    /// An integer division or remainder by the constant zero.
     DivisionByZero,
     /// A constant other than 0 and 1 where a run reads a bit: a branch's
     /// or a select's condition, a bool recorded, or a result written.
@@ -355,7 +355,9 @@ impl fmt::Display for QirError {
                 f,
                 "result {result} does not exist (the program has {results})"
             ),
-            QirError::DivisionByZero => f.write_str("a division by the constant zero"),
+            QirError::DivisionByZero => {
+                f.write_str("an integer division or remainder by the constant zero")
+            }
             QirError::NotABit { value } => write!(
                 f,
                 "the constant {value} where a bit is read, neither 0 nor 1"

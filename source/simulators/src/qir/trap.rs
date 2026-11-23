@@ -20,9 +20,9 @@ use super::{QirFaults, QirMachine, QirProgram, QirReadout, QirResumeError};
 
 /// What ends a context before its program returns: a value known only as
 /// it runs, which building the [`QirProgram`] could not check (for example
-/// a qubit, a result, a divisor or a bit held in a register, a memory
-/// address, the call arguments of correlated noise whose count or offset
-/// is held in one), a use of a result whose readout
+/// a qubit, a result, an integer divisor or a bit held in a register, a
+/// memory address, the call arguments of correlated noise whose count or
+/// offset is held in one), a use of a result whose readout
 /// came back with no value, or outcomes that do not answer the batch they
 /// are given for. (Faults found when the program is built are
 /// [`QirFaults`].) When one instruction has several faults found as it
@@ -63,7 +63,9 @@ pub enum QirTrap {
         register: u64,
         registers: u32,
     },
-    /// A division or remainder by zero, held in a register.
+    /// An integer division or remainder by zero, held in a register. A
+    /// floating-point one gives what IEEE 754 defines (an infinity, or
+    /// NaN), as `run_shot` does.
     DivisionByZero { instruction: usize },
     /// A value other than 0 and 1, held in a register, where a bit is
     /// read: a branch's or a select's condition, a bool recorded, or a
@@ -199,7 +201,10 @@ impl fmt::Display for QirTrap {
                  {registers})"
             ),
             QirTrap::DivisionByZero { instruction } => {
-                write!(f, "instruction {instruction}: a division by zero")
+                write!(
+                    f,
+                    "instruction {instruction}: an integer division or remainder by zero"
+                )
             }
             QirTrap::NotABit { instruction, value } => write!(
                 f,

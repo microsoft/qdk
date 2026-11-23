@@ -30,8 +30,8 @@ pub(super) fn unsigned(value: i64) -> u64 {
     value as u64
 }
 
-/// The binary `opcode` on `a` and `b`, as a run computes it; `None` for a
-/// division or a remainder by zero.
+/// The binary `opcode` on `a` and `b`, as a run computes it; `None` for an
+/// integer division or remainder by zero.
 #[inline]
 pub(super) fn binary(opcode: u8, a: u64, b: u64) -> Option<u64> {
     let real = |value: f64| Some(value.to_bits());

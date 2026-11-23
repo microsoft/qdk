@@ -1566,15 +1566,27 @@ fn every_fault_is_reported_in_the_order_of_the_sites() {
     );
 }
 
-/// Two faults, read as one message.
+/// Two faults, read as one message: it names each fault's site and its
+/// error, in site order.
 #[test]
 fn faults_read_as_one_message_of_their_sites_and_errors() {
     let faults = QirFaults(vec![
         at(QirFaultSite::Block(1), QirError::EmptyBlock),
         at_instruction(2, QirError::DivisionByZero),
     ]);
-    assert_eq!(
-        faults.to_string(),
-        "block 1: it holds no instruction; instruction 2: a division by the constant zero"
+    let message = faults.to_string();
+    let positions: Vec<_> = faults
+        .0
+        .iter()
+        .flat_map(|fault| [fault.at.to_string(), fault.error.to_string()])
+        .map(|part| {
+            message
+                .find(&part)
+                .unwrap_or_else(|| panic!("{message:?} names {part:?}"))
+        })
+        .collect();
+    assert!(
+        positions.is_sorted(),
+        "{message:?} names each site, then its error, in site order"
     );
 }

@@ -572,9 +572,10 @@ fn fdiv_divides_its_first_operand_by_its_second() {
 }
 
 /// 1 and -1 divided by zero and by minus zero: an infinity, its sign the
-/// product of their signs, as IEEE 754 defines.
+/// product of their signs; and their remainders by both zeros: NaN; as
+/// IEEE 754 defines, with no trap, unlike an integer division.
 #[test]
-fn fdiv_by_a_zero_gives_an_infinity_signed_by_both_operands() {
+fn a_float_division_or_remainder_by_a_zero_gives_its_ieee_754_value() {
     let quotients = [
         (1.0, 0.0, f64::INFINITY),
         (1.0, -0.0, f64::NEG_INFINITY),
@@ -587,6 +588,8 @@ fn fdiv_by_a_zero_gives_an_infinity_signed_by_both_operands() {
             real(infinity),
             "{x} / {zero}"
         );
+        let remainder = f64::from_bits(computed(reals(OP_FREM, x, zero)).cast_unsigned());
+        assert!(remainder.is_nan(), "{x} % {zero} is {remainder}");
     }
 }
 

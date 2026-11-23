@@ -176,7 +176,11 @@ fn an_alloca_grows_the_memory_to_its_last_word() {
 /// One word of constant data, then an `ALLOCA` of 2^64 - 1 words: the
 /// memory must grow past every address, which no allocation can hold.
 #[test]
-#[should_panic(expected = "capacity overflow")]
+#[should_panic]
+#[allow(
+    clippy::should_panic_without_expect,
+    reason = "the panic is the allocator's, whose text this crate does not promise"
+)]
 fn an_alloca_past_the_last_address_panics() {
     let alloca = binary(OP_ALLOCA, FLAG_SRC0_IMM | FLAG_SRC1_IMM, 1, u64::MAX, 0);
     let mut bytecode = program(&[&[alloca, ret()]]);

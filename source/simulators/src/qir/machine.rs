@@ -164,9 +164,8 @@ use walk::Stop;
 /// without end. Nor does it cap a context's memory or the function calls
 /// under way: an `ALLOCA` of a huge number of words grows the memory by
 /// that many, and an allocation too large panics or aborts the process. An
-/// end past the last address panics ("capacity overflow"). A recursion
-/// without end grows the function calls under way, and the registers they
-/// save, without end.
+/// end past the last address panics. A recursion without end grows the
+/// function calls under way, and the registers they save, without end.
 ///
 /// Where these behaviours differ from the bytecode runtime's `run_shot`, the
 /// test that pins them says why (`COMPATIBILITY NOTE`).
@@ -208,7 +207,8 @@ pub enum QirStop<'c, S: QirBatchSplit = WholeBatches> {
     /// records nothing (no `RECORD_OUTPUT`), they are every result, in the
     /// order of their ids, as `Result` records; a result with no value
     /// then traps at the program's return, as its record would. Resuming
-    /// the context again gives them again.
+    /// the context again with no outcomes gives them again; an outcome
+    /// given then is [`QirTrap::UnexpectedOutcome`].
     Ended(&'c [OutputRecord]),
 }
 
@@ -314,10 +314,11 @@ impl<'p, S: QirBatchSplit> QirMachine<'p, S> {
     /// When the outcomes do not answer the last batch (one missing, or given
     /// for no call of it, or twice, or any given after a split), or when the
     /// context reaches a value that building the program could not check: a
-    /// qubit or a result past the program's, a division by zero, a value other
-    /// than 0 and 1 where a bit is read, a load or a store past the context's
-    /// memory, call arguments of correlated noise past the program's or naming
-    /// no register of it, a use of a result with no value ([`QirTrap`]). An
+    /// qubit or a result past the program's, an integer division or remainder
+    /// by zero, a value other than 0 and 1 where a bit is read, a load or a
+    /// store past the context's memory, call arguments of correlated noise
+    /// past the program's or naming no register of it, a use of a result with
+    /// no value ([`QirTrap`]). An
     /// instruction or call that would trap, where the context stops before it,
     /// traps on the next resume, after its batch is yielded. Any other trap
     /// ends the batch's walk, as the split choice says ([`WholeBatches`],

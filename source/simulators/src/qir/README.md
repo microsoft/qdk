@@ -215,7 +215,7 @@ over in pieces, since only the machine can bound what a context holds
 
 [bench]: ../../benches/qir_machine/main.rs
 
-## The evidence
+## Tests
 
 [The module's tests](../tests/qir/) pin each rule of building and
 of the machine, one rule per test. Where the machine differs from
