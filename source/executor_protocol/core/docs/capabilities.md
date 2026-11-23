@@ -35,9 +35,12 @@ says field by field. The protocol relies on three laws:
   says.
 - **(b) Each `requires` is monotone in this order**, not in the fit: given
   what arrives requiring no more than another, it requires no more than
-  given the other. The writer keeps it; the `on` that makes a runner
-  relies on it to check a chain once, with nothing arriving at its top,
-  and each run's start checks again what that run makes arrive
+  given the other. The fit is not an order: a requirement of 5 shots fits
+  a provision that leaves shots unstated, and one that leaves shots
+  unstated fits a provision of 0 shots, yet 5 does not fit 0. The writer
+  keeps the law; the `on` that makes a runner relies on it to check a
+  chain once, with nothing arriving at its top, and each run's start
+  checks again what that run makes arrive
   ([`src/tests/composition/runner.rs`](../src/tests/composition/runner.rs)),
   as [The rule](#the-rule) says.
 - **(c) A value never crosses sides untranslated.** A part that limits

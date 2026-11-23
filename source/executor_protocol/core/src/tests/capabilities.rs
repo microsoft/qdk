@@ -231,7 +231,7 @@ fn the_sets_capabilities_flow_down_and_are_fit_at_on() {
 /// no qubit, so it composes over a register of any size and runs, in each
 /// bracketing, each part ready for 0 qubits. A requirement of nothing
 /// read as every qubit (`u32::MAX`), as a set stating "no limit" by its
-/// largest value would, is refused by every register, and fails.
+/// largest value would, would be refused by every register.
 #[test]
 fn a_driver_stating_nothing_of_the_set_composes_over_any_register() {
     in_each_bracketing!(
