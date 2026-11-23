@@ -25,15 +25,16 @@ use std::thread;
 use std::time::Duration;
 
 use crate::prelude::*;
-use crate::tests::example_sets::Measuring;
+use crate::tests::example_sets::{BitReadout, CliffordT, Measuring, ToffoliGate};
 use crate::tests::fake_parts::{
-    BitFlip, Bits, CoinCopy, FromThread, GateForGate, Later, Log, NamesBelow, Profiler, Program,
-    Renamed, Splitter, Spread, Stating, Trap, Values, batches_of, coin_gate, in_each_bracketing,
+    BitFlip, Bits, CczDecomposition, CliffordTPassThrough, CliffordTRegister, CoinCopy, FromThread,
+    GateForGate, Later, Log, NamesBelow, Profiler, Program, Renamed, Splitter, Spread, Stating,
+    ToffoliProgram, Trap, Values, batches_of, coin_gate, in_each_bracketing,
 };
 use crate::tests::runner;
 use crate::{
-    CompositionFaults, DriveError, Failure, Features, Lowered, PartId, Resources, RunError,
-    RunRefusal, RunRequirement, Runner, ShotSet, StatesLimits, TranslatingAdapter,
+    CompositionFaults, DriveError, Failure, Features, PartId, Resources, RunError, RunRefusal,
+    RunRequirement, Runner, ShotSet, StatesLimits, TranslatingAdapter,
 };
 
 const SEED: u64 = 7;
@@ -47,6 +48,16 @@ fn records<D: Driver, E: Executor<Accepts = D::Sends>>(
     shots: &ShotSet,
 ) -> Vec<D::Output> {
     runner(composed).run(shots, SEED).expect("the run succeeds")
+}
+
+/// What `log` saw of a run of shot 0 on the chain `composed` gave, which
+/// must compose.
+fn received<D: Driver, E: Executor<Accepts = D::Sends>>(
+    composed: Result<Runner<D, E>, CompositionFaults>,
+    log: &Log,
+) -> Vec<String> {
+    records(composed, &ShotSet::ids([0]));
+    log.entries()
 }
 
 /// The faults of the chain `composed` gave, which must not compose.
@@ -106,8 +117,8 @@ fn ends_soon<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
 
 /// An executor whose set lists the driver's gates in another order: each
 /// sender writes each gate as its binding to the executor's set says, the
-/// driver, or a lowering between them wherever the brackets go, so the
-/// records are those on an executor of the driver's own set.
+/// driver, or a translating adapter between them wherever the brackets go,
+/// so the records are those on an executor of the driver's own set.
 #[test]
 fn a_sender_writes_as_its_binding_to_the_receivers_set_says() {
     let log = Log::default();
@@ -119,12 +130,16 @@ fn a_sender_writes_as_its_binding_to_the_receivers_set_says() {
     let executor = || Bits::accepting(reordered, &log);
     let by_driver = records(CoinCopy::new().on(executor()), &shots);
     assert_eq!(by_driver, plain(&shots), "the driver");
-    in_each_bracketing!([d, lowering, e] from {
+    in_each_bracketing!([d, translating, e] from {
         let d = CoinCopy::new();
-        let lowering = Lowered::new(GateForGate::default());
+        let translating = GateForGate::default();
         let e = executor();
     }, |chain, brackets| {
-        assert_eq!(records(chain, &shots), plain(&shots), "a lowering, {brackets}");
+        assert_eq!(
+            records(chain, &shots),
+            plain(&shots),
+            "a translating adapter, {brackets}"
+        );
     });
 }
 
@@ -178,7 +193,13 @@ fn one_driver_runs_on_every_chain_it_fits() {
 }
 
 /// A chain of a driver, a profiler, a noise and bits, in each of the five
-/// bracketings of four parts: the same records.
+/// bracketings of four parts: the same records. And a program of an `h`,
+/// a `ccz` and an `mz`, through a translating adapter decomposing `ccz`
+/// as thirteen gates with 2 ancillas, over a register of 5 qubits: the
+/// register receives each instruction's decomposition, in order, in one
+/// batch, wherever the brackets go, with an adapter of the set below
+/// under the translating adapter or none, and with the translating
+/// adapter lent by `&mut`.
 #[test]
 fn where_the_brackets_go_changes_no_record() {
     let shots = ShotSet::ids(0..32);
@@ -199,6 +220,50 @@ fn where_the_brackets_go_changes_no_record() {
             let e = Bits::new(&log);
         },
         |chain, brackets| assert_eq!(records(chain, &shots), expected, "{brackets}"),
+    );
+
+    let program = || {
+        ToffoliProgram::new(
+            &[
+                ToffoliGate::H(0),
+                ToffoliGate::Ccz(0, 1, 2),
+                ToffoliGate::Mz(2),
+            ],
+            3,
+        )
+    };
+    let decomposition = || CczDecomposition::with_ancillas(2);
+    let register = |log: &Log| CliffordTRegister::new(5, &[BitReadout::Zero], log);
+    let mut sent = vec![CliffordT::H(0)];
+    sent.extend(CczDecomposition::ccz(0, 1, 2));
+    sent.push(CliffordT::Mz(2));
+    let expected = [format!("runs {sent:?}, checked: false")];
+    in_each_bracketing!([d, translating, e] from {
+        let log = Log::default();
+        let d = program();
+        let translating = decomposition();
+        let e = register(&log);
+    }, |chain, brackets| assert_eq!(received(chain, &log), expected, "{brackets}"));
+    in_each_bracketing!([d, translating, a, e] from {
+        let log = Log::default();
+        let d = program();
+        let translating = decomposition();
+        let a = CliffordTPassThrough;
+        let e = register(&log);
+    }, |chain, brackets| assert_eq!(received(chain, &log), expected, "{brackets}"));
+    let mut lent = decomposition();
+    let log = Log::default();
+    assert_eq!(
+        received(program().on((&mut lent).on(register(&log))), &log),
+        expected,
+        "on a lent translating adapter"
+    );
+    let log = Log::default();
+    let lent_through = (&mut lent).through(CliffordTPassThrough);
+    assert_eq!(
+        received(program().through(lent_through).on(register(&log)), &log),
+        expected,
+        "through a lent translating adapter"
     );
 }
 

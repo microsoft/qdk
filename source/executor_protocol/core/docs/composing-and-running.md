@@ -17,7 +17,8 @@ and every adapter has and the [prelude](../src/prelude.rs) brings into
 scope. The parts are joined top to bottom: `through` an adapter, `on` an
 executor, each where the instruction set the upper part sends is, as a
 type, the set the lower part accepts (otherwise a
-[lowering](instruction-sets.md#lowering-one-set-to-another) joins them).
+[translating adapter](instruction-sets.md#running-one-set-on-another)
+joins them).
 The role of each joined pair follows from its two ends:
 
 | Join                       | Gives                                                                                                                                     |

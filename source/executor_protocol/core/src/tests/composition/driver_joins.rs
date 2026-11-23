@@ -13,10 +13,11 @@ use std::rc::Rc;
 
 use crate::prelude::*;
 use crate::tests::composition::faults;
-use crate::tests::example_sets::Measuring;
+use crate::tests::example_sets::{Measuring, ToffoliGate, TooFewQubits};
 use crate::tests::fake_parts::{
-    Bits, CoinCopy, Log, Profiler, Program, Renamed, Spread, StatesNoLimits, Stating, batches_of,
-    coin_gates, in_each_bracketing, unconstrained,
+    Bits, CczDecomposition, CliffordTRegister, CoinCopy, Log, Profiler, Program, Renamed, Spread,
+    StatesNoLimits, Stating, ToffoliProgram, batches_of, coin_gates, in_each_bracketing,
+    unconstrained,
 };
 use crate::{
     Batch, BatchReadouts, BoundaryCompatible, BoundaryMismatch, Capabilities, CapabilitiesMismatch,
@@ -92,6 +93,19 @@ pub(super) fn short_batches(required: u32, provided: u32) -> BoundaryMismatch {
 /// The mismatch of runs of `required` shots against `provided`.
 pub(super) fn short_shots(required: u32, provided: u32) -> BoundaryMismatch {
     short(ResourceMismatch::Shots { required, provided })
+}
+
+/// The mismatch of `required` qubits against `provided`.
+fn short_qubits(required: u32, provided: u32) -> BoundaryMismatch {
+    capabilities(CapabilitiesMismatch {
+        set_capabilities: Some(Box::new(TooFewQubits { required, provided })),
+        ..CapabilitiesMismatch::default()
+    })
+}
+
+/// A program of one `ccz` on 3 qubits.
+fn one_ccz() -> StatesLimits<ToffoliProgram> {
+    ToffoliProgram::new(&[ToffoliGate::Ccz(0, 1, 2)], 3)
 }
 
 /// The mismatch of `feature`, required and not provided.
@@ -285,8 +299,13 @@ impl Adapter for Decomposer {
 /// state none receives, through the logger, what the program requires, a
 /// fault naming the decoder when its limit falls short; the executor
 /// limits nothing, as it states none of the bits' batches of 4, so the
-/// larger limit composes. Instructions a batch and shots stand for any
-/// value: which values fit is each kind's rule, pinned once.
+/// larger limit composes. A program's qubits pass unchanged through a
+/// translating adapter that decomposes its `ccz` with no ancilla, so a
+/// register of 2 qubits below falls short of the program's 3; and a
+/// translating adapter taking at most 2 qubits falls short of them, a
+/// fault naming it as the provider, while one taking 3 composes.
+/// Instructions a batch, shots and qubits stand for any value: which
+/// values fit is each kind's rule, pinned once.
 #[test]
 #[expect(clippy::too_many_lines, reason = "a row per way a part passes a value")]
 fn a_requirement_passed_unchanged_is_checked_at_each_part_below_naming_its_requirer() {
@@ -373,6 +392,42 @@ fn a_requirement_passed_unchanged_is_checked_at_each_part_below_naming_its_requi
             missing(FeatureMismatch::SeededRuns),
         )],
     );
+    faults_in_each_bracketing!(
+        "qubits through a decomposition with no ancilla",
+        [d, t, e] from {
+            let log = Log::default();
+            let d = one_ccz();
+            let t = CczDecomposition::with_ancillas(0);
+            let e = CliffordTRegister::new(2, &[], &log);
+        },
+        vec![fault(
+            part::<ToffoliProgram>(0),
+            part::<CliffordTRegister>(2),
+            short_qubits(3, 2),
+        )],
+    );
+    for (qubits, expected) in [
+        (
+            2,
+            vec![fault(
+                part::<ToffoliProgram>(0),
+                part::<CczDecomposition>(1),
+                short_qubits(3, 2),
+            )],
+        ),
+        (3, vec![]),
+    ] {
+        faults_in_each_bracketing!(
+            format!("qubits over a decomposition taking {qubits}"),
+            [d, t, e] from {
+                let log = Log::default();
+                let d = one_ccz();
+                let t = CczDecomposition::for_qubits(qubits);
+                let e = CliffordTRegister::new(5, &[], &log);
+            },
+            expected,
+        );
+    }
     for (row, limit, expected) in [
         (
             "batches through a logger and a decoder's limit, over no limit",
@@ -410,7 +465,12 @@ fn a_requirement_passed_unchanged_is_checked_at_each_part_below_naming_its_requi
 /// over bits too small or large enough; less than arrives, as a replayer
 /// requiring no replay below; and a part changing the value under one
 /// limiting it, as an ancilla's reservation under a decoder's limit,
-/// where each part falls short of its own.
+/// where each part falls short of its own; and a translating adapter
+/// requiring of another set, as a decomposition of `ccz` into 13 gates
+/// with 2 ancillas under a program of 3 qubits, which requires 5 qubits
+/// and batches of 13 below: a register of 4 qubits, or one taking 12
+/// instructions a batch, falls short of it, and one of 5 taking 13 does
+/// not.
 #[test]
 fn what_a_part_requires_of_what_arrives_is_checked_below_naming_it() {
     for (bits, short) in [(2, true), (4, false)] {
@@ -458,6 +518,46 @@ fn what_a_part_requires_of_what_arrives_is_checked_below_naming_it() {
             fault(part::<Stating>(2), part::<Bits>(3), short_batches(7, 5)),
         ],
     );
+    let decomposition = part::<CczDecomposition>(1);
+    let register = part::<CliffordTRegister>(2);
+    for (row, qubits, batches, expected) in [
+        (
+            "4 qubits",
+            4,
+            None,
+            vec![fault(
+                decomposition.clone(),
+                register.clone(),
+                short_qubits(5, 4),
+            )],
+        ),
+        (
+            "12 instructions a batch",
+            5,
+            Some(12),
+            vec![fault(
+                decomposition.clone(),
+                register.clone(),
+                short_batches(13, 12),
+            )],
+        ),
+        ("5 qubits and 13 instructions a batch", 5, Some(13), vec![]),
+    ] {
+        faults_in_each_bracketing!(
+            format!("a decomposition with 2 ancillas over a register of {row}"),
+            [d, t, e] from {
+                let log = Log::default();
+                let d = one_ccz();
+                let t = CczDecomposition::with_ancillas(2);
+                let e = CliffordTRegister::new(qubits, &[], &log);
+                let e = match batches {
+                    Some(n) => e.taking(n),
+                    None => e,
+                };
+            },
+            expected,
+        );
+    }
 }
 
 /// A chain whose parts fall short in several places: every fault, by its

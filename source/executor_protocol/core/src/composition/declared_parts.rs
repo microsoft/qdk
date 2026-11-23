@@ -22,9 +22,9 @@ use crate::{
 /// What arrives at a part is what the part above requires given what
 /// arrived there, starting from what the run requires. A value a part
 /// passes below unchanged is the requirement of the first part that
-/// required it, which a fault names; a lowering that changes what it
-/// sends below is the first to require it, and one that passes a value
-/// unchanged is not.
+/// required it, which a fault names; a translating adapter that changes
+/// what it sends below is the first to require it, and one that passes a
+/// value unchanged is not.
 ///
 /// It is public, because the roles' hidden hooks name it, but no public
 /// path reaches it, so that no other crate can call or override the hooks.

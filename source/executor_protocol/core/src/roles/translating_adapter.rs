@@ -18,8 +18,7 @@ use crate::{
 /// ([`Accepts`](Self::Accepts)), such as an encoding of logical gates into
 /// physical ones, or any part that holds an adapter of either kind. The
 /// joins and the runner take it; every [`Adapter`] is one, as is a
-/// [`Lowered`](crate::Lowered) lowering, the per-instruction way to
-/// write one.
+/// lowering of one set into another.
 ///
 /// Each method is as [`Adapter`]'s, or, for what it provides and
 /// requires, and getting ready for what arrives, as

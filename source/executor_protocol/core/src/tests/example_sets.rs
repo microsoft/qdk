@@ -13,7 +13,7 @@
 //!   batch's faults, send.
 //! - [`WithToffoli`] and [`WithoutToffoli`]: `h`, a three-qubit `ccz` and
 //!   `mz`, and Clifford+T (`h`, `cx`, `t`, `tdg` and `mz`), what a `ccz`
-//!   lowers to. What the tests of a lowering send.
+//!   decomposes into. What the tests of a translating adapter send.
 //! - [`Wide`]: each instruction the count of readout slots it writes. What
 //!   the tests of a batch's readout slots beyond a `u32` send.
 //!

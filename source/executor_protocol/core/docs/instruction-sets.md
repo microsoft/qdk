@@ -1,8 +1,8 @@
-# Instruction sets, their fit and their lowering
+# Instruction sets and their fit
 
-For those who write an instruction set, or a lowering from one set to
-another: what the protocol asks of a set, when it asks it, and how a
-lowering runs one set's instructions on another. The other terms are those
+For those who write an instruction set, or a part that runs one set's
+instructions on another: what the protocol asks of a set, when it asks
+it, and how one set's instructions run on another. The other terms are those
 of the [README](../README.md#terms).
 
 ## Terms
@@ -31,15 +31,15 @@ the set the few things it checks:
 
 ## What a set states, and when the protocol reads it
 
-| Item                                | What it says                                                                     | Read                                                                                          |
-| ----------------------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| The set's type                      | which parts can be joined: a sender's set type must be its receiver's            | by the compiler, at `through` and `on`                                                        |
-| `fits` (from `BoundaryCompatible`)  | whether a sender's set value fits a receiver's, giving the binding or a mismatch | by each join; inside a part of the user's, at each run's `ready`                              |
-| `Capabilities`, with its own `fits` | the set's own capabilities, required above and provided below                    | by the `on` that makes a runner, and at each run's start                                      |
-| `unconstrained`                     | the capabilities that state nothing                                              | by a part's default `provides`, and by a driver's default `requires` as its set's part        |
-| `readout_slots`                     | the readout slots one instruction writes                                         | by a sender, which sums them into a batch's stated slots; by a lowering, to find each readout |
-| `requirement`                       | what a checked batch's instructions are checked against                          | by each join, from `unconstrained`'s; then once per run, at each boundary accepting the set   |
-| `check`                             | an instruction's readout slots, or the set's fault                               | for each instruction of a checked batch, before the batch runs                                |
+| Item                                | What it says                                                                     | Read                                                                                        |
+| ----------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| The set's type                      | which parts can be joined: a sender's set type must be its receiver's            | by the compiler, at `through` and `on`                                                      |
+| `fits` (from `BoundaryCompatible`)  | whether a sender's set value fits a receiver's, giving the binding or a mismatch | by each join; inside a part of the user's, at each run's `ready`                            |
+| `Capabilities`, with its own `fits` | the set's own capabilities, required above and provided below                    | by the `on` that makes a runner, and at each run's start                                    |
+| `unconstrained`                     | the capabilities that state nothing                                              | by a part's default `provides`, and by a driver's default `requires` as its set's part      |
+| `readout_slots`                     | the readout slots one instruction writes                                         | by a sender, which sums them into a batch's stated slots                                    |
+| `requirement`                       | what a checked batch's instructions are checked against                          | by each join, from `unconstrained`'s; then once per run, at each boundary accepting the set |
+| `check`                             | an instruction's readout slots, or the set's fault                               | for each instruction of a checked batch, before the batch runs                              |
 
 A set's mismatch and fault are its own typed errors; the protocol's shared
 errors ([`BoundaryMismatch`](../src/composition/composition_faults.rs),
@@ -70,26 +70,11 @@ summed, against those its sender stated. The first fault refuses the
 batch, at its position, as the
 [`BatchFault`](../src/capabilities/boundary/batch_limits.rs) says.
 
-## Lowering one set to another
+## Running one set on another
 
 Where a sender's set is not its receiver's, a
-[`Lowering`](../src/lowering.rs) runs one on the other: it rewrites each
-instruction of its `From` set as instructions of its `To` set, and reads
-the instruction's readouts back from theirs.
-[`Lowered`](../src/lowering/lowered.rs) is the adapter that runs it in a
-chain, placed explicitly, as
-`driver.through(Lowered::new(lowering)).on(executor)`. A lowering states
-only what is particular to it:
-
-| Method               | What the lowering says                                      | Why                                                                                                                                                    |
-| -------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `accepts`, `sends`   | the set it lowers, and the set it lowers it to              | the joins fit each against the part beside it, as for any adapter                                                                                      |
-| `requires`           | what it requires below, given what arrives from above       | a rewriting may need more of the set's capabilities below, such as ancilla qubits                                                                      |
-| `bind`               | keeps the binding of its `To` set into the receiver's       | `lower` writes each instruction as the receiver encodes it                                                                                             |
-| `lower`              | appends the instructions that run one instruction below     | one instruction at a time, so `Lowered` keeps each one's place among those it sends below                                                              |
-| `read` (has default) | writes an instruction's readouts from those of its lowering | the default copies them one for one, and panics, naming the lowering, if they differ in number; a lowering that reads a majority of three overrides it |
-
-`Lowered` keeps the protocol's rules for the lowering: each batch it sends
-below is checked if the batch it lowers was, with its readout slots
-stated; each shot's conditions pass up unchanged; and its memory is reused
-from one `execute` to the next.
+[`TranslatingAdapter`](../src/roles/translating_adapter.rs) between them
+writes the instructions of one as instructions of the other, and reads
+their readouts back: a lowering is one. A facility to write one
+instruction by instruction, as a decomposition of each gate into native
+ones would be, is planned.

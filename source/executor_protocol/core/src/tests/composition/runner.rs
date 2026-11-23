@@ -21,16 +21,16 @@ use super::driver_joins::{NO_X, fault, listed, part, short_shots};
 use super::{PATIENT, SEED, ends_soon, failed, plain, refused};
 use crate::prelude::*;
 use crate::tests::example_sets::Measuring;
-use crate::tests::example_sets::{BitReadout, ShotFlags};
+use crate::tests::example_sets::{BitReadout, ShotFlags, ToffoliGate};
 use crate::tests::fake_parts::{
-    BitFlip, Bits, CoinCopy, FailsOnce, FromThread, GateForGate, Later, Log, Panics, PanicsWhen,
-    Profiler, Program, Renamed, Splitter, Spread, Stating, Trap, Values, YieldNow, batches_of,
-    coin_gates, in_each_bracketing,
+    BitFlip, Bits, CczDecomposition, CliffordTRegister, CoinCopy, FailsOnce, FromThread,
+    GateForGate, Later, Log, Panics, PanicsWhen, Profiler, Program, Renamed, Splitter, Spread,
+    Stating, ToffoliProgram, Trap, Values, YieldNow, batches_of, coin_gates, in_each_bracketing,
 };
 use crate::tests::runner;
 use crate::{
     BoundaryCompatible, BoundaryMismatch, CapabilitiesMismatch, CompositionFault, Failure,
-    FeatureMismatch, Features, Lowered, ResourceMismatch, RunError, RunRefusal, Runner, ShotSet,
+    FeatureMismatch, Features, ResourceMismatch, RunError, RunRefusal, Runner, ShotSet,
     StatesLimits,
 };
 
@@ -532,8 +532,8 @@ fn a_rerun_after_an_unfinished_run_gives_a_new_chains_records() {
 fn is_send<T: Send>(_: &T) {}
 
 /// Parts that are `Send`, and whose futures are, in three bracketings, and
-/// a lowering between them in two: the future of `run_async` may move to
-/// another thread.
+/// a translating adapter between them in two: the future of `run_async`
+/// may move to another thread.
 #[test]
 fn a_runs_future_is_send_when_every_part_and_its_future_are() {
     let shots = ShotSet::ids(0..2);
@@ -546,11 +546,11 @@ fn a_runs_future_is_send_when_every_part_and_its_future_are() {
     is_send(&left.run_async(&shots, SEED));
     let mut right = runner(driver().on(splitter().on(executor())));
     is_send(&right.run_async(&shots, SEED));
-    let lowering = || Lowered::new(GateForGate::default());
-    let mut lowered_left = runner(driver().through(lowering()).on(executor()));
-    is_send(&lowered_left.run_async(&shots, SEED));
-    let mut lowered_right = runner(driver().on(lowering().on(executor())));
-    is_send(&lowered_right.run_async(&shots, SEED));
+    let translating = GateForGate::default;
+    let mut translated_left = runner(driver().through(translating()).on(executor()));
+    is_send(&translated_left.run_async(&shots, SEED));
+    let mut translated_right = runner(driver().on(translating().on(executor())));
+    is_send(&translated_right.run_async(&shots, SEED));
 }
 
 // ---------------------------------------------------------------- refusals
@@ -580,7 +580,9 @@ fn calibrating(refusal: &RunRefusal) -> Option<(usize, &str)> {
 /// shot is ended on any part, as no drive started. A part refusing inside
 /// a joined part held by a part of a user's, which the chain's check does
 /// not see into, is named by the user's part, with its own reason; one
-/// below a joined part lent by `&mut` is named by its own position.
+/// below a joined part lent by `&mut` is named by its own position; a
+/// translating adapter that cannot take a run is named as any part, and
+/// nothing is sent below it.
 #[test]
 #[expect(
     clippy::too_many_lines,
@@ -641,6 +643,27 @@ fn the_parts_are_asked_bottom_up_until_one_refuses() {
         calibrating(&refusal),
         Some((3, "Bits")),
         "busy bits below a lent part: {refusal:?}"
+    );
+    // A translating adapter that cannot take a run: named, and nothing is
+    // sent below it.
+    let log = Log::default();
+    let refusal = refused(
+        runner(
+            ToffoliProgram::new(&[ToffoliGate::Mz(0)], 3)
+                .through(CczDecomposition::not_ready("calibrating"))
+                .on(CliffordTRegister::new(3, &[BitReadout::Zero], &log)),
+        )
+        .run(&ShotSet::ids([0]), SEED),
+    );
+    assert_eq!(
+        calibrating(&refusal),
+        Some((1, "CczDecomposition")),
+        "a translating adapter not ready: {refusal:?}"
+    );
+    assert_eq!(
+        log.entries_starting_with("runs"),
+        [] as [String; 0],
+        "a translating adapter not ready: nothing sent below"
     );
     // A profiler that cannot take a run, between bits and another profiler:
     // the bits below it are asked, and the profiler above it is not.

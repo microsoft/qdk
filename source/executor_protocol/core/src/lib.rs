@@ -12,7 +12,6 @@ mod boundary_compatible;
 mod capabilities;
 mod composition;
 mod instruction_set;
-mod lowering;
 mod part_id;
 pub mod prelude;
 mod roles;
@@ -41,7 +40,6 @@ pub use composition::{
     RunRefusal, Runner,
 };
 pub use instruction_set::{Binding, InstructionSet};
-pub use lowering::{Lowered, Lowering};
 pub use part_id::PartId;
 pub use roles::{
     Adapter, AdapterLimits, DriveError, Driver, DriverReadings, DriverRequirements, ExecuteError,

@@ -101,7 +101,7 @@ impl<'a, S: InstructionSet> Batch<'a, S> {
     /// The checks cost a pass over the batch's instructions at each boundary
     /// that receives it: little beside an executor that simulates each
     /// instruction, but more than double the time of a chain whose parts do
-    /// little per instruction, such as a lowering over an executor that only
+    /// little per instruction, such as a translation over an executor that only
     /// counts it. An unchecked batch crosses a boundary without its
     /// instructions being read. So a chain of parts that keep the protocol's
     /// rules sends its batches unchecked. A sender may check some batches and

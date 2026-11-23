@@ -10,7 +10,7 @@ use super::{QubitBeyond, Qubits};
 use crate::{BoundaryCompatible, Capabilities, Features, InstructionSet, ReadoutSlots, Resources};
 
 /// `h`, `mz` and the three-qubit `ccz`, on the qubits a receiver states
-/// ([`Qubits`]): the set a lowering's tests lower from. Any two fit.
+/// ([`Qubits`]): the set a decomposition's tests decompose. Any two fit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct WithToffoli;
 

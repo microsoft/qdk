@@ -62,7 +62,7 @@ pub trait Driver {
 
     /// The instruction set it sends: the part below must accept the same,
     /// checked at compile time, where a
-    /// [`Lowered`](crate::Lowered) adapter joins two sets.
+    /// [`TranslatingAdapter`](crate::TranslatingAdapter) joins two sets.
     type Sends: InstructionSet;
 
     /// As [`Executor::name`].

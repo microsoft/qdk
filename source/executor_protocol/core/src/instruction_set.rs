@@ -18,8 +18,8 @@ use crate::{BoundaryCompatible, Capabilities, ReadoutSlots};
 /// two parts join only where the sender's set *type* is the receiver's,
 /// checked at compile time; their set *values* are checked at the join,
 /// by [`fits`](BoundaryCompatible::fits), whose [`Binding`] the sender is
-/// given. Where two sets do not fit, a [`Lowering`](crate::Lowering),
-/// joined as a [`Lowered`](crate::Lowered) adapter, writes one set's
+/// given. Where two sets do not fit, a
+/// [`TranslatingAdapter`](crate::TranslatingAdapter) writes one set's
 /// instructions in the other's.
 ///
 /// A set states two kinds of its own capabilities: what parts state and

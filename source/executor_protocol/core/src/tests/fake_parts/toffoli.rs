@@ -1,12 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The fake parts across a lowering of [`WithToffoli`] to
+//! The fake parts across a translation of [`WithToffoli`] to
 //! [`WithoutToffoli`]: drivers of the first, an adapter and an executor
-//! of the second, and the lowerings between them, for the tests of
-//! [`Lowered`], and of readouts kept from one round to the next.
-//!
-//! [`Lowered`]: crate::Lowered
+//! of the second, and [`CczDecomposition`], the translating adapter
+//! between them, for the tests of translating parts, and of readouts kept
+//! from one round to the next.
 
 use std::cell::Cell;
 use std::future::poll_fn;
@@ -16,6 +15,7 @@ use std::task::Poll;
 
 use super::Log;
 use crate::prelude::*;
+use crate::roles::lent_translating_adapter;
 use crate::tests::allocations;
 use crate::tests::example_sets::{BitReadout, ShotFlags};
 use crate::tests::example_sets::{
@@ -23,16 +23,15 @@ use crate::tests::example_sets::{
 };
 use crate::{
     Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, InstructionSet, NotReady,
-    Readouts, Resources, RunRequirement, Seed, ShotSet, StatesLimits,
+    Readouts, Resources, RunRequirement, Seed, ShotSet, StatesLimits, TranslatingAdapter,
 };
 
-/// A driver sending `gates`, one batch of every shot, checked if
-/// `checked`, and requiring `qubits` qubits and batches of its gates'
-/// count. Each shot's output is its readouts and conditions.
+/// A driver sending `gates`, one batch of every shot, and requiring
+/// `qubits` qubits and batches of its gates' count. Each shot's output is
+/// its readouts and conditions.
 pub(crate) struct ToffoliProgram {
     gates: Vec<ToffoliGate>,
     qubits: u32,
-    checked: bool,
 }
 
 impl ToffoliProgram {
@@ -40,17 +39,8 @@ impl ToffoliProgram {
         Self {
             gates: gates.to_vec(),
             qubits,
-            checked: false,
         }
         .stating_limits()
-    }
-}
-
-impl StatesLimits<ToffoliProgram> {
-    /// This program, its batch checked if `checked`.
-    pub(crate) fn checked_if(mut self, checked: bool) -> Self {
-        self.part.checked = checked;
-        self
     }
 }
 
@@ -84,7 +74,7 @@ impl Driver for ToffoliProgram {
             .iter()
             .map(|gate| WithToffoli.readout_slots(gate))
             .sum();
-        let batches = [Batch::new(shots, &self.gates, readout_slots).checked_if(self.checked)];
+        let batches = [Batch::new(shots, &self.gates, readout_slots)];
         let mut readouts = [BatchReadouts::new(0, 0)];
         below.execute(&batches, seed, &mut readouts).await?;
         let [readouts] = readouts;
@@ -96,34 +86,19 @@ impl Driver for ToffoliProgram {
 
 /// An executor of [`WithoutToffoli`] on `qubits` qubits, which runs
 /// nothing: it logs each batch it receives, and writes a reading into
-/// every row, as many of its values as the row has slots, and
-/// [`ShotFlags::REJECTED`] on every other shot of a batch, from the
-/// second.
+/// every row, as many of its values as the row has slots.
 pub(crate) struct CliffordTRegister {
     provides: Capabilities<WithoutToffoli>,
-    /// The reading of each batch of an `execute`, by its position, the
-    /// last repeated for the batches beyond.
-    readings: Vec<Vec<BitReadout>>,
+    reading: Vec<BitReadout>,
     log: Log,
 }
 
 impl CliffordTRegister {
     /// The register writing `reading` into every row.
     pub(crate) fn new(qubits: u32, reading: &[BitReadout], log: &Log) -> StatesLimits<Self> {
-        Self::with_readings(qubits, &[reading], log)
-    }
-
-    /// The register writing `readings[b]` into every row of the `b`-th
-    /// batch of each `execute`, and the last reading into the rows of the
-    /// batches beyond.
-    pub(crate) fn with_readings(
-        qubits: u32,
-        readings: &[&[BitReadout]],
-        log: &Log,
-    ) -> StatesLimits<Self> {
         Self {
             provides: on_qubits(qubits),
-            readings: readings.iter().map(|reading| reading.to_vec()).collect(),
+            reading: reading.to_vec(),
             log: log.clone(),
         }
         .stating_limits()
@@ -158,20 +133,16 @@ impl Executor for CliffordTRegister {
         _seed: Seed,
         readouts: &mut [BatchReadouts<WithoutToffoli>],
     ) -> Result<(), ExecuteError> {
-        for (at, (batch, readouts)) in batches.iter().zip(readouts).enumerate() {
+        for (batch, readouts) in batches.iter().zip(readouts) {
             self.log.push(format!(
                 "runs {:?}, checked: {}",
                 batch.instructions,
                 batch.is_checked()
             ));
-            let reading = &self.readings[at.min(self.readings.len() - 1)];
             for shot in 0..readouts.shots() {
                 let row = readouts.row_mut(shot);
                 let slots = row.len();
-                row.copy_from_slice(&reading[..slots]);
-                if shot % 2 == 1 {
-                    readouts.set_conditions(shot, ShotFlags::REJECTED);
-                }
+                row.copy_from_slice(&self.reading[..slots]);
             }
         }
         Ok(())
@@ -179,7 +150,7 @@ impl Executor for CliffordTRegister {
 }
 
 /// An adapter of [`WithoutToffoli`] that passes each batch below as it
-/// came: a part below a lowering, in the lowered set.
+/// came: a part below a translating adapter, in the set it sends.
 pub(crate) struct CliffordTPassThrough;
 
 impl Adapter for CliffordTPassThrough {
@@ -206,28 +177,38 @@ impl Adapter for CliffordTPassThrough {
     }
 }
 
-/// `ccz` rewritten as the standard decomposition of seven `t` and `tdg`
-/// and six `cx`, and every other gate as its namesake, requiring below
-/// what arrives, with 13 instructions a batch for each one that arrives
-/// (its longest rewriting) and `ancillas` more qubits, as a decomposition
-/// using them would; it takes at most the qubits it provides, and is
-/// ready unless it is told why not.
-pub(crate) struct ToffoliFree {
+/// A translating adapter of [`WithToffoli`] to [`WithoutToffoli`]: each
+/// `ccz` sent below as the standard decomposition of seven `t` and `tdg`
+/// and six `cx`, every other gate as its namesake, and each shot's
+/// readouts and conditions read back as they came, since only `mz`, sent
+/// as itself, has readout slots. It requires below what arrives, with 13
+/// instructions a batch for each one that arrives (its longest
+/// decomposition) and `ancillas` more qubits, as a decomposition using
+/// them would; it takes at most the qubits it provides, and is ready
+/// unless it is told why not. It keeps the batches it sends and their
+/// readouts from one `adapt` to the next.
+pub(crate) struct CczDecomposition {
     ancillas: u32,
     provides: Capabilities<WithToffoli>,
     not_ready: Option<&'static str>,
+    /// The instructions of each batch of the last `adapt`, then any kept
+    /// from an earlier `adapt` of more batches.
+    sent: Vec<Vec<CliffordT>>,
+    readouts: Readouts<WithoutToffoli>,
 }
 
-impl ToffoliFree {
+impl CczDecomposition {
     pub(crate) fn new() -> Self {
         Self {
             ancillas: 0,
             provides: WithToffoli::unconstrained().clone(),
             not_ready: None,
+            sent: Vec::new(),
+            readouts: Readouts::new(),
         }
     }
 
-    /// This lowering, requiring `ancillas` more qubits below.
+    /// This decomposition, requiring `ancillas` more qubits below.
     pub(crate) fn with_ancillas(ancillas: u32) -> Self {
         Self {
             ancillas,
@@ -235,7 +216,7 @@ impl ToffoliFree {
         }
     }
 
-    /// This lowering, taking programs of at most `qubits` qubits.
+    /// This decomposition, taking programs of at most `qubits` qubits.
     pub(crate) fn for_qubits(qubits: u32) -> Self {
         Self {
             provides: on_qubits(qubits),
@@ -243,7 +224,7 @@ impl ToffoliFree {
         }
     }
 
-    /// This lowering, not ready, for `why`.
+    /// This decomposition, not ready, for `why`.
     pub(crate) fn not_ready(why: &'static str) -> Self {
         Self {
             not_ready: Some(why),
@@ -272,9 +253,9 @@ impl ToffoliFree {
     }
 }
 
-impl Lowering for ToffoliFree {
-    type From = WithToffoli;
-    type To = WithoutToffoli;
+impl TranslatingAdapter for CczDecomposition {
+    type Accepts = WithToffoli;
+    type Sends = WithoutToffoli;
 
     fn accepts(&self) -> &WithToffoli {
         &WithToffoli
@@ -291,7 +272,7 @@ impl Lowering for ToffoliFree {
     fn requires(&self, above: &Capabilities<WithToffoli>) -> Capabilities<WithoutToffoli> {
         let Qubits(qubits) = above.set_capabilities();
         Capabilities::new(
-            longest_rewriting_per_instruction(above.resources()),
+            longest_decomposition_per_instruction(above.resources()),
             *above.features(),
             Qubits(qubits + self.ancillas),
         )
@@ -306,22 +287,44 @@ impl Lowering for ToffoliFree {
 
     fn bind(&mut self, (): ()) {}
 
-    fn lower(&self, gate: &ToffoliGate, into: &mut Vec<CliffordT>) {
-        match *gate {
-            ToffoliGate::H(q) => into.push(CliffordT::H(q)),
-            ToffoliGate::Mz(q) => into.push(CliffordT::Mz(q)),
-            ToffoliGate::Ccz(a, b, c) => into.extend(Self::ccz(a, b, c)),
+    async fn adapt(
+        &mut self,
+        batches: &[Batch<'_, WithToffoli>],
+        seed: Seed,
+        below: &mut impl Executor<Accepts = WithoutToffoli>,
+        readouts: &mut [BatchReadouts<WithToffoli>],
+    ) -> Result<(), ExecuteError> {
+        if self.sent.len() < batches.len() {
+            self.sent.resize_with(batches.len(), Vec::new);
         }
-    }
-
-    fn read(&self, _gate: &ToffoliGate, lowered: &[BitReadout], into: &mut [BitReadout]) {
-        into.copy_from_slice(lowered);
-    }
-
-    fn read_conditions(&self, lowered: ShotFlags) -> ShotFlags {
-        lowered
+        for (batch, sent) in batches.iter().zip(&mut self.sent) {
+            sent.clear();
+            for gate in batch.instructions {
+                match *gate {
+                    ToffoliGate::H(q) => sent.push(CliffordT::H(q)),
+                    ToffoliGate::Mz(q) => sent.push(CliffordT::Mz(q)),
+                    ToffoliGate::Ccz(a, b, c) => sent.extend(Self::ccz(a, b, c)),
+                }
+            }
+        }
+        let sent: Vec<Batch<'_, WithoutToffoli>> = (batches.iter().zip(&self.sent))
+            .map(|(batch, sent)| {
+                Batch::new(batch.shots, sent, batch.readout_slots()).checked_if(batch.is_checked())
+            })
+            .collect();
+        let sent_readouts = self.readouts.readouts_for(&sent);
+        below.execute(&sent, seed, sent_readouts).await?;
+        for (below, above) in sent_readouts.iter().zip(readouts) {
+            for shot in 0..below.shots() {
+                above.row_mut(shot).copy_from_slice(below.row(shot));
+                above.set_conditions(shot, below.conditions(shot));
+            }
+        }
+        Ok(())
     }
 }
+
+lent_translating_adapter!([] CczDecomposition);
 
 /// A driver sending a round at a time, one unchecked batch of `gates` per
 /// shot, in one `execute`, into the readouts it keeps, then the same
@@ -387,82 +390,9 @@ impl Driver for RoundsIntoItsReadouts {
     }
 }
 
-/// Each `mz` read three times below, its readout the majority of the
-/// three, as a lowering suppressing readout errors would; every other gate
-/// as [`ToffoliFree`] lowers it. It requires below what arrives, with 13
-/// instructions a batch for each one that arrives (`ccz`'s rewriting, its
-/// longest).
-pub(crate) struct ReadThrice {
-    /// Whether it writes each `h` 3 qubits higher, on a qubit it does not
-    /// require below.
-    uses_unstated_qubits: bool,
-}
-
-impl ReadThrice {
-    pub(crate) fn new() -> Self {
-        Self {
-            uses_unstated_qubits: false,
-        }
-    }
-
-    /// A faulty lowering: each `h` written 3 qubits higher, on a qubit it
-    /// does not require below, and every other gate as [`new`](Self::new)
-    /// lowers it, requiring below what it does. A checked batch of its
-    /// lowering is refused below.
-    pub(crate) fn using_unstated_qubits() -> Self {
-        Self {
-            uses_unstated_qubits: true,
-        }
-    }
-}
-
-impl Lowering for ReadThrice {
-    type From = WithToffoli;
-    type To = WithoutToffoli;
-
-    fn accepts(&self) -> &WithToffoli {
-        &WithToffoli
-    }
-
-    fn sends(&self) -> &WithoutToffoli {
-        &WithoutToffoli
-    }
-
-    fn requires(&self, above: &Capabilities<WithToffoli>) -> Capabilities<WithoutToffoli> {
-        Capabilities::new(
-            longest_rewriting_per_instruction(above.resources()),
-            *above.features(),
-            *above.set_capabilities(),
-        )
-    }
-
-    fn bind(&mut self, (): ()) {}
-
-    fn lower(&self, gate: &ToffoliGate, into: &mut Vec<CliffordT>) {
-        match *gate {
-            ToffoliGate::Mz(q) => into.extend([CliffordT::Mz(q); 3]),
-            ToffoliGate::H(q) if self.uses_unstated_qubits => into.push(CliffordT::H(q + 3)),
-            other => ToffoliFree::new().lower(&other, into),
-        }
-    }
-
-    fn read(&self, _gate: &ToffoliGate, lowered: &[BitReadout], into: &mut [BitReadout]) {
-        let ones = lowered.iter().filter(|value| **value == BitReadout::One);
-        into[0] = if ones.count() >= 2 {
-            BitReadout::One
-        } else {
-            BitReadout::Zero
-        };
-    }
-
-    fn read_conditions(&self, lowered: ShotFlags) -> ShotFlags {
-        lowered
-    }
-}
-
 /// `above`, with 13 instructions a batch for each one it states: a batch
-/// of the lowerings above, each instruction rewritten as at most 13.
-fn longest_rewriting_per_instruction(above: &Resources) -> Resources {
+/// of the decompositions above, each instruction sent as at most 13.
+fn longest_decomposition_per_instruction(above: &Resources) -> Resources {
     Resources {
         instructions_per_batch: (above.instructions_per_batch).map(|n| n.saturating_mul(13)),
         ..*above

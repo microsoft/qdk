@@ -79,9 +79,9 @@ Today the protocol holds:
   giving the sender its [`Binding`](src/instruction_set.rs), the set's own
   capabilities, each instruction's readout slots, and how a checked
   batch's instruction is checked. Where a sender's set is not its
-  receiver's, a [`Lowering`](src/lowering.rs), run in the chain as a
-  [`Lowered`](src/lowering/lowered.rs) adapter, writes each instruction of
-  one set as instructions of the other.
+  receiver's, a
+  [`TranslatingAdapter`](src/roles/translating_adapter.rs) between them
+  writes the instructions of one set as instructions of the other.
 - **What crosses a boundary:** each call down the chain, `execute`, sends
   [`Batch`](src/batch.rs)es of instructions, each on a
   [`ShotSet`](src/batch/shot_set.rs) of `ShotId`s, with the run's
@@ -198,9 +198,11 @@ them as defined here.
   instructions a part sends or accepts, as a type whose value states them
   and says what the protocol asks of them: when two sets fit, the set's
   own capabilities, and how an instruction is checked.
-- **Lowering** ([`Lowering`](src/lowering.rs)): how the instructions of
-  one set run as instructions of another, with their readouts read back;
-  [`Lowered`](src/lowering/lowered.rs) is the adapter that runs one.
+- **Translating adapter**
+  ([`TranslatingAdapter`](src/roles/translating_adapter.rs)): an adapter
+  whose instructions below may be of another set than those it receives,
+  with their readouts read back; a lowering of one set into another is
+  one.
 - **Batch** ([`Batch`](src/batch.rs)): instructions to run, in order, on
   each shot of a shot set.
 - **`execute`**: one call across a boundary, with any number of batches,
@@ -368,9 +370,9 @@ mechanics and edge cases.
   from the run's seed or says it cannot replay a shot.
 - [Batches and readouts](docs/batches-and-readouts.md): what a batch
   holds, and how its readouts are shaped, filled and kept.
-- [Instruction sets, their fit and their lowering](docs/instruction-sets.md):
-  what the protocol asks of a set, when two sets fit, and how a lowering
-  runs one set's instructions on another.
+- [Instruction sets and their fit](docs/instruction-sets.md): what the
+  protocol asks of a set, when two sets fit, and how one set's
+  instructions run on another.
 - [Capabilities and their fit](docs/capabilities.md): what a part
   requires and provides, replay included, what arrives at each part, and
   where each statement is checked.

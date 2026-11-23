@@ -15,7 +15,6 @@ mod capabilities;
 mod composition;
 mod example_sets;
 mod fake_parts;
-mod lowering;
 mod roles;
 mod seed;
 

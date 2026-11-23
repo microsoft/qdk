@@ -2,8 +2,8 @@
 // Licensed under the MIT License.
 
 //! [`QubitLimited`]: one gate on one qubit, whose capabilities are a count
-//! of qubits; and that count, [`Qubits`], which the lowering tests' sets
-//! state too.
+//! of qubits; and that count, [`Qubits`], which the translating tests'
+//! sets state too.
 
 use std::convert::Infallible;
 use std::error::Error;

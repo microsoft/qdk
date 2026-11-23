@@ -15,7 +15,7 @@ use super::{
     ready_for, unconstrained,
 };
 use crate::prelude::*;
-use crate::tests::example_sets::{BitReadout, Gate, Measuring, ShotFlags};
+use crate::tests::example_sets::{Gate, Measuring};
 use crate::{
     Batch, BatchReadouts, Capabilities, ExecuteError, Failure, Features, NotReady, Readouts,
     Resources, Seed, ShotId, ShotSet, StatesLimits,
@@ -937,17 +937,18 @@ impl Adapter for EndsBelow {
     }
 }
 
-/// A lowering of [`coin_gates`] to the same gates, each as itself,
-/// encoded as its binding to the receiver's set says, its readouts copied
-/// and its shots' conditions kept: a lowering whose binding is not `()`.
+/// A translating adapter of [`coin_gates`] to the same gates, each sent
+/// as itself, encoded as its binding to the receiver's set says, with its
+/// readouts and its shots' conditions as they came: a translating adapter
+/// that is no [`Adapter`], whose binding is not `()`.
 #[derive(Default)]
 pub(crate) struct GateForGate {
     below: Option<Vec<u32>>,
 }
 
-impl Lowering for GateForGate {
-    type From = Measuring;
-    type To = Measuring;
+impl crate::TranslatingAdapter for GateForGate {
+    type Accepts = Measuring;
+    type Sends = Measuring;
 
     fn accepts(&self) -> &Measuring {
         coin_gates()
@@ -965,15 +966,17 @@ impl Lowering for GateForGate {
         self.below = Some(below);
     }
 
-    fn lower(&self, gate: &Gate, into: &mut Vec<Gate>) {
-        into.push(Measuring::bound(bound(self.below.as_ref()), *gate));
-    }
-
-    fn read(&self, _gate: &Gate, lowered: &[BitReadout], into: &mut [BitReadout]) {
-        into.copy_from_slice(lowered);
-    }
-
-    fn read_conditions(&self, lowered: ShotFlags) -> ShotFlags {
-        lowered
+    async fn adapt(
+        &mut self,
+        batches: &[Batch<'_, Measuring>],
+        seed: Seed,
+        below: &mut impl Executor<Accepts = Measuring>,
+        readouts: &mut [BatchReadouts<Measuring>],
+    ) -> Result<(), ExecuteError> {
+        let map = bound(self.below.as_ref());
+        forward(batches, seed, below, readouts, |batch| {
+            mapped(map, batch.instructions)
+        })
+        .await
     }
 }

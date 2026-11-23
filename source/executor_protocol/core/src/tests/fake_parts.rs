@@ -27,8 +27,9 @@
 //!   [`PanicsEnding`], which panics in `end_shots`, each time or once;
 //!   [`EndsBelow`], which ends its shots below inside `adapt`;
 //!   [`Impatient`], which stops waiting for its first answer from below;
-//!   [`Misbehaving`], which breaks the protocol's rules; and the lowering
-//!   [`GateForGate`], which binds to the receiver's set.
+//!   [`Misbehaving`], which breaks the protocol's rules; and the
+//!   translating adapter [`GateForGate`], which binds to the receiver's
+//!   set.
 //! - Driver and executor: [`Panics`], which panics in `drive` and in
 //!   `execute`.
 //! - Any role: [`Renamed`], a part with a name other than its type's,
@@ -39,15 +40,14 @@
 //!   [`QubitPassThrough`], an adapter keeping the defaults;
 //!   [`QubitNarrowing`], an adapter requiring fewer qubits below than it
 //!   sends on; and [`QubitRegister`], an executor.
-//! - Across a lowering of
+//! - Across a translation of
 //!   [`WithToffoli`](crate::tests::example_sets::WithToffoli) to
 //!   [`WithoutToffoli`](crate::tests::example_sets::WithoutToffoli):
 //!   [`ToffoliProgram`], a driver; [`RoundsIntoItsReadouts`], a driver
 //!   sending rounds into the readouts it keeps; [`CliffordTRegister`], an
-//!   executor; [`CliffordTPassThrough`], an adapter of the lowered set; and
-//!   the lowerings [`ToffoliFree`], which rewrites `ccz`, and
-//!   [`ReadThrice`], which reads its own readouts, or, faulty, writes on
-//!   qubits it does not require.
+//!   executor; [`CliffordTPassThrough`], an adapter of the set sent below;
+//!   and [`CczDecomposition`], the translating adapter between them, which
+//!   decomposes `ccz`.
 //!
 //! Each part writes what it does to a shared [`Log`], which the test reads
 //! once the parts are composed.
@@ -82,7 +82,7 @@ pub(crate) use panics_in_drop::PanicsInDrop;
 pub(crate) use qubit_limited::{QubitNarrowing, QubitPassThrough, QubitProgram, QubitRegister};
 pub(crate) use renamed::Renamed;
 pub(crate) use toffoli::{
-    CliffordTPassThrough, CliffordTRegister, ReadThrice, RoundsIntoItsReadouts, ToffoliFree,
+    CczDecomposition, CliffordTPassThrough, CliffordTRegister, RoundsIntoItsReadouts,
     ToffoliProgram,
 };
 
