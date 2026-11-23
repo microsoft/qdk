@@ -13,15 +13,11 @@
 //! between them, for instance), and each bond is the Schmidt rank across
 //! its cut, which depends on which qubits fall on each side.
 //! On an engine that does not truncate, every order holds the same state,
-//! to rounding: each probability a shot draws against, given the same
-//! earlier values, agrees to rounding, so a record may differ between two
-//! orders only as rounding lets it differ (where, and what follows: the
-//! doc of [`MpsResumer`](super::MpsResumer)). On an engine that truncates,
-//! each order truncates its own way, so the order can change the state and
-//! its probabilities beyond rounding. The bonds, the time and the weight a
-//! max bond dimension discards depend on the order. So the order is the MPS
-//! simulation method's own: chosen inside the resumer and applied to every
-//! call it hands the engine, it never reaches the caller.
+//! to rounding (what rounding allows: the doc of
+//! [`MpsResumer`](super::MpsResumer)); on one that truncates, each order
+//! truncates its own way. The bonds, the time and the weight discarded
+//! depend on the order, so the order is the MPS simulation method's own:
+//! it never reaches the caller.
 //!
 //! The choice is a local search for the minimum linear arrangement of the
 //! program's interaction graph. On H₂'s iterative phase estimation (29

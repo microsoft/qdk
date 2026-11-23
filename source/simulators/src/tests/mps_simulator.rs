@@ -107,6 +107,22 @@ fn bell() -> QirProgram {
     )
 }
 
+/// The shots among the first 16 that read `value` on a coin
+/// ([`programs::coins`]`(1)`) seeded with `seed`, as each reads alone on
+/// the exact reference, in order.
+fn coin_shots_reading(value: u8, seed: u64) -> impl Iterator<Item = QirShotId> {
+    let coin = coins(1);
+    QirShotId::first(16).into_iter().filter(move |&shot| {
+        run(
+            &mut MpsResumer::new(ExactReference::new(), seed),
+            &coin,
+            &[shot],
+        )
+        .expect("a coin runs")
+            == [results(&[value])]
+    })
+}
+
 /// The engine's calls a run of one shot of [`bell`] makes: it prepares a
 /// state, applies the pair's gates, reads the largest bond, reads P(One)
 /// and projects at each measurement, and reads the retained weight at the
@@ -253,8 +269,8 @@ fn a_move_changes_no_state() {
 }
 
 /// A shot's records depend only on the resumer's seed and the shot's id:
-/// not on the shots beside it, whose draws split them into groups of other
-/// histories, nor on its place among them, nor on earlier runs, even one
+/// not on the shots beside it, whose draws split them into other groups,
+/// nor on its place among them, nor on earlier runs, even one
 /// an engine's failure ended. Each row compares a shot's records in one
 /// scene with its records in another.
 #[test]

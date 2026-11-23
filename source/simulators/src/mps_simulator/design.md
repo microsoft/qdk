@@ -18,27 +18,21 @@ the same names.
 - **start** (`GroupedRun::start`), once per run of one shot or more: the
   capacity, `MpsShape::qubit_chain` of the program's qubits and χ
   (`MpsResumer::with_max_bond_dimension`, `DEFAULT_MAX_BOND_DIMENSION` by
-  default), and one group of every shot. The engine contract takes only a
-  capacity, within which an engine that truncates keeps its bonds (the
-  cutoff: `MpsResumer`'s doc).
+  default), and one group of every shot.
 - **qubit order** (`QubitOrder::for_program`, in
   [`qubit_order.rs`](qubit_order.rs)), called by start: it weighs the
   two-qubit gates whose qubits the program names (not those of a
   register, unknown before a shot), and searches for an order of a smaller
   span. Every order holds the same state (to what precision: the file's
   header). No caller sees sites.
-- **stop** (`check_stop_flag`, called by `run_group`): a stop flag
-  (`MpsResumer::with_stop_flag`) is read before a group runs its steps
-  (when it first runs, when a group split off by a draw runs on, and once
-  each batch is lowered), and after each resume that gives a batch or a
-  trap (before the batch is lowered, or the trap reported); read set, it
-  fails the run; a context that ended keeps its records.
+- **stop** (`check_stop_flag`, called by `run_group`): the stop flag is
+  read where `MpsResumer::with_stop_flag` says; read set, it fails the
+  run; a context that ended keeps its records.
 - **resume** (`QirMachine::resume`, called by `run_group`): the machine
   runs the group's context to its next batch, or to its end with the
   shot's records, given the outcomes of the batch before.
 - **lower** (`lower`, in [`lowering.rs`](lowering.rs)): each call of the
-  batch becomes a step on sites. `move` changes no state, so it is no step
-  (a noisy simulator may charge it with idle noise or loss, planned).
+  batch becomes a step on sites. `move` changes no state, so it is no step.
 - **prepare** (`prepare`): at the group's first gate or draw, the engine
   prepares a state of all zeros within the capacity; a program of no
   qubits prepares none.
@@ -62,8 +56,7 @@ the same names.
   has at least as many shots as all the groups above it, so a run of N
   shots holds at most ⌊log₂ N⌋ + 1 states at once.
 - **settle** (`settle`): each group's state is projected on its value, then
-  a reset that drew One applies X. The engine has no measurement and no
-  reset, only probabilities, projections and matrices.
+  a reset that drew One applies X.
 - **end** (`end`): the context ended; the state's retained weight is read,
   and kept in the report when the least of the run; the group's records
   are each of its shots'. The weight is an estimate of the fidelity, not a

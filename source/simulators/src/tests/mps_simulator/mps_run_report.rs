@@ -15,7 +15,7 @@ use tensornet::reference::ExactReference;
 
 use super::programs::{branch, coins, gate1, gate2, mz, program, read_result, ret, set};
 use super::reference_spy::{ReferenceSpy, Weight};
-use super::{results, run};
+use super::{coin_shots_reading, results, run};
 use crate::bytecode::encoding::{OPID_CX, OPID_H};
 use crate::mps_simulator::{
     DEFAULT_MAX_BOND_DIMENSION, MpsResumer, MpsRunReport, TRUNCATION_TOLERANCE,
@@ -162,21 +162,10 @@ fn a_failed_run_reports_what_it_read_before_and_after_the_failure_was_met() {
             &[gate1(OPID_H, 1), gate2(OPID_CX, 1, 2), ret()],
         ],
     );
-    let coin = coins(1);
-    let reading = |value: u8| {
-        let coin = &coin;
-        QirShotId::first(16).into_iter().filter(move |&shot| {
-            run(
-                &mut MpsResumer::new(ExactReference::new(), 5),
-                coin,
-                &[shot],
-            )
-            .expect("a coin runs")
-                == [results(&[value])]
-        })
-    };
-    let one = reading(1).next().expect("some of 16 coins read 1");
-    let mut zeros = reading(0);
+    let one = coin_shots_reading(1, 5)
+        .next()
+        .expect("some of 16 coins read 1");
+    let mut zeros = coin_shots_reading(0, 5);
     let zero = zeros.next().expect("some of 16 coins read 0");
     let other_zero = zeros.next().expect("two of 16 coins read 0");
     let mut after = MpsResumer::new(ExactReference::new(), 5);
@@ -281,16 +270,19 @@ fn a_run_of_no_gate_reports_a_largest_bond_of_one() {
 }
 
 /// The report keeps the least weight among the shots, whichever ends last:
-/// two coins, each history's state keeping another weight (1 − 10⁻³ for
-/// 0, 0 down to 1 − 4·10⁻³ for 1, 1), over four seeds.
+/// two coins, each group's state keeping another weight (1 − 10⁻³ for the
+/// shots that read 0, 0 down to 1 − 4·10⁻³ for those that read 1, 1), over
+/// four seeds.
 #[test]
 fn the_report_keeps_the_least_weight_among_the_shots() {
     for seed in 1..=4 {
         let mut resumer = MpsResumer::new(ReferenceSpy::retaining(Weight::ByBasisState), seed);
         let records = expect_ready(resumer.run(&QirMachine::new(&coins(2)), &QirShotId::first(16)))
             .expect("the program runs");
-        let both_one = vec![crate::OutputRecord::Result(crate::MeasurementResult::One); 2];
-        assert!(records.contains(&both_one), "some of 16 shots read 1, 1");
+        assert!(
+            records.contains(&results(&[1, 1])),
+            "some of 16 shots read 1, 1"
+        );
         let least = resumer.last_run().least_retained_weight;
         assert!((least - (1.0 - 4e-3)).abs() < 1e-15, "seed {seed}: {least}");
     }

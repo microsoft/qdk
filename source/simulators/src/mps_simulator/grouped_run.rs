@@ -6,8 +6,8 @@
 //!
 //! The phases of a group, each a function or a call of the same name here
 //! or in the file its entry names, are in `src/mps_simulator/design.md`
-//! ("The phases of a group"), with how and why; this header gives the
-//! mechanics that page does not.
+//! ("The phases of a group"), with how and why, as is the bound on the
+//! states a run holds; this header gives the mechanics that page does not.
 //!
 //! **The loop.** [`GroupedRun::start`] makes one group of every shot, with
 //! one machine context and no state. `run` pops the groups off a stack, the
@@ -18,26 +18,13 @@
 //! step that needs it, and a split pushes the group that waits, with a
 //! cloned context and a forked state, onto the stack.
 //!
-//! **Few states at once.** As the smaller group goes on, each
-//! waiting group has at least as many shots as all the groups that wait
-//! above it and the one that runs, so a run of N shots holds at most
-//! ⌊log₂ N⌋ + 1 states at once.
-//!
 //! **Failures.** `fail` keeps the failure of the first shot in the order of
-//! the shots; since a group's shots keep that order, a group whose first
-//! shot comes after it is dropped: `run` drops it unrun when it waits, and
-//! `run_group` stops it after the step whose split leaves it only such
-//! shots going on, whether settling the fork failed or not (that step
-//! settles the group's own value first). A group that meets a
-//! failure is dropped with its state, which the engine leaves unspecified
-//! after it fails: a failed fork fails the whole group, before its shots
-//! split, while a failure settling the fork fails only the group that waits,
-//! and drops the fork. A run may also be stopped
-//! (`MpsResumer::with_stop_flag`): `run_group` reads the flag before a
-//! group runs, and after each resume that gives it a batch or a trap,
-//! before the batch is lowered or the trap reported; a context that ended
-//! keeps its records. No shot failed then: the shot named is the first
-//! that had not ended.
+//! the shots; a group's shots keep that order, so a group whose first shot
+//! comes after the failing shot is dropped: `run` drops it unrun when it
+//! waits, and `run_group` stops it after the step whose split leaves it
+//! only such shots. Where the stop flag is read is
+//! [`MpsResumer::with_stop_flag`]'s rule; `check_stop_flag`'s callers apply
+//! it.
 
 use std::num::NonZeroUsize;
 use std::rc::Rc;
@@ -221,10 +208,8 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
             }
             self.read_bond(group)?;
             let stop = self.machine.resume(&mut group.context, &group.outcomes);
-            // A flag set during the batch that just ran fails the shots
-            // before their next batch, as before every batch: before it is
-            // lowered, and before a trap on the way to it is reported. A
-            // context that ended keeps its records.
+            // The stop flag is read again before the batch is lowered or a
+            // trap reported; an ended context keeps its records.
             if !matches!(stop, Ok(QirStop::Ended(_))) {
                 self.check_stop_flag()?;
             }
@@ -453,7 +438,7 @@ impl<'r, E: MpsEngine> GroupedRun<'r, E> {
     }
 }
 
-/// Shots with one history: their context, their state (`None` until the
+/// The shots of one group: their context, their state (`None` until the
 /// first step needs it), the outcomes of the batch they are in, and its
 /// steps, from `next` on still to run; `bond_unread` when gates were
 /// applied since its largest bond was read.

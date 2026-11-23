@@ -15,8 +15,7 @@
 //! matrix holds on them unchanged. A measurement and a reset are draws
 //! the resumer makes; a measurement in X or Y is one in Z between the
 //! gates that turn that basis into Z and back, as the QDK's Python
-//! simulation lowers `mx` and `my` (`DecomposeMxMyPass`): `h` around an
-//! `mx`, `s_adj` then `h` before an `my`, and `h` then `s` after it.
+//! simulation lowers `mx` and `my` (`DecomposeMxMyPass`).
 //! `move` changes no state (a noisy simulator may
 //! charge it with idle noise or loss, planned), so it is no step.
 //! Correlated noise, readout noise and loss checks are refused
