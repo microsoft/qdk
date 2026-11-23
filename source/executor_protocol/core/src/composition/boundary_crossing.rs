@@ -26,8 +26,8 @@
 
 use std::panic::resume_unwind;
 
+use super::boundary::Boundary;
 use super::part_panics::{catch_panic, panic_message};
-use crate::composition::boundary::Boundary;
 use crate::roles::Sealed;
 use crate::{
     Batch, BatchFault, BatchReadouts, Capabilities, ExecuteError, ExecuteRefusal, Executor,

@@ -26,10 +26,10 @@ pub(crate) mod wait;
 use std::panic::resume_unwind;
 
 use super::DeclaredParts;
+use super::boundary::Boundary;
 use super::boundary_crossing::BoundaryCrossing;
 use super::part_panics::{PanicEndingShots, await_part, catch_panic, panic_message};
 use super::unended_shots::UnendedShots;
-use crate::composition::boundary::Boundary;
 use crate::part_id::ChainPosition;
 use crate::{
     Capabilities, DriveError, Driver, Executor, Failure, Features, PartId, Resources,

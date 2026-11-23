@@ -56,9 +56,9 @@ mod driver;
 mod executor;
 
 use super::BoundaryMismatch;
+use super::boundary::{Boundary, READY_FIRST};
 use super::part_panics::end_both;
 use crate::PartId;
-use crate::composition::boundary::{Boundary, READY_FIRST};
 use crate::part_id::ChainPosition;
 use crate::roles::Sealed;
 use crate::{
