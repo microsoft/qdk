@@ -8,14 +8,11 @@
 //! against what the part provides, giving every [`CapabilitiesMismatch`];
 //! and what a run requires, before any set's ([`RunRequirement`]).
 
-mod boundary;
 mod features;
 mod resources;
 mod run_requirement;
 mod states_limits;
 
-pub use boundary::BatchFault;
-pub(crate) use boundary::{Boundary, READY_FIRST};
 pub use features::{FeatureMismatch, Features};
 pub use resources::{ResourceMismatch, Resources};
 pub use run_requirement::RunRequirement;

@@ -10,11 +10,6 @@
 mod features;
 mod resources;
 
-/// The boundary a run's batches cross.
-mod boundary {
-    mod batch_limits;
-}
-
 use std::any::type_name;
 
 use crate::prelude::*;

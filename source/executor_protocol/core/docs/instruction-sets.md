@@ -46,7 +46,7 @@ the set the few things it checks:
 A set's mismatch and fault are its own typed errors; the protocol's shared
 errors ([`BoundaryMismatch`](../src/composition/composition_faults.rs),
 [`CapabilitiesMismatch`](../src/capabilities.rs) and
-[`BatchFault`](../src/capabilities/boundary/batch_limits.rs)) hold them
+[`BatchFault`](../src/composition/boundary/batch_limits.rs)) hold them
 boxed, so a caller reads them with `downcast_ref`. The small set
 `CoinGates` of [`examples/compose_and_run.rs`](../examples/compose_and_run.rs)
 implements the trait in full.
@@ -70,7 +70,7 @@ runs: each instruction by the receiver's `check`, against the requirement
 prepared at the run's start; then the readout slots `check` returned,
 summed, against those its sender stated. The first fault refuses the
 batch, at its position, as the
-[`BatchFault`](../src/capabilities/boundary/batch_limits.rs) says.
+[`BatchFault`](../src/composition/boundary/batch_limits.rs) says.
 
 ## Running one set on another
 

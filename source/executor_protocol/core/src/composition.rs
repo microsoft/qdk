@@ -29,8 +29,10 @@
 //! the protocol shapes the readouts crossing its boundaries, checks every
 //! batch's count of instructions, and each batch its sender marked
 //! [`checked`](crate::Batch::checked), so a part writes only its own
-//! logic. The call across each boundary (`boundary_crossing`) and the
-//! catching of a part's panics (`part_panics`) belong to composition too.
+//! logic. The boundary a join keeps (`boundary`), with the limits of each
+//! batch sent across it ([`BatchFault`]), the call across each boundary
+//! (`boundary_crossing`) and the catching of a part's panics
+//! (`part_panics`) belong to composition too.
 //! What names a part ([`PartId`](crate::PartId)) is at the crate's root:
 //! the roles' failures and the boundaries name parts too.
 //!
@@ -40,6 +42,7 @@
 //! [`BoundaryCompatible::fits`]: crate::BoundaryCompatible::fits
 
 mod adapter_joins;
+mod boundary;
 mod boundary_crossing;
 mod composed;
 mod composition_faults;
@@ -50,6 +53,7 @@ pub(crate) mod runner;
 mod unended_shots;
 
 pub use adapter_joins::AdapterJoins;
+pub use boundary::BatchFault;
 pub use composition_faults::{BoundaryMismatch, CompositionFault, CompositionFaults};
 pub use declared_parts::DeclaredParts;
 pub use driver_joins::DriverJoins;

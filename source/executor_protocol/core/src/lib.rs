@@ -30,14 +30,13 @@ pub use batch::{
     Batch, BatchReadouts, ReadoutSlot, ReadoutSlots, Readouts, ShotId, ShotSet, ShotSetFault,
 };
 pub use boundary_compatible::BoundaryCompatible;
-pub(crate) use capabilities::Boundary;
 pub use capabilities::{
-    BatchFault, Capabilities, CapabilitiesMismatch, FeatureMismatch, Features, ResourceMismatch,
-    Resources, RunRequirement, StatesLimits,
+    Capabilities, CapabilitiesMismatch, FeatureMismatch, Features, ResourceMismatch, Resources,
+    RunRequirement, StatesLimits,
 };
 pub use composition::{
-    AdapterJoins, BoundaryMismatch, CompositionFault, CompositionFaults, DriverJoins, RunError,
-    RunRefusal, Runner,
+    AdapterJoins, BatchFault, BoundaryMismatch, CompositionFault, CompositionFaults, DriverJoins,
+    RunError, RunRefusal, Runner,
 };
 pub use instruction_set::{Binding, InstructionSet};
 pub use part_id::PartId;

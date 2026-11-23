@@ -58,12 +58,12 @@ mod executor;
 use super::BoundaryMismatch;
 use super::part_panics::end_both;
 use crate::PartId;
-use crate::capabilities::READY_FIRST;
+use crate::composition::boundary::{Boundary, READY_FIRST};
 use crate::part_id::ChainPosition;
 use crate::roles::Sealed;
 use crate::{
-    Batch, BatchReadouts, Binding, Boundary, Capabilities, ExecuteError, Executor, InstructionSet,
-    NotReady, Seed, ShotSet, TranslatingAdapter,
+    Batch, BatchReadouts, Binding, Capabilities, ExecuteError, Executor, InstructionSet, NotReady,
+    Seed, ShotSet, TranslatingAdapter,
 };
 
 /// Two parts as one: `upper` calls `lower`. A driver, an adapter or an

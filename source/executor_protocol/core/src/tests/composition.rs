@@ -6,11 +6,16 @@
 //! each part gets ready for on every run. The joins' check of a chain,
 //! what each part requires against what the parts below provide, is in
 //! `composition/driver_joins.rs`, running its shots in
-//! `composition/runner.rs`, the calls across its boundaries in
-//! `composition/boundary_crossing.rs`, its parts' panics in
+//! `composition/runner.rs`, the checks of one batch at a boundary in
+//! `composition/boundary/batch_limits.rs`, the calls across its boundaries
+//! in `composition/boundary_crossing.rs`, its parts' panics in
 //! `composition/part_panics.rs`, and the message of its faults in
 //! `composition/composition_faults.rs`.
 
+/// The boundary a run's batches cross.
+mod boundary {
+    mod batch_limits;
+}
 mod boundary_crossing;
 mod composition_faults;
 mod driver_joins;

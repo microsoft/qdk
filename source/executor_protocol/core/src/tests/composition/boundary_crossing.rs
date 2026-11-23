@@ -13,7 +13,7 @@
 //! failure; a panic in the caller's `execute`, once polled, when they are
 //! not one per batch; and, of unchecked batches, into readouts that held
 //! readouts as large, no allocation. The checks of one batch are in
-//! `capabilities/boundary/batch_limits.rs`.
+//! `composition/boundary/batch_limits.rs`.
 
 use std::any::type_name;
 use std::cell::{Cell, RefCell};
@@ -142,7 +142,7 @@ fn refused_before_it_runs(row: &str, runs: &[Failed], refusal: &ExecuteRefusal) 
 /// of it or of the other batches of its `execute`, whoever sends it: the
 /// driver, to the executor or to an adapter, or an adapter, in both
 /// bracketings. A row per sender; the faults a batch may hold are in
-/// `capabilities/boundary/batch_limits.rs`.
+/// `composition/boundary/batch_limits.rs`.
 #[test]
 fn a_batch_the_part_below_does_not_take_is_refused_before_it_runs() {
     let beyond_the_set = |shot, at| ExecuteRefusal::Batch {

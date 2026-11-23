@@ -7,7 +7,7 @@
 
 use super::composed::Composed;
 use super::{CompositionFaults, DeclaredParts};
-use crate::capabilities::Boundary;
+use crate::composition::boundary::Boundary;
 use crate::{Driver, Executor, ExecutorReadings, RunRequirement, Runner, TranslatingAdapter};
 
 /// The joins of a driver with the part below it: [`through`](Self::through)

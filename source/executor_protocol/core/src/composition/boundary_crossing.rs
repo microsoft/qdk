@@ -27,10 +27,11 @@
 use std::panic::resume_unwind;
 
 use super::part_panics::{catch_panic, panic_message};
+use crate::composition::boundary::Boundary;
 use crate::roles::Sealed;
 use crate::{
-    Batch, BatchFault, BatchReadouts, Boundary, Capabilities, ExecuteError, ExecuteRefusal,
-    Executor, Failure, InstructionSet, Seed, ShotSet,
+    Batch, BatchFault, BatchReadouts, Capabilities, ExecuteError, ExecuteRefusal, Executor,
+    Failure, InstructionSet, Seed, ShotSet,
 };
 
 /// A call across a boundary to `inner`, its receiver, with the boundary
