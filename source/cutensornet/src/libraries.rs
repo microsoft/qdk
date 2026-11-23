@@ -32,6 +32,7 @@
 //! loaded (`loader`), its functions looked up (`function_table`), its
 //! versions probed, and the other copies of it visible beside the one
 //! loaded.
+//!
 //! `Opening` keeps, beside each library's report, its setup guide, so the
 //! setup check shows and advises about the libraries discovery opened.
 //!
