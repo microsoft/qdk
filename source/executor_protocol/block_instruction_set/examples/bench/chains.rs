@@ -105,13 +105,18 @@ fn send_down<E: Executor<Accepts = BlockInstructionSet>>(
         Chain::Direct => {
             // The chain's executor is sent no batch: `Direct` sends past it.
             let unused = Profiler::new(Resources::unconstrained());
-            run_once(Direct(in_batches, executor).limited().on(unused))
+            run_once(Direct(in_batches, executor).stating_limits().on(unused))
         }
-        Chain::Bare | Chain::Limited(_) => run_once(in_batches.limited().on(executor)),
-        Chain::OneAdapter => run_once(in_batches.limited().through(Forward::new()).on(executor)),
+        Chain::Bare | Chain::Limited(_) => run_once(in_batches.stating_limits().on(executor)),
+        Chain::OneAdapter => run_once(
+            in_batches
+                .stating_limits()
+                .through(Forward::new())
+                .on(executor),
+        ),
         Chain::TwoAdapters => run_once(
             in_batches
-                .limited()
+                .stating_limits()
                 .through(Forward::new())
                 .through(Forward::new())
                 .on(executor),

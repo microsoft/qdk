@@ -14,8 +14,8 @@ use block_instruction_set::{
 };
 use executor_protocol_core::prelude::*;
 use executor_protocol_core::{
-    Batch, BatchReadouts, Capabilities, ExecuteError, ExecutorLimits, Features, Limited, Resources,
-    Seed, ShotSet,
+    Batch, BatchReadouts, Capabilities, ExecuteError, ExecutorLimits, Features, Resources, Seed,
+    ShotSet, StatesLimits,
 };
 
 use super::{MixGates, PhysicalGates};
@@ -68,7 +68,7 @@ impl BatchKinds {
 
 impl Profiler {
     /// A profiler accepting `MixGates` and providing `resources`.
-    pub(crate) fn new(resources: Resources) -> Limited<Self> {
+    pub(crate) fn new(resources: Resources) -> StatesLimits<Self> {
         Self {
             accepts: MixGates::set(),
             provides: Capabilities::new(
@@ -78,7 +78,7 @@ impl Profiler {
             ),
             profile: Profile::default(),
         }
-        .limited()
+        .stating_limits()
     }
 }
 

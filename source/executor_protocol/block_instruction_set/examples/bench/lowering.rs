@@ -11,7 +11,7 @@ use std::time::Instant;
 
 use block_instruction_set::{BlockInstruction, ReadoutValue};
 use executor_protocol_core::prelude::*;
-use executor_protocol_core::{Limited, Lowered};
+use executor_protocol_core::{Lowered, StatesLimits};
 
 use crate::Size;
 use crate::parts::{
@@ -47,7 +47,7 @@ pub(crate) fn bench(size: &Size, checked: bool) {
     let by_six = slots_per_batch(&LogicalGates::set(), &logical, 6);
     let compose = compose_time(size.repeats, || {
         (
-            ProgramInBatches::new(LogicalGates::set(), &logical, &by_six, 2, 6).limited(),
+            ProgramInBatches::new(LogicalGates::set(), &logical, &by_six, 2, 6).stating_limits(),
             Lowered::new(Repetition3::new(2)),
             Sink::new(),
         )
@@ -86,7 +86,7 @@ pub(crate) fn bench(size: &Size, checked: bool) {
             let received = run_once(
                 (ProgramInBatches::new(PhysicalGates::set(), &physical, &p_slots, 6, 3 * batch)
                     .checked_if(checked))
-                .limited()
+                .stating_limits()
                 .on(&mut sink),
             );
             (sink.seen, sink.kinds, received.values)
@@ -96,7 +96,7 @@ pub(crate) fn bench(size: &Size, checked: bool) {
             let received = run_once(
                 (ProgramInBatches::new(LogicalGates::set(), &logical, &l_slots, 2, batch)
                     .checked_if(checked))
-                .limited()
+                .stating_limits()
                 .through(Lowered::new(Repetition3::new(2)))
                 .on(&mut sink),
             );
@@ -120,7 +120,7 @@ fn lowered(logical: &[BlockInstruction], checked: bool) -> Vec<BlockInstruction>
     run_once(
         (ProgramInBatches::new(LogicalGates::set(), logical, &whole, 2, logical.len())
             .checked_if(checked))
-        .limited()
+        .stating_limits()
         .through(Lowered::new(Repetition3::new(2)))
         .on(&mut recorder),
     );
@@ -132,7 +132,11 @@ fn lowered(logical: &[BlockInstruction], checked: bool) -> Vec<BlockInstruction>
 /// building the parts.
 fn compose_time<'p>(
     repeats: usize,
-    mut parts: impl FnMut() -> (Limited<ProgramInBatches<'p>>, Lowered<Repetition3>, Sink),
+    mut parts: impl FnMut() -> (
+        StatesLimits<ProgramInBatches<'p>>,
+        Lowered<Repetition3>,
+        Sink,
+    ),
 ) -> f64 {
     (0..=repeats)
         .map(|_| {
@@ -161,7 +165,11 @@ fn sink_direct(
     let in_batches =
         ProgramInBatches::new(PhysicalGates::set(), physical, slots, 6, batch).checked_if(checked);
     // No boundary sees a batch: `Direct` sends past the chain.
-    let received = run_once(Direct(in_batches, &mut sink).limited().on(Sink::new()));
+    let received = run_once(
+        Direct(in_batches, &mut sink)
+            .stating_limits()
+            .on(Sink::new()),
+    );
     (sink.seen, sink.kinds, received.values)
 }
 

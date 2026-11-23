@@ -12,8 +12,8 @@ use block_instruction_set::{
 };
 use executor_protocol_core::prelude::*;
 use executor_protocol_core::{
-    Batch, BatchReadouts, Capabilities, CompositionFaults, DriveError, DriverLimits, ExecuteError,
-    Features, Readouts, Resources, RunRequirement, Runner, Seed, ShotSet,
+    Batch, BatchReadouts, Capabilities, CompositionFaults, DriveError, DriverRequirements,
+    ExecuteError, Features, Readouts, Resources, RunRequirement, Runner, Seed, ShotSet,
 };
 
 use crate::workload::SEED;
@@ -147,7 +147,7 @@ impl Driver for ProgramInBatches<'_> {
     }
 }
 
-impl DriverLimits for ProgramInBatches<'_> {
+impl DriverRequirements for ProgramInBatches<'_> {
     /// Its qubits and readout parities, whatever the run: it does not pass
     /// the run's one shot and fixed seed below, which every executor of
     /// the bench takes, so the timings that include a run's start leave
@@ -205,7 +205,7 @@ impl<E: Executor<Accepts = BlockInstructionSet>> Driver for Direct<'_, E> {
     }
 }
 
-impl<E: Executor<Accepts = BlockInstructionSet>> DriverLimits for Direct<'_, E> {
+impl<E: Executor<Accepts = BlockInstructionSet>> DriverRequirements for Direct<'_, E> {
     fn requires(&self, run: &RunRequirement) -> Capabilities<BlockInstructionSet> {
         self.0.requires(run)
     }
