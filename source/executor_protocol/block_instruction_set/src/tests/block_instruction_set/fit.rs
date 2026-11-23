@@ -98,7 +98,8 @@ fn undeclared_instructions_match_by_mnemonic_between_sets_of_one_name() {
 }
 
 /// A mnemonic proves nothing between sets of other names: one mismatch
-/// says so, naming each undeclared instruction, not one per instruction;
+/// says so, naming each undeclared instruction, not one per instruction,
+/// and the sending and the receiving set;
 /// in a set where some instructions declare a meaning, it names only the
 /// others, in order, at the place of the first of them among the other
 /// mismatches.
@@ -106,6 +107,8 @@ fn undeclared_instructions_match_by_mnemonic_between_sets_of_one_name() {
 fn undeclared_instructions_of_sets_of_other_names_are_refused_once() {
     let other_set = |mnemonics: &[&str]| InstructionMismatch::OtherSet {
         mnemonics: mnemonics.iter().map(|&m| m.to_owned()).collect(),
+        sending_set: "Gates".to_owned(),
+        receiving_set: "Device".to_owned(),
     };
     for (row, sent, accepted, expected) in [
         (
@@ -428,10 +431,10 @@ fn shape_mismatch_is_reported_before_a_one_sided_meaning() {
 /// A mismatch's message names what is at fault, for whoever builds the
 /// chain and must change a part: the instruction, by its mnemonic, which
 /// nothing else in the message says, and what differs, in the words of
-/// its kind (blocks, parameters, readouts, what it does, or the set),
-/// with, for readouts, the sent counts before the word "accept" and the
-/// accepted ones after it, so a reader tells which side has which; and
-/// for one mnemonic, no two kinds say the same. A formatter that drops
+/// its kind (blocks, parameters, readouts, what it does, or the two sets'
+/// names), with, for readouts, the sent counts before the word "accept"
+/// and the accepted ones after it, so a reader tells which side has which;
+/// and for one mnemonic, no two kinds say the same. A formatter that drops
 /// the mnemonic, a count or what differs, says one kind's difference for
 /// another, swaps the sides, or says the same for two kinds, fails. A fit
 /// refused for several instructions names each of them, so the chain's
@@ -464,8 +467,10 @@ fn a_mismatch_names_its_instruction_and_what_differs() {
         (
             InstructionMismatch::OtherSet {
                 mnemonics: vec![cz(), "ccx".to_owned()],
+                sending_set: "Gates".to_owned(),
+                receiving_set: "Device".to_owned(),
             },
-            vec!["cz", "ccx", "set"],
+            vec!["cz", "ccx", "`Gates`", "`Device`"],
             None,
         ),
     ];

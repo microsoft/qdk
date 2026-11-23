@@ -83,7 +83,7 @@ impl BoundaryCompatible for BlockInstructionSet {
     /// two declares what it does and the other does not; else, both
     /// undeclared under sets of other names,
     /// [`OtherSet`](InstructionMismatch::OtherSet), given once, at the
-    /// first such instruction, naming each.
+    /// first such instruction, naming each and both sets.
     fn fits(
         &self,
         receiver: &BlockInstructionSet,
@@ -114,6 +114,8 @@ impl BoundaryCompatible for BlockInstructionSet {
         if !other_set.is_empty() {
             let other_set = InstructionMismatch::OtherSet {
                 mnemonics: other_set,
+                sending_set: self.name.clone(),
+                receiving_set: receiver.name.clone(),
             };
             mismatches.insert(other_set_at, other_set);
         }
@@ -238,6 +240,10 @@ pub enum InstructionMismatch {
     OtherSet {
         /// The instructions' mnemonics, in the sent set's order.
         mnemonics: Vec<String>,
+        /// The name of the set the instructions are sent in.
+        sending_set: String,
+        /// The name of the receiver's set.
+        receiving_set: String,
     },
     /// The receiver has no instruction of this mnemonic, nor one doing the
     /// same with the same blocks, parameters and readouts.
@@ -276,14 +282,22 @@ pub enum InstructionMismatch {
 impl fmt::Display for InstructionMismatch {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            InstructionMismatch::OtherSet { mnemonics } => {
+            InstructionMismatch::OtherSet {
+                mnemonics,
+                sending_set,
+                receiving_set,
+            } => {
                 f.write_str("no meaning is declared for ")?;
                 let mut separator = "";
                 for mnemonic in mnemonics {
                     write!(f, "{separator}`{mnemonic}`")?;
                     separator = ", ";
                 }
-                f.write_str(", and the sets' names differ, so a mnemonic proves nothing")
+                write!(
+                    f,
+                    ", and the sets' names, `{sending_set}` and `{receiving_set}`, \
+                     differ, so a mnemonic proves nothing"
+                )
             }
             InstructionMismatch::Missing { mnemonic } => {
                 write!(f, "`{mnemonic}` is not accepted")
