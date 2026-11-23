@@ -10,11 +10,9 @@ use super::{QirBatchSplit, sealed::Sealed};
 use crate::qir::{QirMachine, QirStop};
 
 /// Each batch is handed over whole, in one [`QirStop::Batch`]: the
-/// default of [`QirMachine`]. A batch has no bound on its calls: a loop of
-/// quantum calls that never reads a result adds every round to one batch.
-/// A batch whose walk traps is not handed over: the trap comes at once.
-/// [`QirStop::Split`] holds [`Infallible`], so a resumer's `match` has no
-/// arm for it.
+/// default of [`QirMachine`]. A batch whose walk traps is not handed over:
+/// the trap comes at once. [`QirStop::Split`] holds [`Infallible`], so a
+/// resumer's `match` has no arm for it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct WholeBatches;
 

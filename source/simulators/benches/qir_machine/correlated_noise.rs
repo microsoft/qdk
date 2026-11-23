@@ -14,12 +14,12 @@ use qdk_simulators::bytecode::{AdaptiveProgram, Instruction, Op};
 
 use crate::encoding::{FLAG_AUX1_IMM, FLAG_AUX2_IMM, OP_QUANTUM_GATE, OPID_CORRELATED_NOISE};
 use crate::workload::{op, program, ret, set};
-use crate::{UNITS, measure};
+use crate::{UNITS, time_against_run_shot};
 
 pub(crate) fn bench(c: &mut Criterion) {
     let mut group = c.benchmark_group("correlated_noise");
     for qubits in 1..=3 {
-        measure(
+        time_against_run_shot(
             &mut group,
             &format!("{qubits}_qubits"),
             &noise_program(qubits),

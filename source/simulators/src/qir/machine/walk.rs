@@ -17,8 +17,7 @@
 //! `#[inline]` (those of this file, of the context, of `classical_ops.rs`,
 //! of the prepared calls and of a call), except the bytecode's opcode
 //! accessors, a bit mask each, which rustc inlines across crates on its
-//! own.
-//! Without it, a call of correlated noise took up to 1.8 times as long
+//! own. Without it, a call of correlated noise took up to 1.8 times as long
 //! (the crate's `qir_machine` benchmark).
 
 use super::super::program::prepared_quantum_calls::CallSource;
@@ -27,6 +26,8 @@ use super::super::program::prepared_quantum_calls::PreparedQuantumCalls;
 use super::super::quantum_instruction_encoding::Register;
 use super::super::{QirReadout, QirTrap};
 use super::batch_split::QirBatchSplit;
+#[cfg(doc)]
+use super::batch_split::SplitBatches;
 use super::classical_ops::{binary, bit, float_compare, int_compare, signed, unary, unsigned};
 use super::shot_context::{Frame, program_result};
 use super::{QirMachine, QirShotContext, block_start};
@@ -57,8 +58,7 @@ impl<S: QirBatchSplit> QirMachine<'_, S> {
     /// the immediate flag of each operand it reads. A quantum instruction
     /// appends its prepared calls ([`PreparedQuantumCalls`]), as many as
     /// the split choice leaves room for. On a trap, the context's batch
-    /// holds the calls walked since the last stop, every one before the
-    /// trap, which `resume` hands over where batches are split.
+    /// holds the calls walked since the last stop (see [`SplitBatches`]).
     // The bytecode's words index its tables and registers: the check
     // refused every index past them, so none is truncated.
     #[allow(clippy::too_many_lines, clippy::cast_possible_truncation)]

@@ -64,8 +64,7 @@ pub struct QirShotContext {
     /// so the next resume takes no outcomes.
     pub(super) after_split: bool,
     /// The trap the walk reached while the context held calls not yet
-    /// yielded, under [`SplitBatches`]: those calls came as a
-    /// [`QirStop::Split`], and the next resume gives the trap.
+    /// yielded, under [`SplitBatches`], which says when it comes.
     pub(super) held_trap: Option<QirTrap>,
     /// What the shot recorded, which [`QirStop::Ended`] lends; at the end,
     /// every result when the program records nothing.

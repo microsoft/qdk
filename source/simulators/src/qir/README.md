@@ -111,11 +111,11 @@ loop {
 ```
 
 A resumer that streams each batch to its target takes the machine with
-[`SplitBatches`](machine/batch_split/split_batches.rs), whose
-`at_most(n)` takes `n` as a `NonZeroUsize`. Its loop has one arm more,
-`QirStop::Split(calls)`, which sends the calls to the target (`send`) and
-resumes with no outcomes; the batch's outcomes are given once, after its
-last calls are sent (`receive`):
+[`SplitBatches`](machine/batch_split/split_batches.rs), in pieces of at
+most `n` calls. Its loop has one arm more, `QirStop::Split(calls)`, which
+sends the calls to the target (`send`) and resumes with no outcomes; the
+batch's outcomes are given once, after its last calls are sent
+(`receive`):
 
 ```rust
 let machine = QirMachine::new(program).with_split(SplitBatches::at_most(
@@ -139,9 +139,8 @@ loop {
 }
 ```
 
-A shot that traps first hands over, as a split, the calls it walked since
-the last stop, if any, and the next resume gives the trap, so the target
-has received every call the shot made before it failed
+Split, a shot that traps hands over every call it made before the trap,
+and the next resume gives the trap
 ([why](design.md#a-batch-whole-or-in-pieces)).
 
 A resumer implements [`QirResumer`](resumer.rs), whose `run` states the
@@ -202,17 +201,17 @@ Most take no change to the machine; streaming took one, a batch handed
 over in pieces, since only the machine can bound what a context holds
 ([a batch whole or in pieces](design.md#a-batch-whole-or-in-pieces)):
 
-| Need                | Case                                                                                          | Status                                                                                                                                   |
-| ------------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| A new target        | a matrix-product-state simulator, a device                                                    | the resumer contract: built                                                                                                              |
-| Efficiency          | the CPU simulators, as fast as `run_shot`                                                     | the machine: built; [a benchmark][bench] times it against `run_shot` on quantum calls, classical instructions, rounds and function calls |
-| Many shots per call | a GPU, a device                                                                               | the machine: built; a grouping resumer: planned                                                                                          |
-| Concurrency         | a device that answers later                                                                   | the async trait: built; a device: planned                                                                                                |
-| Streaming           | a target with a bounded queue; a long batch's first part run while the machine walks the rest | the machine's pieces: built; a streaming resumer: planned                                                                                |
-| Threads             | shots run on several threads                                                                  | the machine: built; a resumer on threads: planned                                                                                        |
-| Composability       | Qodec's and QEP's codes, noise, an observer in between                                        | planned                                                                                                                                  |
-| Stepping, copying   | a debugger; shots that share a prefix                                                         | a context can be left or cloned; a debugger: planned                                                                                     |
-| One runtime for all | the GPU simulator, with an interpreter in its shader                                          | planned: a GPU resumer on the shader's kernels                                                                                           |
+| Need                | Case                                                                                          | Status                                                               |
+| ------------------- | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| A new target        | a matrix-product-state simulator, a device                                                    | the resumer contract: built                                          |
+| Efficiency          | the CPU simulators, as fast as `run_shot`                                                     | the machine: built; [a benchmark][bench] times it against `run_shot` |
+| Many shots per call | a GPU, a device                                                                               | the machine: built; a grouping resumer: planned                      |
+| Concurrency         | a device that answers later                                                                   | the async trait: built; a device: planned                            |
+| Streaming           | a target with a bounded queue; a long batch's first part run while the machine walks the rest | the machine's pieces: built; a streaming resumer: planned            |
+| Threads             | shots run on several threads                                                                  | the machine: built; a resumer on threads: planned                    |
+| Composability       | Qodec's and QEP's codes, noise, an observer in between                                        | planned                                                              |
+| Stepping, copying   | a debugger; shots that share a prefix                                                         | a context can be left or cloned; a debugger: planned                 |
+| One runtime for all | the GPU simulator, with an interpreter in its shader                                          | planned: a GPU resumer on the shader's kernels                       |
 
 [bench]: ../../benches/qir_machine/main.rs
 

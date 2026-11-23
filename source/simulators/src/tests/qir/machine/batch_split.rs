@@ -18,7 +18,8 @@ use super::{answers, built, measure_into_register, run, run_on};
 use crate::OutputRecord;
 use crate::bytecode::encoding::{
     FLAG_AUX1_IMM, FLAG_SRC0_IMM, FLAG_SRC1_IMM, ICMP_SLT, OP_ADD, OP_ICMP, OP_LOAD,
-    OP_QUANTUM_GATE, OP_READ_RESULT, OP_STORE, OP_UDIV, OP_WRITE_RESULT, OPID_CX, OPID_MZ, OPID_X,
+    OP_QUANTUM_GATE, OP_READ_RESULT, OP_STORE, OP_SUB, OP_UDIV, OP_WRITE_RESULT, OPID_CX, OPID_MZ,
+    OPID_X,
 };
 use crate::bytecode::{AdaptiveProgram, Instruction};
 use crate::qir::{
@@ -128,9 +129,8 @@ fn joined(stops: &[Piece]) -> (Vec<String>, Vec<String>) {
 /// [`SPLITS`], gives `whole`, what a machine of whole batches gives it,
 /// each result as `answer` gives it: each batch, joined to the splits
 /// before it, and the records or the trap. Only before a trap may splits
-/// follow the last batch, and they hold the same calls at every size: that
-/// they are the calls walked since it is checked by
-/// `a_trap_comes_after_every_call_walked_before_it`, which names them.
+/// follow the last batch, and they hold the same calls at every size;
+/// which calls they are is checked directly, trap by trap, in this file.
 pub(super) fn assert_split_alike(
     bytecode: &AdaptiveProgram<u64>,
     whole: &(Vec<String>, Result<Vec<OutputRecord>, QirTrap>),
@@ -532,23 +532,12 @@ fn one_call_arg(instructions: &[Instruction<u64>]) -> AdaptiveProgram<u64> {
     bytecode
 }
 
-/// Programs that trap, whole and split: by a call built from registers on
-/// qubit 99, past the program's (instruction 3), after a full piece of
-/// `n` = 1 and a piece of `n` = 3 holding one or two calls; by correlated
-/// noise on three qubits past the one entry of the `call_args` table,
-/// after a full piece; by a division by a register holding 0 after calls,
-/// split at 1 and 3, and after none, at the start and after a batch; by a
-/// call that would overfill a full piece; after a split inside a run of
-/// prebuilt calls; and, a piece of two calls pending, split at 3, by each
-/// other trap the walk can reach with calls pending: a measurement into a
-/// result past the program's, correlated noise naming a register past the
-/// program's, a write of 2 to a result, a load and a store past the
-/// context's memory, and a read of result 3, answered with no value in an
-/// earlier batch (every other result is answered `One`). Whole, the
-/// trapping batch is not handed over: the trap comes at once. Split,
-/// every call walked before the trap is, those since the last stop as a
-/// last split, and the trap comes on the next resume; with none since the
-/// last stop, it comes at once.
+/// Programs that trap at each point the walk can reach with calls pending,
+/// and with none (the table's labels name them; every result is answered
+/// `One` but result 3, answered with no value). Whole, the trap comes at
+/// once; split, the calls walked since the last stop come as a last split
+/// and the trap on the next resume; with none since the last stop, it
+/// comes at once.
 #[test]
 #[allow(clippy::too_many_lines)]
 fn a_trap_comes_after_every_call_walked_before_it() {
@@ -823,16 +812,17 @@ fn a_batch_without_end_comes_in_pieces_without_end() {
     }
 }
 
-/// An `x`, another and a measurement, split at 1 up to the first split,
-/// then resumed by a machine of whole batches of the same program: the
-/// batch's other calls come whole, and its outcome ends the shot. And an
-/// `x` then a division by a register holding 0, split at 1 up to the
-/// split holding the trap: the machine of whole batches gives the trap.
+/// An `x`, a count raised by one, and a division by the count less one,
+/// split at 1 up to the split holding the division's trap, then resumed by
+/// a machine of whole batches: it gives the held trap, where walking the
+/// batch again would raise the count to 2 and divide by 1.
 #[test]
-fn a_context_split_by_one_machine_runs_on_under_a_machine_of_whole_batches() {
+fn a_trap_held_by_a_split_comes_from_a_machine_of_whole_batches() {
     let traps = built(&program(&[&[
         gate(OPID_X, 0, 0),
-        binary(OP_UDIV, FLAG_SRC0_IMM, 1, 5, 0),
+        binary(OP_ADD, FLAG_SRC1_IMM, 0, 0, 1),
+        binary(OP_SUB, FLAG_SRC1_IMM, 1, 0, 1),
+        binary(OP_UDIV, FLAG_SRC0_IMM, 2, 5, 1),
         ret(),
     ]]));
     let whole = QirMachine::new(&traps);
@@ -842,9 +832,15 @@ fn a_context_split_by_one_machine_runs_on_under_a_machine_of_whole_batches() {
     assert!(matches!(stop, QirStop::Split([_])), "{stop:?}");
     assert_eq!(
         whole.resume(&mut context, &[]),
-        Err(QirTrap::DivisionByZero { instruction: 1 }),
-        "the held trap"
+        Err(QirTrap::DivisionByZero { instruction: 3 })
     );
+}
+
+/// An `x`, another and a measurement, split at 1 up to the first split,
+/// then resumed by a machine of whole batches of the same program: the
+/// batch's other calls come whole, and its outcome ends the shot.
+#[test]
+fn a_context_split_by_one_machine_runs_on_under_a_machine_of_whole_batches() {
     let bytecode = program(&[&[
         gate(OPID_X, 0, 0),
         gate(OPID_X, 1, 0),

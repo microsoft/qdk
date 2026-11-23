@@ -76,7 +76,11 @@ criterion_main!(benches);
 
 /// Times `bytecode`, named `name` in `group`, by each runtime, once they
 /// agree on it ([`assert_same_work`]).
-fn measure(group: &mut BenchmarkGroup<WallTime>, name: &str, bytecode: &AdaptiveProgram<u64>) {
+fn time_against_run_shot(
+    group: &mut BenchmarkGroup<WallTime>,
+    name: &str,
+    bytecode: &AdaptiveProgram<u64>,
+) {
     let program = QirProgram::new(workload::copy_of(bytecode))
         .unwrap_or_else(|faults| panic!("{name}: {faults}"));
     assert_same_work(name, bytecode, &program);
@@ -91,7 +95,7 @@ fn measure(group: &mut BenchmarkGroup<WallTime>, name: &str, bytecode: &Adaptive
 /// gives every result, as the machine gives them, from the simulator.
 fn assert_same_work(name: &str, bytecode: &AdaptiveProgram<u64>, program: &QirProgram) {
     let (machine_calls, machine_records) = timing::machine_shot(program);
-    let mut simulator = LoggingSimulator::new(bytecode.num_results as usize);
+    let mut simulator = LoggingSimulator::with_results(bytecode.num_results as usize);
     let mut records = run_shot(bytecode, &mut simulator);
     if !workload::records_output(bytecode) {
         records = simulator.results().map(OutputRecord::Result).collect();

@@ -16,12 +16,12 @@ use crate::encoding::{
     FLAG_AUX1_IMM, FLAG_AUX2_IMM, FLAG_SRC0_IMM, OP_QUANTUM_GATE, OPID_CX, OPID_H, OPID_RZ, OPID_X,
 };
 use crate::workload::{op, program, ret, set};
-use crate::{UNITS, measure};
+use crate::{UNITS, time_against_run_shot};
 
 pub(crate) fn bench(c: &mut Criterion) {
     let mut group = c.benchmark_group("quantum_calls");
-    measure(&mut group, "prebuilt", &prebuilt());
-    measure(&mut group, "from_registers", &from_registers());
+    time_against_run_shot(&mut group, "prebuilt", &prebuilt());
+    time_against_run_shot(&mut group, "from_registers", &from_registers());
     group.finish();
 }
 

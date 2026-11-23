@@ -29,14 +29,9 @@
 //! wherever it likes (a simulator, a device, a debugger)
 //! and resumes the context with the outcomes ([`QirOutcome`]).
 //!
-//! A batch is handed over whole ([`WholeBatches`], the default), or, for a
-//! resumer that streams the calls to its target, in pieces of at most `n`
-//! calls ([`SplitBatches`]): each piece but the last is a
-//! [`QirStop::Split`], resumed with no outcomes, and the batch's outcomes
-//! are asked once, at its end, as for a whole batch. The resumer chooses
-//! once, when it takes the machine ([`with_split`](QirMachine::with_split)),
-//! so a resumer of whole batches has no arm for a split
-//! (`machine/batch_split.rs`).
+//! A batch is handed over whole ([`WholeBatches`], the default) or in
+//! pieces ([`SplitBatches`]), as its resumer chooses once
+//! ([`with_split`](QirMachine::with_split)).
 //!
 //! The machine knows no resumer and calls nothing: a resumer drives it,
 //! resuming each context once it has the outcomes. So a resumer may hold
@@ -119,15 +114,14 @@ use walk::Stop;
 ///   of the batch writes (`READ_RESULT`, `READ_LOSS`, the record of a
 ///   result, `WRITE_RESULT`), and before a call that writes a result a call
 ///   of the batch already writes, so that a result names one call of a
-///   batch:
-///   readout noise on a result its batch writes ends the batch before it;
-///   it stops there even when that write or call would trap, since a valid
-///   one would end the batch there too: the trap comes on the next resume,
-///   once the batch has run, as `run_shot` measures before it panics; any
-///   other trap ends the batch's walk: under [`WholeBatches`] it comes at
-///   once, no call of the batch yielded, and under [`SplitBatches`] the
-///   calls walked since the last stop, if any, come first, as a split, and
-///   the trap on the next resume;
+///   batch: readout noise on a result its batch writes ends the batch
+///   before it;
+/// - it stops there even when that instruction or call would trap, since
+///   a valid one would end the batch there too: the trap comes on the next
+///   resume, once the batch has run, as `run_shot` measures before it
+///   panics;
+/// - any other trap ends the batch's walk, as the split choice says
+///   ([`WholeBatches`], [`SplitBatches`]);
 /// - a read of a result whose outcome it already has does not stop it;
 /// - at the program's return, while its batch holds calls, it yields the
 ///   batch, and ends on the next resume;
@@ -163,15 +157,15 @@ use walk::Stop;
 /// cap the instructions a context runs, nor the quantum calls a batch holds:
 /// [`SplitBatches`] caps those a context holds at once. A loop that makes
 /// no quantum call, or that stops each round (reading a result its batch
-/// writes, say), runs forever if it never ends; a loop of quantum
-/// calls that never ends its batch adds each call to one batch, which,
-/// handed over whole, grows until memory runs out, and, split, comes in
-/// pieces without end.
-/// Nor does it cap a context's memory or the function calls under way: an
-/// `ALLOCA` of a huge number of words grows the memory by that many, and an
-/// allocation too large panics or aborts the process. An end past the last
-/// address panics ("capacity overflow"). A recursion without end grows the
-/// function calls under way, and the registers they save, without end.
+/// writes, say), runs forever if it never ends; a loop of quantum calls
+/// that never ends its batch adds each call to one batch, which, handed
+/// over whole, grows until memory runs out, and, split, comes in pieces
+/// without end. Nor does it cap a context's memory or the function calls
+/// under way: an `ALLOCA` of a huge number of words grows the memory by
+/// that many, and an allocation too large panics or aborts the process. An
+/// end past the last address panics ("capacity overflow"). A recursion
+/// without end grows the function calls under way, and the registers they
+/// save, without end.
 ///
 /// Where these behaviours differ from the bytecode runtime's `run_shot`, the
 /// test that pins them says why (`COMPATIBILITY NOTE`).
@@ -206,10 +200,8 @@ pub enum QirStop<'c, S: QirBatchSplit = WholeBatches> {
     /// ([`QirCall::result`]), by that result, its splits' calls included.
     Batch(&'c [QirCall]),
     /// The batch's next piece: its next quantum calls, in order, up to
-    /// where the batch is cut. The batch goes on, so the next resume takes
-    /// no outcomes, and the calls after them come at the next stop. Or,
-    /// where the walk trapped, the calls walked since the last stop, and
-    /// the next resume gives the trap.
+    /// where the batch is cut, or up to where its walk trapped
+    /// ([`SplitBatches`]). The next resume takes no outcomes.
     Split(S::Split<&'c [QirCall]>),
     /// The program returned: the context's records. When the program
     /// records nothing (no `RECORD_OUTPUT`), they are every result, in the
@@ -327,16 +319,13 @@ impl<'p, S: QirBatchSplit> QirMachine<'p, S> {
     /// correlated noise past the program's or naming no register of it, a use
     /// of a result with no value ([`QirTrap`]). An instruction or call that
     /// would trap, where the context stops before it, traps on the next resume,
-    /// after its batch is yielded. Any other trap ends the batch's walk:
-    /// under [`WholeBatches`] it comes at once, and no call of the batch is
-    /// yielded; under [`SplitBatches`], the calls walked since the last stop,
-    /// if any, come first, as a [`QirStop::Split`], and the trap on the next
-    /// resume, which, as after any split, takes no outcomes (one given is
-    /// [`QirTrap::UnexpectedOutcome`], the resumer's fault, reported before
-    /// the program's). An `ALLOCA` of a huge number of words or a
-    /// recursion without end is no trap: the machine caps neither memory nor
-    /// function calls (see [`QirMachine`]). A context that traps is not to be
-    /// resumed again: what a later resume does is unspecified;
+    /// after its batch is yielded. Any other trap ends the batch's walk, as
+    /// the split choice says ([`WholeBatches`], [`SplitBatches`]); a resume
+    /// that gives a trap held by a split takes no outcomes, and one given is
+    /// reported first ([`QirTrap::UnexpectedOutcome`]). An `ALLOCA` of a
+    /// huge number of words or a recursion without end is no trap (see
+    /// [`QirMachine`]). A context that traps is not to be resumed again:
+    /// what a later resume does is unspecified;
     /// [`restart_shot`](Self::restart_shot) reuses it.
     pub fn resume<'c>(
         &self,

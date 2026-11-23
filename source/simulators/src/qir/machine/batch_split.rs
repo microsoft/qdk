@@ -1,20 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Whether a [`QirMachine`] hands a batch over whole or split
-//! ([`QirBatchSplit`]): a choice its resumer makes once, when it takes the
-//! machine ([`QirMachine::with_split`]).
-//!
-//! A batch ends only where a shot needs one of its outcomes, or writes
-//! again a result the batch writes, so a program that reads no result until
-//! its end, and writes each result once, is one batch, which grows with the
-//! program: an unrolled Trotter evolution is one long line of gates. A
-//! resumer that streams the calls to its target (one that runs a batch's
-//! first calls while the machine walks the rest, or whose queue is bounded)
-//! takes such a batch in pieces of at most `n` calls ([`SplitBatches`]),
-//! and the context then holds no more than `n` calls at once. Every other
-//! resumer takes whole batches ([`WholeBatches`], the default), and its
-//! `match` on the stops has no arm for a split, which never comes.
+//! Whether a [`QirMachine`] hands a batch over whole or in pieces
+//! ([`QirBatchSplit`]), chosen once by its resumer
+//! ([`QirMachine::with_split`]). Why a batch may need splitting:
+//! `design.md`, "A batch whole or in pieces".
 //!
 //! The choice is a type parameter, not a field read as the walk runs, so
 //! that the walk is compiled once per choice: under [`WholeBatches`] it
@@ -35,8 +25,7 @@ use std::fmt::Debug;
 /// choice.
 pub trait QirBatchSplit: Copy + Debug + sealed::Sealed {
     /// What a [`QirStop::Split`] holds: `T`, the calls of a piece, where
-    /// a batch is split; a type with no value where none is, so that
-    /// a `match` on the stops needs no arm for it.
+    /// a batch is split; a type with no value where none is.
     type Split<T>;
 }
 

@@ -8,12 +8,12 @@
 use criterion::Criterion;
 
 use crate::workload::{counting_loop, program};
-use crate::{UNITS, measure};
+use crate::{UNITS, time_against_run_shot};
 
 pub(crate) fn bench(c: &mut Criterion) {
     let mut group = c.benchmark_group("classical_instructions");
     let [entry, turn, exit] = counting_loop(&[], UNITS / 3, None);
-    measure(
+    time_against_run_shot(
         &mut group,
         "add_compare_branch",
         &program(&[&entry, &turn, &exit]),

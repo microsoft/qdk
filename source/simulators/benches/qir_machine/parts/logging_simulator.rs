@@ -21,7 +21,7 @@ pub(crate) struct LoggingSimulator {
 impl LoggingSimulator {
     /// A simulator that has logged no calls, on `results` results, each
     /// `Zero`.
-    pub(crate) fn new(results: usize) -> Self {
+    pub(crate) fn with_results(results: usize) -> Self {
         Simulator::new(0, results, 0, ())
     }
 

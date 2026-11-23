@@ -13,7 +13,7 @@ use qdk_simulators::bytecode::{Function, Instruction};
 
 use crate::encoding::{OP_CALL, OP_CALL_RETURN};
 use crate::workload::{counting_loop, op, program};
-use crate::{UNITS, measure};
+use crate::{UNITS, time_against_run_shot};
 
 pub(crate) fn bench(c: &mut Criterion) {
     let mut group = c.benchmark_group("function_calls");
@@ -36,6 +36,6 @@ pub(crate) fn bench(c: &mut Criterion) {
     let mut bytecode = program(&[&entry, &turn, &exit, &[returns]]);
     // Function 0: its entry block 3, one parameter, in register 3.
     bytecode.function_table = vec![Function::from_tuple((3, 1, 3))];
-    measure(&mut group, "call_return", &bytecode);
+    time_against_run_shot(&mut group, "call_return", &bytecode);
     group.finish();
 }

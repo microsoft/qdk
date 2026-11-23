@@ -107,30 +107,29 @@ again a result the batch writes, so a program that reads none until its
 end, and writes each result once, is one batch, which grows with the
 program: a Trotter evolution whose loop the compiler unrolls is one long
 line of gates, and a loop of gates that reads nothing adds every round
-to the batch. A resumer that streams the
-calls to its target needs them sooner: a target with a bounded queue is
-never sent more than it holds, and a target runs a long batch's first
-part while the machine walks the rest. Only the machine can bound what a
-context holds; a resumer can split further what it receives on its own.
+to the batch. A resumer that streams the calls to its target needs them
+sooner: a target with a bounded queue is never sent more than it holds,
+and a target runs a long batch's first part while the machine walks the
+rest. Only the machine can bound what a context holds; a resumer can
+split further what it receives on its own.
 
-So the machine hands a batch over whole ([`WholeBatches`](machine/batch_split/whole_batches.rs),
-the default), or in pieces of at most `n` calls
-([`SplitBatches`](machine/batch_split/split_batches.rs)): each piece but
-the last is a `QirStop::Split`, the last a `QirStop::Batch`, and the
-pieces of a batch that ends, in order, are the batch: the same calls in
-the same order, its outcomes asked once, at its end. A batch is cut
-inside a run of prebuilt calls too, since one run can hold thousands of
-calls (an unrolled Trotter step).
+So the machine hands a batch over whole
+([`WholeBatches`](machine/batch_split/whole_batches.rs), the default) or
+in pieces of at most `n` calls
+([`SplitBatches`](machine/batch_split/split_batches.rs), whose doc
+states what the pieces keep). A batch is cut inside a run of prebuilt
+calls too, since one run can hold thousands of calls (an unrolled
+Trotter step).
 
 A batch whose walk traps has no end, and the two choices differ there.
-Whole, none of its calls is handed over: none was sent yet, so no call of
-the failed shot's last batch runs. Split, every call walked before the trap is
-handed over, the last ones as a `QirStop::Split`, and the next resume
-gives the trap: a resumer that streams may have sent the batch's first
-pieces already, so it is given the rest too, and its target has received
-every call the shot made before it failed, as a device that runs calls as
-they come would have run them, rather than a stream cut at a piece's
-edge.
+Whole, none of its calls is handed over: none was sent yet, so no call
+of the failed shot's last batch runs. Split, every call walked before
+the trap is handed over, the last ones as a `QirStop::Split`, and the
+next resume gives the trap: a resumer that streams may have sent the
+batch's first pieces already, so it is given the rest too, and its
+target has received every call the shot made before it failed, as a
+device that runs calls as they come would have run them, rather than a
+stream cut at a piece's edge.
 
 The resumer chooses once, when it takes the machine (`with_split`), and
 the choice is a type parameter of the machine and of its stops:
@@ -143,11 +142,10 @@ the choice is a type parameter of the machine and of its stops:
 | A field of the machine read at run time, and one stop type | no generics                                                                                                           | every resumer matches a variant it never gets; a branch per quantum call on the default path                              |
 | An argument of `resume`                                    | explicit at each call                                                                                                 | the choice can change in the middle of a batch, which no case needs                                                       |
 
-Under `WholeBatches`, `Split` holds a type with no value, so a resumer's
-`match` has no arm for it, and the walk is compiled with no count of
-calls, so on the default path the walk pays nothing for the choice; a
-resume checks once for a trap held by a split, and a context holds room
-for one.
+Under `WholeBatches`, the walk is compiled with no count of calls, so
+on the default path the walk pays nothing for the choice; a resume
+checks once for a trap held by a split, and a context holds room for
+one.
 
 Planned, each kept out until a case needs it:
 

@@ -11,7 +11,7 @@ use qdk_simulators::bytecode::Instruction;
 
 use crate::encoding::{FLAG_SRC0_IMM, OP_READ_RESULT};
 use crate::workload::{counting_loop, measure_z, op, program};
-use crate::{UNITS, measure};
+use crate::{UNITS, time_against_run_shot};
 
 pub(crate) fn bench(c: &mut Criterion) {
     let mut group = c.benchmark_group("read_rounds");
@@ -21,7 +21,7 @@ pub(crate) fn bench(c: &mut Criterion) {
         ..op(OP_READ_RESULT, FLAG_SRC0_IMM)
     };
     let [entry, round, exit] = counting_loop(&[measure_z(0, 0), read], UNITS, None);
-    measure(
+    time_against_run_shot(
         &mut group,
         "measure_read_branch",
         &program(&[&entry, &round, &exit]),
