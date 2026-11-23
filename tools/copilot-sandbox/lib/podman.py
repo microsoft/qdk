@@ -155,6 +155,8 @@ def setup_machine(shared: list[Path]) -> None:
     else:
         command = ["podman", "machine", "init", "--rootful=false"]
         if sys.platform == "darwin":
+            # Podman's 2 GiB default is too little to build the QDK image; WSL sizes its own memory.
+            command += ["--memory", "8192"]
             # Only these folders are visible inside the VM, which limits what a container escape reaches.
             for path in dict.fromkeys(shared):
                 if "," in str(path) or ":" in str(path):

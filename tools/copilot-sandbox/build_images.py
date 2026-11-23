@@ -313,7 +313,8 @@ def build_images(args: argparse.Namespace) -> None:
     build_id = args.tag if args.registry_name else "local-" + uuid.uuid4().hex
     with tempfile.TemporaryDirectory(prefix="qdk-sandbox-") as temporary:
         root = Path(temporary)
-        source = root / "qdk"
+        # Remote Podman makes the context root 0700, so the Dockerfile mounts this subdirectory.
+        source = root / "qdk-context" / "qdk"
         commit = snapshot_repo(repo, source)
         for target in args.target:
             context = root / target
@@ -337,7 +338,14 @@ def build_images(args: argparse.Namespace) -> None:
                     ["--pull"]
                     # Podman's default OCI format silently drops SHELL, losing bash pipefail.
                     if args.engine == "docker"
-                    else ["--pull=always", "--format", "docker"]
+                    else [
+                        "--pull=always",
+                        "--format",
+                        "docker",
+                        # SELinux in the macOS machine blocks RUN steps from reading the uploaded qdk context.
+                        "--security-opt",
+                        "label=disable",
+                    ]
                 ),
                 "--no-cache",
                 "--platform",
@@ -355,7 +363,7 @@ def build_images(args: argparse.Namespace) -> None:
                 arguments.extend(
                     [
                         "--build-context",
-                        "qdk=" + str(source),
+                        "qdk=" + str(source.parent),
                         "--build-arg",
                         "PACKAGE_SOURCE=" + args.package_source,
                         "--build-arg",

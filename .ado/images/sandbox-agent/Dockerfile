@@ -39,14 +39,14 @@ ENV MSRUSTUP_HOME=/opt/msrustup \
     PYRIGHT_PYTHON_CACHE_DIR=/opt/pyright \
     QDK_BUILD_ARGS=${QDK_BUILD_ARGS} \
     PATH=/opt/qdk-venv/bin:/opt/msrustup/multiplexers/bin:/opt/msrustup/bin:/opt/rustup/bin:/usr/local/bin:/usr/bin:/bin
-RUN --mount=type=bind,from=qdk,source=.ado/images/install-msrustup.sh,target=/opt/sandbox/install-msrustup.sh,readonly \
+RUN --mount=type=bind,from=qdk,source=qdk/.ado/images/install-msrustup.sh,target=/opt/sandbox/install-msrustup.sh,readonly \
     --mount=type=secret,id=msrustup_access_token \
     --mount=type=tmpfs,target=/tmp \
     bash /opt/sandbox/scripts/install_rust.sh
 
 # Set up feeds, install the Copilot CLI, and build the QDK (by default, not the whole repo)
 FROM tools AS prepared
-RUN --mount=type=bind,from=qdk,target=/qdk,readonly \
+RUN --mount=type=bind,from=qdk,source=qdk,target=/qdk,readonly \
     --mount=type=secret,id=npmrc \
     --mount=type=secret,id=pip_index_url \
     --mount=type=secret,id=cargo_token \
@@ -89,7 +89,7 @@ WORKDIR /work
 
 # Make sure the QDK still builds locked down
 FROM runtime-base AS verify
-RUN --network=none --mount=type=bind,from=qdk,target=/qdk,readonly \
+RUN --network=none --mount=type=bind,from=qdk,source=qdk,target=/qdk,readonly \
     bash -c 'source /opt/sandbox/runtime/entrypoint.sh; verify_policy' \
     && /opt/qdk-venv/bin/qir-runner --version \
     && bash /opt/sandbox/scripts/build_qdk.sh \
