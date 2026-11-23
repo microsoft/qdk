@@ -39,8 +39,9 @@ pub(crate) fn per(seconds: f64, items: usize) -> f64 {
 /// spread, times the batch, would look like a cost per call.
 pub(crate) const PER_CALL_UP_TO: usize = 100;
 
-/// `time`, a difference of times over `calls` calls of `batch`
-/// instructions, per call, or "—" for a batch beyond [`PER_CALL_UP_TO`].
+/// `time`, a difference of two whole runs' times, spread over the `calls`
+/// calls of `batch` instructions of one, or "—" for a batch beyond
+/// [`PER_CALL_UP_TO`].
 pub(crate) fn per_call(time: f64, calls: usize, batch: usize) -> String {
     if batch <= PER_CALL_UP_TO {
         format!("({:>7.1} ns)", per(time, calls))

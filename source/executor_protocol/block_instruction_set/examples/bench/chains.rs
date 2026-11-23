@@ -3,7 +3,11 @@
 
 //! One driver on four chains, batches of 1 to 10 000 instructions, over
 //! an executor whose `execute` is an `async fn`, as users write it: a
-//! chain's cost over direct is the protocol's own.
+//! chain's cost over direct is the protocol's own. Each run is timed
+//! whole, from building its parts through composing and readying them to
+//! its last batch, so a chain's cost per `execute` is the whole run's
+//! difference from direct, the chain's setup included, spread over its
+//! `execute` calls.
 
 use std::hint::black_box;
 
@@ -20,11 +24,11 @@ use crate::timing::{PER_CALL_UP_TO, best, per, per_call};
 use crate::workload::QUBITS;
 
 /// Each chain, per batch size, in ns per instruction and, beside each
-/// chain, its cost per `execute` over the direct call, at batches of at
-/// most [`PER_CALL_UP_TO`] instructions.
+/// chain, its whole run's cost over direct per `execute`, at batches of
+/// at most [`PER_CALL_UP_TO`] instructions.
 pub(crate) fn bench(size: &Size, program: &[BlockInstruction], checked: bool) {
     println!(
-        "\nchains: one driver on four chains, ns/instr (overhead per call vs direct, batch ≤ {PER_CALL_UP_TO})"
+        "\nchains: one driver on four chains, ns/instr (whole run vs direct, per call, batch ≤ {PER_CALL_UP_TO})"
     );
     println!(
         "  ≫P = Driver ≫ Executor(profiler); ≫F≫P with an adapter that forwards; ≫F≫F≫P with two"

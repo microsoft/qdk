@@ -7,7 +7,8 @@
 //!
 //! - `chains`: one driver on four chains, batches of 1 to 10 000
 //!   instructions, over an executor whose `execute` is an `async fn`, as
-//!   users write it. A chain's cost over direct is the protocol's own;
+//!   users write it. A chain's cost over direct is the protocol's own,
+//!   a whole run's, spread over its `execute` calls;
 //! - `checks`: a batch's checks, whether a boundary without them costs
 //!   anything per instruction, building an instruction by name, and the
 //!   count of a batch's instructions against a most provided;
