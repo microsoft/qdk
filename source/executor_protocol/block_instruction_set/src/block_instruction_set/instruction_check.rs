@@ -149,7 +149,7 @@ impl InstructionCheck {
     /// or of another kind, a readout parity counting back 0 or not
     /// required, a select of no patterns, or a flag pattern over flags it
     /// lacks.
-    pub(crate) fn run(
+    pub(crate) fn apply(
         &self,
         def: &InstructionDef,
         instruction: &BlockInstruction,

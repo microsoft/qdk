@@ -142,7 +142,7 @@ impl BlockInstructionSet {
         else {
             return Err(InstructionFault::UnknownOpcode(instruction.opcode));
         };
-        check.run(def, instruction, required)?;
+        check.apply(def, instruction, required)?;
         Ok(check.readout_slots())
     }
 }
