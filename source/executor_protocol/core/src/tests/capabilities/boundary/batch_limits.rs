@@ -14,10 +14,11 @@ use crate::tests::example_sets::BitReadout;
 use crate::tests::example_sets::{
     Gate, Measuring, OnQubit, QubitBeyond, QubitLimited, UnknownGate, Wide, on_qubits,
 };
+use crate::tests::fake_parts::Zeros;
+use crate::tests::runner;
 use crate::{
-    Batch, BatchFault, BatchReadouts, Binding, Capabilities, DriveError, ExecuteError,
-    ExecuteRefusal, Failure, InstructionSet, Readouts, Resources, RunError, RunRequirement, Seed,
-    ShotId, ShotSet,
+    Batch, BatchFault, Binding, Capabilities, DriveError, ExecuteRefusal, Failure, InstructionSet,
+    Readouts, Resources, RunError, RunRequirement, Seed, ShotId, ShotSet,
 };
 
 /// How a sender marks a new batch before it sends it.
@@ -72,41 +73,6 @@ impl<S: InstructionSet> Driver for Literal<S> {
     }
 }
 
-/// An executor of `accepts` answering `Zero` for every readout, whatever
-/// the batch.
-struct Zeros<S: InstructionSet> {
-    accepts: S,
-    provides: Capabilities<S>,
-}
-
-impl<S: InstructionSet<Readout = BitReadout>> ExecutorLimits for Zeros<S> {
-    fn provides(&self) -> &Capabilities<S> {
-        &self.provides
-    }
-}
-
-impl<S: InstructionSet<Readout = BitReadout>> Executor for Zeros<S> {
-    type Accepts = S;
-
-    fn accepts(&self) -> &S {
-        &self.accepts
-    }
-
-    async fn execute(
-        &mut self,
-        _batches: &[Batch<'_, S>],
-        _seed: Seed,
-        readouts: &mut [BatchReadouts<S>],
-    ) -> Result<(), ExecuteError> {
-        for batch_readouts in readouts {
-            for position in 0..batch_readouts.shots() {
-                batch_readouts.row_mut(position).fill(BitReadout::Zero);
-            }
-        }
-        Ok(())
-    }
-}
-
 /// The run of shots 0 and 1 of `driver` over an executor of its set
 /// providing `provided`: the readout slots of the readouts it filled, or
 /// the refusal of its batch.
@@ -114,13 +80,8 @@ fn run<S: InstructionSet<Readout = BitReadout>>(
     driver: Literal<S>,
     provided: Capabilities<S>,
 ) -> Result<u32, ExecuteRefusal> {
-    let executor = Zeros {
-        accepts: driver.sends.clone(),
-        provides: provided,
-    };
-    let Ok(mut runner) = driver.stating_limits().on(executor.stating_limits()) else {
-        panic!("the chain composes");
-    };
+    let executor = Zeros::providing(driver.sends.clone(), provided);
+    let mut runner = runner(driver.stating_limits().on(executor));
     match runner.run(&ShotSet::ids(0..2), 7) {
         Ok(slots) => Ok(slots[0]),
         Err(RunError::Failed(DriveError {

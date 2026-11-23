@@ -15,8 +15,8 @@ use crate::prelude::*;
 use crate::tests::example_sets::Measuring;
 use crate::tests::example_sets::{BitReadout, ShotFlags};
 use crate::{
-    Batch, BatchReadouts, Capabilities, ExecuteError, Features, NotReady, Resources, Seed, ShotId,
-    ShotSet, StatesLimits,
+    Batch, BatchReadouts, Capabilities, ExecuteError, Features, InstructionSet, NotReady,
+    Resources, Seed, ShotId, ShotSet, StatesLimits,
 };
 
 /// A toy executor on classical bits, as many as its instructions name:
@@ -177,6 +177,61 @@ impl Executor for Bits {
         self.log
             .push(format!("Bits end_shots, holding {}", self.shots.len()));
         assert!(!self.panics_ending, "end_shots broke");
+    }
+}
+
+/// An executor of `accepts` writing `Zero` in every slot of every row,
+/// whatever the batch, and allocating nothing. It provides the set's
+/// unconstrained capabilities, unless made by
+/// [`providing`](Self::providing).
+pub(crate) struct Zeros<S: InstructionSet> {
+    accepts: S,
+    provides: Option<Capabilities<S>>,
+}
+
+impl<S: InstructionSet<Readout = BitReadout>> Zeros<S> {
+    pub(crate) fn new(accepts: S) -> Self {
+        Self {
+            accepts,
+            provides: None,
+        }
+    }
+
+    /// An executor of `accepts` stating that it provides `provides`.
+    pub(crate) fn providing(accepts: S, provides: Capabilities<S>) -> StatesLimits<Self> {
+        Self {
+            accepts,
+            provides: Some(provides),
+        }
+        .stating_limits()
+    }
+}
+
+impl<S: InstructionSet<Readout = BitReadout>> ExecutorLimits for Zeros<S> {
+    fn provides(&self) -> &Capabilities<S> {
+        self.provides.as_ref().unwrap_or(S::unconstrained())
+    }
+}
+
+impl<S: InstructionSet<Readout = BitReadout>> Executor for Zeros<S> {
+    type Accepts = S;
+
+    fn accepts(&self) -> &S {
+        &self.accepts
+    }
+
+    async fn execute(
+        &mut self,
+        _batches: &[Batch<'_, S>],
+        _seed: Seed,
+        readouts: &mut [BatchReadouts<S>],
+    ) -> Result<(), ExecuteError> {
+        for batch_readouts in readouts {
+            for position in 0..batch_readouts.shots() {
+                batch_readouts.row_mut(position).fill(BitReadout::Zero);
+            }
+        }
+        Ok(())
     }
 }
 

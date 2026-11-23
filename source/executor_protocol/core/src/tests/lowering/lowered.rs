@@ -8,25 +8,22 @@
 
 use std::any::type_name;
 use std::cell::Cell;
-use std::future::poll_fn;
-use std::pin::pin;
 use std::rc::Rc;
-use std::task::Poll;
 
 use crate::prelude::*;
-use crate::tests::allocations;
 use crate::tests::example_sets::{BitReadout, NoCapabilities, ShotFlags, Wide};
 use crate::tests::example_sets::{
     CliffordT, QubitBeyond, Qubits, ToffoliGate, TooFewQubits, WithToffoli, WithoutToffoli,
 };
 use crate::tests::fake_parts::{
-    CliffordTPassThrough, CliffordTRegister, Log, ReadThrice, ToffoliFree, ToffoliProgram,
-    UsesUnstatedQubits, in_each_bracketing,
+    CliffordTPassThrough, CliffordTRegister, Log, ReadThrice, RoundsIntoItsReadouts, ToffoliFree,
+    ToffoliProgram, Zeros, in_each_bracketing,
 };
+use crate::tests::runner;
 use crate::{
-    Batch, BatchFault, BatchReadouts, Capabilities, CompositionFaults, DriveError, ExecuteError,
-    ExecuteRefusal, Failure, Lowered, PartId, Readouts, ResourceMismatch, RunError, RunRefusal,
-    RunRequirement, Runner, Seed, ShotId, ShotSet, StatesLimits,
+    Batch, BatchFault, Capabilities, CompositionFaults, DriveError, ExecuteRefusal, Failure,
+    Lowered, PartId, Readouts, ResourceMismatch, RunError, RunRefusal, RunRequirement, Runner,
+    Seed, ShotId, ShotSet, StatesLimits,
 };
 
 use BitReadout::{One, Zero};
@@ -42,12 +39,11 @@ fn run<L: Lowering<From = WithToffoli, To = WithoutToffoli> + 'static>(
     shots: &ShotSet,
 ) -> (Vec<(Vec<BitReadout>, ShotFlags)>, Log) {
     let log = Log::default();
-    let Ok(mut runner) = program
-        .through(Lowered::new(lowering))
-        .on(CliffordTRegister::new(3, reading, &log))
-    else {
-        panic!("the chain composes");
-    };
+    let mut runner = runner(
+        program
+            .through(Lowered::new(lowering))
+            .on(CliffordTRegister::new(3, reading, &log)),
+    );
     let outputs = runner.run(shots, 7).expect("a run");
     (outputs, log)
 }
@@ -59,9 +55,7 @@ fn received<D: Driver, E: Executor<Accepts = D::Sends>>(
     shots: &ShotSet,
     log: &Log,
 ) -> Vec<String> {
-    let Ok(mut runner) = composed else {
-        panic!("the chain composes");
-    };
+    let mut runner = runner(composed);
     runner.run(shots, 7).expect("a run");
     log.entries()
 }
@@ -135,7 +129,7 @@ fn a_lowering_reads_each_instructions_readouts() {
     assert_eq!(copied.0[0].0, [One, Zero], "copied");
     let majority = run(
         ToffoliProgram::new(&[Mz(0), H(1), Mz(1)], 3),
-        ReadThrice,
+        ReadThrice::new(),
         &[Zero, One, One, One, Zero, Zero],
         &ShotSet::ids([0]),
     );
@@ -147,17 +141,16 @@ fn a_lowering_reads_each_instructions_readouts() {
     ];
     let second_round = [(vec![Mz(2)], vec![0, 1, 2, 3])];
     let log = Log::default();
-    let Ok(mut runner) = ToffoliBatches(vec![first_round.to_vec(), second_round.to_vec()])
-        .stating_limits()
-        .through(Lowered::new(ReadThrice))
-        .on(CliffordTRegister::with_readings(
-            3,
-            &[&[One, One, Zero, Zero, Zero, One], &[Zero, Zero, One]],
-            &log,
-        ))
-    else {
-        panic!("the chain composes");
-    };
+    let mut runner = runner(
+        ToffoliBatches(vec![first_round.to_vec(), second_round.to_vec()])
+            .stating_limits()
+            .through(Lowered::new(ReadThrice::new()))
+            .on(CliffordTRegister::with_readings(
+                3,
+                &[&[One, One, Zero, Zero, Zero, One], &[Zero, Zero, One]],
+                &log,
+            )),
+    );
     let outputs = runner.run(&ShotSet::ids(0..4), 7).expect("a run");
     assert_eq!(
         outputs,
@@ -257,7 +250,7 @@ impl Driver for ToffoliBatches {
 fn each_shot_keeps_its_conditions_once_lowered() {
     let (outputs, _) = run(
         ToffoliProgram::new(&[Mz(0)], 3),
-        ReadThrice,
+        ReadThrice::new(),
         &[One; 3],
         &ShotSet::ids([4, 7, 2]),
     );
@@ -277,7 +270,7 @@ fn a_lowered_batch_is_checked_as_the_batch_it_lowers() {
     for checked in [true, false] {
         let (outputs, log) = run(
             ToffoliProgram::new(&[H(0), Mz(0)], 3).checked_if(checked),
-            ReadThrice,
+            ReadThrice::new(),
             &[One; 3],
             &ShotSet::ids([0]),
         );
@@ -290,18 +283,28 @@ fn a_lowered_batch_is_checked_as_the_batch_it_lowers() {
     }
 }
 
-/// A lowering requires below what it states, given what arrives, which is
-/// fit at `on` against the executor, a fault naming the part that first
-/// required the value: a decomposition using 2 ancillas on a program of 3
-/// qubits requires 5, so a register of 4 is refused, naming the
-/// lowering's adapter, with the set's own mismatch; a batch of one
-/// instruction, whose `ccz` is lowered as 13, requires 13 a batch, so a
-/// register taking 12 is refused, naming the lowering's adapter; a
+/// Which part a fault at `on` names, and as what.
+enum Named<'p> {
+    Requirer(&'p PartId),
+    Provider(&'p PartId),
+}
+
+/// A lowering states what it requires below, given what arrives, and
+/// limits what arrives from above, as an adapter does, both fit at `on`
+/// against its neighbours, with the set's own mismatch where qubits fall
+/// short. Below, a fault names the part that first required the value: a
+/// decomposition using 2 ancillas on a program of 3 qubits requires 5, so
+/// a register of 4 is refused, naming the lowering's adapter; a batch of
+/// one instruction, whose `ccz` is lowered as 13, requires 13 a batch, so
+/// a register taking 12 is refused, naming the lowering's adapter; a
 /// decomposition using no ancilla passes the program's 3 qubits below
-/// unchanged, so a register of 2 is refused naming the program. A
-/// register of 5 qubits, taking 13 instructions a batch, runs each.
+/// unchanged, so a register of 2 is refused naming the program. Above, a
+/// program of 3 qubits through a lowering taking at most 2 is refused, the
+/// lowering's adapter named as the provider. A register of 5 qubits,
+/// taking 13 instructions a batch, runs each lowered `ccz`, and a lowering
+/// taking 3 qubits runs the program.
 #[test]
-fn what_a_lowering_requires_below_is_fit_at_on() {
+fn what_a_lowering_states_is_fit_at_on() {
     let program = || ToffoliProgram::new(&[Ccz(0, 1, 2)], 3);
     let lowering = PartId::new(1, type_name::<Lowered<ToffoliFree>>());
     let driver = PartId::new(0, type_name::<ToffoliProgram>());
@@ -309,9 +312,9 @@ fn what_a_lowering_requires_below_is_fit_at_on() {
     let cases = [
         (
             "2 ancillas, on 4 qubits",
-            2,
+            ToffoliFree::with_ancillas(2),
             CliffordTRegister::new(4, &[], &log),
-            &lowering,
+            Named::Requirer(&lowering),
             vec![],
             Some(TooFewQubits {
                 required: 5,
@@ -320,9 +323,9 @@ fn what_a_lowering_requires_below_is_fit_at_on() {
         ),
         (
             "a ccz lowered as 13, on 12 a batch",
-            2,
+            ToffoliFree::with_ancillas(2),
             CliffordTRegister::new(5, &[], &log).taking(12),
-            &lowering,
+            Named::Requirer(&lowering),
             vec![ResourceMismatch::InstructionsPerBatch {
                 required: 13,
                 provided: 12,
@@ -331,9 +334,20 @@ fn what_a_lowering_requires_below_is_fit_at_on() {
         ),
         (
             "no ancilla, on 2 qubits",
-            0,
+            ToffoliFree::with_ancillas(0),
             CliffordTRegister::new(2, &[], &log),
-            &driver,
+            Named::Requirer(&driver),
+            vec![],
+            Some(TooFewQubits {
+                required: 3,
+                provided: 2,
+            }),
+        ),
+        (
+            "3 qubits, through a lowering taking 2",
+            ToffoliFree::for_qubits(2),
+            CliffordTRegister::new(5, &[], &log),
+            Named::Provider(&lowering),
             vec![],
             Some(TooFewQubits {
                 required: 3,
@@ -341,16 +355,19 @@ fn what_a_lowering_requires_below_is_fit_at_on() {
             }),
         ),
     ];
-    for (case, ancillas, register, requirer, resources, set_capabilities) in cases {
+    for (case, lowered, register, named, resources, set_capabilities) in cases {
         let faults = program()
-            .through(Lowered::new(ToffoliFree::with_ancillas(ancillas)))
+            .through(Lowered::new(lowered))
             .on(register)
             .err()
             .unwrap_or_else(|| panic!("{case}: refused"));
         let [fault] = faults.faults() else {
             panic!("{case}: one fault: {faults}");
         };
-        assert_eq!(&fault.requirer, requirer, "{case}");
+        match named {
+            Named::Requirer(part) => assert_eq!(&fault.requirer, part, "{case}"),
+            Named::Provider(part) => assert_eq!(&fault.provider, part, "{case}"),
+        }
         let mismatch = &fault.mismatch.capabilities;
         assert_eq!(mismatch.resources, resources, "{case}");
         let set = mismatch.set_capabilities.as_ref();
@@ -360,50 +377,25 @@ fn what_a_lowering_requires_below_is_fit_at_on() {
             "{case}"
         );
     }
-    let Ok(mut runner) = program()
-        .through(Lowered::new(ToffoliFree::with_ancillas(2)))
-        .on(CliffordTRegister::new(5, &[], &log).taking(13))
-    else {
-        panic!("5 qubits of 5, 13 instructions a batch of 13, compose");
-    };
-    runner.run(&ShotSet::ids([0]), 7).expect("5 qubits of 5");
-}
-
-/// A lowering limits what arrives from above as an adapter does, fit at
-/// `on`: a program of 3 qubits through a lowering taking at most 2 is
-/// refused, the lowering's adapter named as the provider, with the set's
-/// own mismatch; through one taking 3, it runs.
-#[test]
-fn what_a_lowering_provides_is_fit_at_on() {
-    let program = || ToffoliProgram::new(&[Ccz(0, 1, 2)], 3);
-    let log = Log::default();
-    let faults = program()
-        .through(Lowered::new(ToffoliFree::for_qubits(2)))
-        .on(CliffordTRegister::new(5, &[], &log))
-        .err()
-        .expect("3 qubits are more than 2");
-    let [fault] = faults.faults() else {
-        panic!("one fault: {faults}");
-    };
-    assert_eq!(
-        fault.provider,
-        PartId::new(1, type_name::<Lowered<ToffoliFree>>())
-    );
-    let mismatch = fault.mismatch.capabilities.set_capabilities.as_ref();
-    assert_eq!(
-        mismatch.and_then(|mismatch| mismatch.downcast_ref()),
-        Some(&TooFewQubits {
-            required: 3,
-            provided: 2
-        })
-    );
-    let Ok(mut runner) = program()
-        .through(Lowered::new(ToffoliFree::for_qubits(3)))
-        .on(CliffordTRegister::new(5, &[], &log))
-    else {
-        panic!("3 qubits of 3 compose");
-    };
-    runner.run(&ShotSet::ids([0]), 7).expect("3 qubits of 3");
+    for (case, lowered, register) in [
+        (
+            "5 qubits of 5, 13 instructions a batch of 13",
+            ToffoliFree::with_ancillas(2),
+            CliffordTRegister::new(5, &[], &log).taking(13),
+        ),
+        (
+            "3 qubits of 3",
+            ToffoliFree::for_qubits(3),
+            CliffordTRegister::new(5, &[], &log),
+        ),
+    ] {
+        let Ok(mut runner) = program().through(Lowered::new(lowered)).on(register) else {
+            panic!("{case} compose");
+        };
+        runner
+            .run(&ShotSet::ids([0]), 7)
+            .unwrap_or_else(|error| panic!("{case}: {error:?}"));
+    }
 }
 
 /// A lowering gets ready on each run as an adapter does: one not ready,
@@ -412,12 +404,11 @@ fn what_a_lowering_provides_is_fit_at_on() {
 #[test]
 fn a_lowering_not_ready_refuses_the_run() {
     let log = Log::default();
-    let Ok(mut runner) = ToffoliProgram::new(&[Mz(0)], 3)
-        .through(Lowered::new(ToffoliFree::not_ready("calibrating")))
-        .on(CliffordTRegister::new(3, &[Zero], &log))
-    else {
-        panic!("the chain composes");
-    };
+    let mut runner = runner(
+        ToffoliProgram::new(&[Mz(0)], 3)
+            .through(Lowered::new(ToffoliFree::not_ready("calibrating")))
+            .on(CliffordTRegister::new(3, &[Zero], &log)),
+    );
     let Err(RunError::Refused(RunRefusal::PartNotReady { part, not_ready })) =
         runner.run(&ShotSet::ids([0]), 7)
     else {
@@ -426,7 +417,7 @@ fn a_lowering_not_ready_refuses_the_run() {
     assert_eq!(part, PartId::new(1, type_name::<Lowered<ToffoliFree>>()));
     assert_eq!(not_ready.why().to_string(), "calibrating");
     assert!(
-        log.entries().iter().all(|entry| !entry.starts_with("runs")),
+        log.entries_starting_with("runs").is_empty(),
         "{:?}",
         log.entries()
     );
@@ -444,16 +435,14 @@ fn a_lowering_not_ready_refuses_the_run() {
 #[test]
 fn a_refusal_below_reaches_the_driver_unchanged() {
     let log = Log::default();
-    let Ok(mut runner) = ToffoliProgram::new(&[Mz(0), H(1)], 3)
-        .checked_if(true)
-        .through(Lowered::new(UsesUnstatedQubits))
-        .on(CliffordTRegister::new(5, &[Zero], &log))
-    else {
-        panic!("the chain composes");
-    };
-    let error = runner
-        .run(&ShotSet::ids([0]), 7)
-        .expect_err("the lowered `h` is beyond the qubits required");
+    let error = runner(
+        ToffoliProgram::new(&[Mz(0), H(1)], 3)
+            .checked_if(true)
+            .through(Lowered::new(ReadThrice::using_unstated_qubits()))
+            .on(CliffordTRegister::new(5, &[Zero], &log)),
+    )
+    .run(&ShotSet::ids([0]), 7)
+    .expect_err("the lowered `h` is beyond the qubits required");
     let RunError::Failed(DriveError {
         failure:
             Failure::Refused(ExecuteRefusal::Batch {
@@ -475,16 +464,14 @@ fn a_refusal_below_reaches_the_driver_unchanged() {
         })
     );
 
-    let Ok(mut runner) = ToffoliProgram::new(&[Mz(0), Mz(1)], 3)
-        .checked_if(true)
-        .through(Lowered::new(MeasuresHalfOfAU32))
-        .on(Zeros(Wide))
-    else {
-        panic!("the chain composes");
-    };
-    let error = runner
-        .run(&ShotSet::ids([0]), 7)
-        .expect_err("2^31 readout slots twice do not fit in a `u32`");
+    let error = runner(
+        ToffoliProgram::new(&[Mz(0), Mz(1)], 3)
+            .checked_if(true)
+            .through(Lowered::new(MeasuresHalfOfAU32))
+            .on(Zeros::new(Wide)),
+    )
+    .run(&ShotSet::ids([0]), 7)
+    .expect_err("2^31 readout slots twice do not fit in a `u32`");
     let RunError::Failed(DriveError {
         failure:
             Failure::Refused(ExecuteRefusal::Batch {
@@ -538,88 +525,6 @@ impl Lowering for MeasuresHalfOfAU32 {
     }
 }
 
-/// A driver sending a round at a time, a batch of `gates` per shot, in one
-/// `execute`, into the readouts it keeps; it notes the allocations of its
-/// second round.
-struct RoundsOfToffoli {
-    gates: Vec<ToffoliGate>,
-    allocated: Rc<Cell<Option<usize>>>,
-}
-
-impl Driver for RoundsOfToffoli {
-    type Sends = WithToffoli;
-    type Output = ();
-
-    fn sends(&self) -> &WithToffoli {
-        &WithToffoli
-    }
-
-    fn bind(&mut self, (): ()) {}
-
-    async fn drive(
-        &mut self,
-        shots: &ShotSet,
-        seed: Seed,
-        below: &mut impl Executor<Accepts = WithToffoli>,
-    ) -> Result<Vec<()>, DriveError> {
-        let readout_slots = self
-            .gates
-            .iter()
-            .map(|gate| WithToffoli.readout_slots(gate))
-            .sum();
-        let each = (0..shots.len())
-            .map(|at| shots.subset(&[at]).expect("a shot of the run"))
-            .collect::<Vec<_>>();
-        let batches = each
-            .iter()
-            .map(|shot| Batch::new(shot, &self.gates, readout_slots))
-            .collect::<Vec<_>>();
-        let mut kept = Readouts::new();
-        below
-            .execute(&batches, seed, kept.readouts_for(&batches))
-            .await?;
-        let mut execute = pin!(below.execute(&batches, seed, kept.readouts_for(&batches)));
-        let (count, answered) = poll_fn(|context| {
-            let mut answered = Poll::Pending;
-            let count = allocations(|| answered = execute.as_mut().poll(context));
-            Poll::Ready((count, answered))
-        })
-        .await;
-        let Poll::Ready(ran) = answered else {
-            panic!("the `execute` answers at its first poll");
-        };
-        ran?;
-        self.allocated.set(Some(count));
-        Ok(vec![(); shots.len()])
-    }
-}
-
-/// An executor of the set it holds, writing `Zero` in every slot of every
-/// row, and allocating nothing.
-struct Zeros<S>(S);
-
-impl<S: InstructionSet<Readout = BitReadout>> Executor for Zeros<S> {
-    type Accepts = S;
-
-    fn accepts(&self) -> &S {
-        &self.0
-    }
-
-    async fn execute(
-        &mut self,
-        _batches: &[Batch<'_, S>],
-        _seed: Seed,
-        readouts: &mut [BatchReadouts<S>],
-    ) -> Result<(), ExecuteError> {
-        for batch_readouts in readouts {
-            for position in 0..batch_readouts.shots() {
-                batch_readouts.row_mut(position).fill(Zero);
-            }
-        }
-        Ok(())
-    }
-}
-
 /// A driver sending rounds of five batches, each a `ccz` and an `mz`,
 /// through a lowering rewriting `ccz` as thirteen gates and reading `mz`
 /// three times: the second round, of the size of the first, allocates
@@ -627,14 +532,12 @@ impl<S: InstructionSet<Readout = BitReadout>> Executor for Zeros<S> {
 #[test]
 fn a_lowering_reuses_its_memory_from_one_round_to_the_next() {
     let allocated = Rc::new(Cell::new(None));
-    let Ok(mut runner) = (RoundsOfToffoli {
-        gates: vec![Ccz(0, 1, 2), Mz(2)],
-        allocated: Rc::clone(&allocated),
-    })
-    .through(Lowered::new(ReadThrice))
-    .on(Zeros(WithoutToffoli)) else {
-        panic!("the chain composes");
-    };
-    runner.run(&ShotSet::ids(0..5), 7).expect("a run");
+    runner(
+        RoundsIntoItsReadouts::new(&[Ccz(0, 1, 2), Mz(2)], &allocated)
+            .through(Lowered::new(ReadThrice::new()))
+            .on(Zeros::new(WithoutToffoli)),
+    )
+    .run(&ShotSet::ids(0..5), 7)
+    .expect("a run");
     assert_eq!(allocated.get(), Some(1));
 }

@@ -1,35 +1,47 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! A fake part of any role, renamed: [`Renamed`].
+//! A fake part of any role, renamed, and logging the seeds it gets if
+//! asked to: [`Renamed`].
 
 use crate::prelude::*;
+use crate::tests::fake_parts::Log;
 use crate::{
     Batch, BatchReadouts, Binding, Capabilities, DriveError, ExecuteError, NotReady,
-    RunRequirement, Seed, ShotSet, StatesLimits, TranslatingAdapter,
+    RunRequirement, Seed, ShotId, ShotSet, StatesLimits, TranslatingAdapter,
 };
 
 /// `part`, named `name`, as a part built at run time is named by what it
 /// was built from rather than by its type; it does as `part` does
 /// otherwise, in each role `part` takes, stating the limits `part` states
 /// when [`new`](Self::new) makes it, and none when
-/// [`stating_nothing`](Self::stating_nothing) does.
+/// [`stating_nothing`](Self::stating_nothing) does. Made by
+/// [`seeing_seeds`](Self::seeing_seeds), it also logs the seed of each
+/// call it gets.
 pub(crate) struct Renamed<P> {
     part: P,
     name: &'static str,
     /// The name it answers once its role's `ready` is called.
     name_once_ready: &'static str,
+    /// Where it logs the seeds it gets, if it does.
+    seeds: Option<Log>,
 }
 
 impl<P> Renamed<P> {
     pub(crate) fn new(part: P, name: &'static str) -> StatesLimits<Self> {
         StatesLimits {
-            part: Self {
-                part,
-                name,
-                name_once_ready: name,
-            },
+            part: Self::stating_nothing(part, name),
         }
+    }
+
+    /// `part`, named `name`, which logs `"{name} got seed {stream}"` for
+    /// each `drive`, `adapt` or `execute` it gets, where `stream` is the
+    /// seed's stream for shot 0, which tells seeds apart, since it is a
+    /// bijection of the seed.
+    pub(crate) fn seeing_seeds(part: P, name: &'static str, log: &Log) -> StatesLimits<Self> {
+        let mut renamed = Self::new(part, name);
+        renamed.part.seeds = Some(log.clone());
+        renamed
     }
 
     /// `part`, named `name`, held as a user's part that forwards only its
@@ -40,6 +52,17 @@ impl<P> Renamed<P> {
             part,
             name,
             name_once_ready: name,
+            seeds: None,
+        }
+    }
+
+    fn saw(&self, seed: Seed) {
+        if let Some(log) = &self.seeds {
+            log.push(format!(
+                "{} got seed {}",
+                self.name,
+                seed.shot(ShotId::new(0))
+            ));
         }
     }
 }
@@ -92,6 +115,7 @@ impl<P: Driver> Driver for Renamed<P> {
         seed: Seed,
         below: &mut impl Executor<Accepts = P::Sends>,
     ) -> impl Future<Output = Result<Vec<P::Output>, DriveError>> {
+        self.saw(seed);
         self.part.drive(shots, seed, below)
     }
 }
@@ -144,6 +168,7 @@ impl<P: TranslatingAdapter> TranslatingAdapter for StatesLimits<Renamed<P>> {
         below: &mut impl Executor<Accepts = P::Sends>,
         readouts: &mut [BatchReadouts<P::Accepts>],
     ) -> impl Future<Output = Result<(), ExecuteError>> {
+        self.part.saw(seed);
         self.part.part.adapt(batches, seed, below, readouts)
     }
 
@@ -188,6 +213,7 @@ impl<P: Executor> Executor for Renamed<P> {
         seed: Seed,
         readouts: &mut [BatchReadouts<P::Accepts>],
     ) -> impl Future<Output = Result<(), ExecuteError>> {
+        self.saw(seed);
         self.part.execute(batches, seed, readouts)
     }
 

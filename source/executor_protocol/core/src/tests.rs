@@ -22,6 +22,8 @@ mod seed;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
+use crate::{CompositionFaults, Driver, Executor, Runner};
+
 thread_local! {
     /// The allocations made on this thread while [`allocations`] counts.
     static ALLOCATED: Cell<Option<usize>> = const { Cell::new(None) };
@@ -72,4 +74,14 @@ fn allocations(f: impl FnOnce()) -> usize {
     ALLOCATED.with(|count| count.set(Some(0)));
     f();
     ALLOCATED.with(Cell::take).expect("counting until now")
+}
+
+/// The runner of the chain `composed` gave, which must compose.
+fn runner<D: Driver, E: Executor<Accepts = D::Sends>>(
+    composed: Result<Runner<D, E>, CompositionFaults>,
+) -> Runner<D, E> {
+    let Ok(runner) = composed else {
+        panic!("the chain composes");
+    };
+    runner
 }

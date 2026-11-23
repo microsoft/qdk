@@ -4,6 +4,7 @@
 //! A shot set is never empty, names no shot twice, keeps the caller's order,
 //! and holds one shot inline; `subset` splits one into sound sets.
 
+use super::{panic_message, panics_saying};
 use crate::tests::allocations;
 use crate::{ShotId, ShotSet, ShotSetFault};
 
@@ -41,10 +42,8 @@ fn a_repeated_shot_is_refused_naming_the_first_repeat() {
 fn ids_panics_with_the_fault_try_ids_returns() {
     for (ids, named) in [(vec![4, 4], Some("4")), (vec![], None)] {
         let fault = ShotSet::try_ids(ids.clone()).expect_err("not a set");
-        let panic = std::panic::catch_unwind(|| ShotSet::ids(ids.clone()))
-            .expect_err(&format!("{ids:?} panics"));
-        let message = panic.downcast_ref::<String>().map(String::as_str);
-        assert_eq!(message, Some(fault.to_string().as_str()), "{ids:?}");
+        let message = panic_message(&format!("{ids:?}"), || _ = ShotSet::ids(ids.clone()));
+        assert_eq!(message, fault.to_string(), "{ids:?}");
         if let Some(shot) = named {
             assert!(fault.to_string().contains(shot), "{ids:?}: {fault}");
         }
@@ -90,19 +89,27 @@ fn subset_of_no_position_is_none() {
     assert_eq!(ShotSet::ids([1, 2]).subset(&[]), None);
 }
 
-/// A position given twice would name its shot twice, which a set refuses:
-/// the panic names the position.
+/// A position given twice would name its shot twice, which a set refuses,
+/// and a position beyond the set names no shot: `subset` panics on either,
+/// naming the position.
 #[test]
-#[should_panic(expected = "position 1")]
-fn subset_panics_on_a_position_given_twice() {
-    let _ = ShotSet::ids([1, 2, 3]).subset(&[1, 0, 1]);
-}
-
-/// A position beyond the set names no shot: the panic names it.
-#[test]
-#[should_panic(expected = "position 2")]
-fn subset_panics_on_a_position_beyond_the_set() {
-    let _ = ShotSet::ids([1, 2]).subset(&[0, 2]);
+fn subset_panics_on_a_position_not_naming_a_new_shot() {
+    for (row, set, positions, said) in [
+        (
+            "given twice",
+            ShotSet::ids([1, 2, 3]),
+            [1, 0, 1].as_slice(),
+            "position 1",
+        ),
+        (
+            "beyond the set",
+            ShotSet::ids([1, 2]),
+            [0, 2].as_slice(),
+            "position 2",
+        ),
+    ] {
+        panics_saying(row, || _ = set.subset(positions), &[said]);
+    }
 }
 
 /// Adaptive programs send many batches of one shot: such a set, made from

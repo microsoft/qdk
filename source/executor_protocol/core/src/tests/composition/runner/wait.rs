@@ -12,19 +12,7 @@ use std::thread;
 use std::time::Duration;
 
 use crate::composition::runner::wait::wait;
-
-/// How long a test waits for a thread before it fails, rather than hangs.
-const PATIENT: Duration = Duration::from_secs(20);
-
-/// Runs `f` on a thread of its own, and fails the test if it does not end
-/// soon: a lost wake would park its thread forever.
-fn ends_soon<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
-    let (sender, receiver) = mpsc::channel();
-    thread::spawn(move || sender.send(f()).expect("the test waits"));
-    receiver
-        .recv_timeout(PATIENT)
-        .expect("it never ended: a wake was lost")
-}
+use crate::tests::composition::ends_soon;
 
 /// `future`, counting how often it is polled into `polls`.
 struct Counted<F> {

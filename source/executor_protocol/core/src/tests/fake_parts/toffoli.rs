@@ -2,21 +2,28 @@
 // Licensed under the MIT License.
 
 //! The fake parts across a lowering of [`WithToffoli`] to
-//! [`WithoutToffoli`]: a driver of the first, an adapter and an executor
+//! [`WithoutToffoli`]: drivers of the first, an adapter and an executor
 //! of the second, and the lowerings between them, for the tests of
-//! [`Lowered`].
+//! [`Lowered`], and of readouts kept from one round to the next.
 //!
 //! [`Lowered`]: crate::Lowered
 
+use std::cell::Cell;
+use std::future::poll_fn;
+use std::pin::pin;
+use std::rc::Rc;
+use std::task::Poll;
+
 use super::Log;
 use crate::prelude::*;
+use crate::tests::allocations;
 use crate::tests::example_sets::{BitReadout, ShotFlags};
 use crate::tests::example_sets::{
     CliffordT, Qubits, ToffoliGate, WithToffoli, WithoutToffoli, on_qubits,
 };
 use crate::{
-    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, NotReady, Resources,
-    RunRequirement, Seed, ShotSet, StatesLimits,
+    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, InstructionSet, NotReady,
+    Readouts, Resources, RunRequirement, Seed, ShotSet, StatesLimits,
 };
 
 /// A driver sending `gates`, one batch of every shot, checked if
@@ -316,12 +323,98 @@ impl Lowering for ToffoliFree {
     }
 }
 
+/// A driver sending a round at a time, one unchecked batch of `gates` per
+/// shot, in one `execute`, into the readouts it keeps, then the same
+/// `execute` again, into the same readouts, whose allocations it notes in
+/// `allocated` as it polls it.
+pub(crate) struct RoundsIntoItsReadouts {
+    gates: Vec<ToffoliGate>,
+    allocated: Rc<Cell<Option<usize>>>,
+}
+
+impl RoundsIntoItsReadouts {
+    pub(crate) fn new(gates: &[ToffoliGate], allocated: &Rc<Cell<Option<usize>>>) -> Self {
+        Self {
+            gates: gates.to_vec(),
+            allocated: Rc::clone(allocated),
+        }
+    }
+}
+
+impl Driver for RoundsIntoItsReadouts {
+    type Sends = WithToffoli;
+    type Output = ();
+
+    fn sends(&self) -> &WithToffoli {
+        &WithToffoli
+    }
+
+    fn bind(&mut self, (): ()) {}
+
+    async fn drive(
+        &mut self,
+        shots: &ShotSet,
+        seed: Seed,
+        below: &mut impl Executor<Accepts = WithToffoli>,
+    ) -> Result<Vec<()>, DriveError> {
+        let readout_slots = (self.gates.iter())
+            .map(|gate| WithToffoli.readout_slots(gate))
+            .sum();
+        let each = (0..shots.len())
+            .map(|at| shots.subset(&[at]).expect("a shot of the run"))
+            .collect::<Vec<_>>();
+        let batches = each
+            .iter()
+            .map(|shot| Batch::new(shot, &self.gates, readout_slots))
+            .collect::<Vec<_>>();
+        let mut kept = Readouts::new();
+        below
+            .execute(&batches, seed, kept.readouts_for(&batches))
+            .await?;
+        let mut execute = pin!(below.execute(&batches, seed, kept.readouts_for(&batches)));
+        let (count, answered) = poll_fn(|context| {
+            let mut answered = Poll::Pending;
+            let count = allocations(|| answered = execute.as_mut().poll(context));
+            Poll::Ready((count, answered))
+        })
+        .await;
+        let Poll::Ready(ran) = answered else {
+            panic!("the `execute` answers at its first poll");
+        };
+        ran?;
+        self.allocated.set(Some(count));
+        Ok(vec![(); shots.len()])
+    }
+}
+
 /// Each `mz` read three times below, its readout the majority of the
 /// three, as a lowering suppressing readout errors would; every other gate
 /// as [`ToffoliFree`] lowers it. It requires below what arrives, with 13
 /// instructions a batch for each one that arrives (`ccz`'s rewriting, its
 /// longest).
-pub(crate) struct ReadThrice;
+pub(crate) struct ReadThrice {
+    /// Whether it writes each `h` 3 qubits higher, on a qubit it does not
+    /// require below.
+    uses_unstated_qubits: bool,
+}
+
+impl ReadThrice {
+    pub(crate) fn new() -> Self {
+        Self {
+            uses_unstated_qubits: false,
+        }
+    }
+
+    /// A faulty lowering: each `h` written 3 qubits higher, on a qubit it
+    /// does not require below, and every other gate as [`new`](Self::new)
+    /// lowers it, requiring below what it does. A checked batch of its
+    /// lowering is refused below.
+    pub(crate) fn using_unstated_qubits() -> Self {
+        Self {
+            uses_unstated_qubits: true,
+        }
+    }
+}
 
 impl Lowering for ReadThrice {
     type From = WithToffoli;
@@ -348,6 +441,7 @@ impl Lowering for ReadThrice {
     fn lower(&self, gate: &ToffoliGate, into: &mut Vec<CliffordT>) {
         match *gate {
             ToffoliGate::Mz(q) => into.extend([CliffordT::Mz(q); 3]),
+            ToffoliGate::H(q) if self.uses_unstated_qubits => into.push(CliffordT::H(q + 3)),
             other => ToffoliFree::new().lower(&other, into),
         }
     }
@@ -359,46 +453,6 @@ impl Lowering for ReadThrice {
         } else {
             BitReadout::Zero
         };
-    }
-
-    fn read_conditions(&self, lowered: ShotFlags) -> ShotFlags {
-        lowered
-    }
-}
-
-/// A faulty lowering: each `h` written 3 qubits higher, on a qubit it does
-/// not require below, and every other gate as [`ReadThrice`] lowers it,
-/// requiring below what [`ReadThrice`] does. A checked batch of its
-/// lowering is refused below.
-pub(crate) struct UsesUnstatedQubits;
-
-impl Lowering for UsesUnstatedQubits {
-    type From = WithToffoli;
-    type To = WithoutToffoli;
-
-    fn accepts(&self) -> &WithToffoli {
-        &WithToffoli
-    }
-
-    fn sends(&self) -> &WithoutToffoli {
-        &WithoutToffoli
-    }
-
-    fn requires(&self, above: &Capabilities<WithToffoli>) -> Capabilities<WithoutToffoli> {
-        ReadThrice.requires(above)
-    }
-
-    fn bind(&mut self, (): ()) {}
-
-    fn lower(&self, gate: &ToffoliGate, into: &mut Vec<CliffordT>) {
-        match *gate {
-            ToffoliGate::H(q) => into.push(CliffordT::H(q + 3)),
-            other => ReadThrice.lower(&other, into),
-        }
-    }
-
-    fn read(&self, gate: &ToffoliGate, lowered: &[BitReadout], into: &mut [BitReadout]) {
-        ReadThrice.read(gate, lowered, into);
     }
 
     fn read_conditions(&self, lowered: ShotFlags) -> ShotFlags {

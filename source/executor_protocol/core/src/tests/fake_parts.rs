@@ -10,8 +10,9 @@
 //!   [`coin_gates`], requiring the run's shots, and seeded runs if its
 //!   seed is fixed; [`PassesTheRun`], which keeps the default `requires`.
 //! - Executors: [`Bits`]; executors that answer later ([`Later`]) or
-//!   from a thread ([`FromThread`]); and [`StatesNoLimits`], which keeps
-//!   the default `provides`.
+//!   from a thread ([`FromThread`]); [`StatesNoLimits`], which keeps
+//!   the default `provides`; and [`Zeros`], of any set, which reads `Zero`
+//!   everywhere.
 //! - Adapters: [`BitFlip`], which draws; [`Profiler`], which draws nothing;
 //!   [`Splitter`], which sends each instruction as a batch of its own;
 //!   [`NamesBelow`], which logs the names of the part below and its set;
@@ -30,9 +31,9 @@
 //!   [`GateForGate`], which binds to the receiver's set.
 //! - Driver and executor: [`Panics`], which panics in `drive` and in
 //!   `execute`.
-//! - Any role: [`Renamed`], a part with a name other than its type's;
-//!   [`PanicsInDrop`], a part whose futures may panic once dropped;
-//!   [`SeesSeeds`], a part that logs the seed of each call it gets.
+//! - Any role: [`Renamed`], a part with a name other than its type's,
+//!   which may log the seed of each call it gets; and [`PanicsInDrop`], a
+//!   part whose futures may panic once dropped.
 //! - On [`QubitLimited`](crate::tests::example_sets::QubitLimited), whose
 //!   capabilities are a count of qubits: [`QubitProgram`], a driver;
 //!   [`QubitPassThrough`], an adapter keeping the defaults;
@@ -41,9 +42,12 @@
 //! - Across a lowering of
 //!   [`WithToffoli`](crate::tests::example_sets::WithToffoli) to
 //!   [`WithoutToffoli`](crate::tests::example_sets::WithoutToffoli):
-//!   [`ToffoliProgram`], a driver; [`CliffordTRegister`], an executor; and
+//!   [`ToffoliProgram`], a driver; [`RoundsIntoItsReadouts`], a driver
+//!   sending rounds into the readouts it keeps; [`CliffordTRegister`], an
+//!   executor; [`CliffordTPassThrough`], an adapter of the lowered set; and
 //!   the lowerings [`ToffoliFree`], which rewrites `ccz`, and
-//!   [`ReadThrice`], which reads its own readouts.
+//!   [`ReadThrice`], which reads its own readouts, or, faulty, writes on
+//!   qubits it does not require.
 //!
 //! Each part writes what it does to a shared [`Log`], which the test reads
 //! once the parts are composed.
@@ -68,7 +72,6 @@ mod panics;
 mod panics_in_drop;
 mod qubit_limited;
 mod renamed;
-mod sees_seeds;
 mod toffoli;
 
 pub(crate) use adapters::*;
@@ -78,10 +81,9 @@ pub(crate) use panics::{Panics, PanicsWhen};
 pub(crate) use panics_in_drop::PanicsInDrop;
 pub(crate) use qubit_limited::{QubitNarrowing, QubitPassThrough, QubitProgram, QubitRegister};
 pub(crate) use renamed::Renamed;
-pub(crate) use sees_seeds::SeesSeeds;
 pub(crate) use toffoli::{
-    CliffordTPassThrough, CliffordTRegister, ReadThrice, ToffoliFree, ToffoliProgram,
-    UsesUnstatedQubits,
+    CliffordTPassThrough, CliffordTRegister, ReadThrice, RoundsIntoItsReadouts, ToffoliFree,
+    ToffoliProgram,
 };
 
 /// `h`, `x` and `mz`: what every fake part accepts and sends, unless a
@@ -100,6 +102,21 @@ impl Log {
     /// Every entry, in order.
     pub(crate) fn entries(&self) -> Vec<String> {
         self.0.borrow().clone()
+    }
+
+    /// The entries containing `part`, in order.
+    pub(crate) fn entries_containing(&self, part: &str) -> Vec<String> {
+        self.entries_where(|entry| entry.contains(part))
+    }
+
+    /// The entries starting with `prefix`, in order.
+    pub(crate) fn entries_starting_with(&self, prefix: &str) -> Vec<String> {
+        self.entries_where(|entry| entry.starts_with(prefix))
+    }
+
+    fn entries_where(&self, keep: impl Fn(&str) -> bool) -> Vec<String> {
+        let entries = self.0.borrow();
+        entries.iter().filter(|e| keep(e)).cloned().collect()
     }
 
     /// How many entries are `entry`.

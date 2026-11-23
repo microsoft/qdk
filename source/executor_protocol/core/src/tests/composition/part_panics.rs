@@ -18,29 +18,34 @@ use crate::tests::fake_parts::{
     BitFlip, Bits, CoinCopy, EndsBelow, Impatient, Later, Log, Misbehaving, Misbehaviour, Panics,
     PanicsEnding, PanicsInDrop, PanicsWhen, Profiler, Program, Renamed, in_each_bracketing,
 };
-use crate::{Failure, PartId, RunError, Runner, ShotId, ShotSet, StatesLimits};
+use crate::tests::runner;
+use crate::{PartId, RunError, Runner, ShotId, ShotSet, StatesLimits};
 
-use super::runner::{SEED, failed, runner};
+use super::{SEED, failed, panic_of};
 
-/// The panic `runner`'s run of shots 0 to 7 raises, which it must.
-fn raised<D: Driver, E: Executor<Accepts = D::Sends>>(
-    runner: &mut Runner<D, E>,
-) -> Box<dyn Any + Send> {
-    catch_unwind(AssertUnwindSafe(|| {
-        runner
-            .run(&ShotSet::ids(0..8), SEED)
-            .map(|records| records.len())
-    }))
-    .expect_err("the run raises a panic")
-}
-
-/// Coin copies under an adapter that panics in `end_shots`, over a noise,
-/// over bits, in a run with no other fault, in each bracketing: the
-/// driver's end of its shots fails the run, the protocol ends them again on
-/// every part, each part beside the one that panics is ended both times,
-/// and `run` then raises the panic.
+/// A panic in `end_shots`, in a run with no other fault, in each
+/// bracketing: `run` raises it once the protocol has ended the run's shots
+/// on every other part.
+/// - Coin copies over an adapter that panics in every `end_shots`, over a
+///   noise, over bits: the driver's end of its shots fails the run, the
+///   protocol ends them again on every part, so each part beside the one
+///   that panics is ended both times, and `run` then raises the panic.
+/// - A program that never ends its shots, over an adapter whose first
+///   `end_shots` panics, over a noise, over bits: the protocol's end is the
+///   only one, so the panic is raised once the noise and the bits are
+///   ended once, and the outputs are lost, where the same panic in the
+///   driver's end fails the run naming the driver.
+/// - Coin copies over two adapters that panic in `end_shots`, "first"
+///   above "second", over bits: `run` raises the first panic, top to
+///   bottom, and the bits are still ended.
 #[test]
-fn a_panic_ending_shots_ends_every_other_part_then_leaves_the_run() {
+fn a_panic_ending_shots_is_raised_once_every_other_part_is_ended() {
+    let ended = |times| {
+        [
+            ("BitFlip end_shots, holding 0", times),
+            ("Bits end_shots, holding 0", times),
+        ]
+    };
     in_each_bracketing!(
         [d, a, b, e] from {
             let log = Log::default();
@@ -49,17 +54,68 @@ fn a_panic_ending_shots_ends_every_other_part_then_leaves_the_run() {
             let b = BitFlip::new(0.3, &log);
             let e = Bits::new(&log);
         },
-        |chain, brackets| {
-            let panic = raised(&mut runner(chain));
-            assert_eq!(
-                panic.downcast_ref::<&str>(),
-                Some(&"end_shots broke"),
-                "{brackets}"
-            );
-            assert_eq!(log.count("BitFlip end_shots, holding 0"), 2, "{brackets}");
-            assert_eq!(log.count("Bits end_shots, holding 0"), 2, "{brackets}");
-        }
+        |chain, brackets| raises_once_ended(
+            &format!("ended by the driver, then by the protocol, {brackets}"),
+            runner(chain),
+            &log,
+            "end_shots broke",
+            &ended(2),
+        ),
     );
+    in_each_bracketing!(
+        [d, a, b, e] from {
+            let log = Log::default();
+            let d = Program::new(&[("mz", 0)]).not_ending();
+            let a = PanicsEnding::once(&log);
+            let b = BitFlip::new(0.3, &log);
+            let e = Bits::new(&log);
+        },
+        |chain, brackets| raises_once_ended(
+            &format!("ended by the protocol alone, {brackets}"),
+            runner(chain),
+            &log,
+            "end_shots broke",
+            &ended(1),
+        ),
+    );
+    in_each_bracketing!(
+        [d, a, b, e] from {
+            let log = Log::default();
+            let d = CoinCopy::new();
+            let a = PanicsEnding::saying("first", &log);
+            let b = PanicsEnding::saying("second", &log);
+            let e = Bits::new(&log);
+        },
+        |chain, brackets| raises_once_ended(
+            &format!("two panics, {brackets}"),
+            runner(chain),
+            &log,
+            "first",
+            &[("Bits end_shots, holding 0", 2)],
+        ),
+    );
+}
+
+/// Checks that a run of shots 0 to 7 on `runner` raises the panic
+/// `message`, once `log` saw each entry of `ended` that many times: a row
+/// of [`a_panic_ending_shots_is_raised_once_every_other_part_is_ended`].
+fn raises_once_ended<D: Driver, E: Executor<Accepts = D::Sends>>(
+    row: &str,
+    mut runner: Runner<D, E>,
+    log: &Log,
+    message: &str,
+    ended: &[(&str, usize)],
+) {
+    let panic = catch_unwind(AssertUnwindSafe(|| {
+        runner
+            .run(&ShotSet::ids(0..8), SEED)
+            .map(|records| records.len())
+    }))
+    .expect_err("the run raises a panic");
+    assert_eq!(panic.downcast_ref::<&str>(), Some(&message), "{row}");
+    for (entry, times) in ended {
+        assert_eq!(log.count(entry), *times, "{row}: {entry}");
+    }
 }
 
 /// An adapter whose first `end_shots` panics, under the part that ends the
@@ -75,13 +131,10 @@ fn a_panic_ending_shots_is_named_as_the_part_that_ended_them() {
     /// Checks that `run` failed naming `part` and the end's message.
     fn names<T: Debug>(row: &str, run: Result<T, RunError>, part: &PartId) {
         let error = failed(run);
-        assert!(
-            matches!(
-                &error.failure,
-                Failure::Panicked { part: named, message: Some(message) }
-                    if named == part && message == "end_shots broke"
-            ),
-            "{row}: {error:?}"
+        assert_eq!(
+            panic_of(&error, part, row),
+            Some("end_shots broke"),
+            "{row}"
         );
     }
     let shots = ShotSet::ids(0..8);
@@ -111,34 +164,6 @@ fn a_panic_ending_shots_is_named_as_the_part_that_ended_them() {
         |chain, brackets| {
             let row = format!("ended by an adapter, {brackets}");
             names(&row, runner(chain).run(&shots, SEED), &adapter);
-        }
-    );
-}
-
-/// A program that never ends its shots, over an adapter whose first
-/// `end_shots` panics, over a noise, over bits, in each bracketing: the
-/// protocol's end is the only one, so the panic is raised again from `run`,
-/// once the noise and the bits are ended, and the outputs are lost, where
-/// the same panic in the driver's end fails the run naming the driver.
-#[test]
-fn a_panic_ending_shots_the_protocol_ends_is_raised_from_the_run() {
-    in_each_bracketing!(
-        [d, a, b, e] from {
-            let log = Log::default();
-            let d = Program::new(&[("mz", 0)]).not_ending();
-            let a = PanicsEnding::once(&log);
-            let b = BitFlip::new(0.3, &log);
-            let e = Bits::new(&log);
-        },
-        |chain, brackets| {
-            let panic = raised(&mut runner(chain));
-            assert_eq!(
-                panic.downcast_ref::<&str>(),
-                Some(&"end_shots broke"),
-                "{brackets}"
-            );
-            assert_eq!(log.count("BitFlip end_shots, holding 0"), 1, "{brackets}");
-            assert_eq!(log.count("Bits end_shots, holding 0"), 1, "{brackets}");
         }
     );
 }
@@ -274,27 +299,6 @@ fn a_run_dropped_unfinished_raises_a_parts_panic_from_the_drop() {
     }
 }
 
-/// Coin copies over two adapters that panic in `end_shots`, "first" above
-/// "second", over bits, in each bracketing: `run` raises the first panic,
-/// top to bottom, and the bits are still ended.
-#[test]
-fn of_two_panics_ending_shots_the_first_is_raised() {
-    in_each_bracketing!(
-        [d, a, b, e] from {
-            let log = Log::default();
-            let d = CoinCopy::new();
-            let a = PanicsEnding::saying("first", &log);
-            let b = PanicsEnding::saying("second", &log);
-            let e = Bits::new(&log);
-        },
-        |chain, brackets| {
-            let panic = raised(&mut runner(chain));
-            assert_eq!(panic.downcast_ref::<&str>(), Some(&"first"), "{brackets}");
-            assert_eq!(log.count("Bits end_shots, holding 0"), 2, "{brackets}");
-        }
-    );
-}
-
 /// A part that panics, as a driver, an executor or an adapter, alone or
 /// composed, wherever the brackets go: the run of shots 3 and 1 fails
 /// naming shot 3, the first of the batch or the run the panic hit, the
@@ -397,14 +401,7 @@ fn names_the_panic<T: Debug>(
 ) {
     let error = failed(run);
     assert_eq!(error.shot, ShotId::new(3), "{row}");
-    assert!(
-        matches!(
-            &error.failure,
-            Failure::Panicked { part: named, message: given }
-                if named == part && given.as_deref() == message
-        ),
-        "{row}: {error:?}"
-    );
+    assert_eq!(panic_of(&error, part, row), message, "{row}");
 }
 
 /// A driver and an executor that panic, each named as a part built at
@@ -414,7 +411,10 @@ fn names_the_panic<T: Debug>(
 /// panics: the failure names the user's part, at its position. An
 /// executor, or an adapter, that panics and answers another name once
 /// ready, in each bracketing: the failure of each run names it by the name
-/// the `on` that made the runner read.
+/// the `on` that made the runner read. Two decoders of one name, a
+/// profiler above an adapter that panics, in each bracketing: every
+/// failure names the lower one, part 2, so its position tells it from the
+/// other.
 #[test]
 fn a_panic_names_the_part_by_its_name() {
     let log = Log::default();
@@ -460,13 +460,7 @@ fn a_panic_names_the_part_by_its_name() {
             "user's driver",
         ),
     ] {
-        assert!(
-            matches!(
-                &error.failure,
-                Failure::Panicked { part, .. } if *part == PartId::new(position, name)
-            ),
-            "{runner_name}: {error:?}"
-        );
+        panic_of(&error, &PartId::new(position, name), runner_name);
     }
     in_each_bracketing!(
         [d, a, e] from {
@@ -478,7 +472,7 @@ fn a_panic_names_the_part_by_its_name() {
         },
         |chain, brackets| {
             let row = format!("an executor renamed once ready, {brackets}");
-            named_as_read_at_on(&row, runner(chain), &PartId::new(2, "device runtime"));
+            each_run_names(&row, runner(chain), &PartId::new(2, "device runtime"));
         }
     );
     in_each_bracketing!(
@@ -490,36 +484,11 @@ fn a_panic_names_the_part_by_its_name() {
         },
         |chain, brackets| {
             let row = format!("an adapter renamed once ready, {brackets}");
-            named_as_read_at_on(&row, runner(chain), &PartId::new(1, "decoder"));
+            each_run_names(&row, runner(chain), &PartId::new(1, "decoder"));
         }
     );
-}
-
-/// Checks that two runs of shots 3 and 1 on `runner` each fail naming
-/// shot 3 and `part`, a row of [`a_panic_names_the_part_by_its_name`].
-fn named_as_read_at_on<D: Driver<Output: Debug>, E: Executor<Accepts = D::Sends>>(
-    row: &str,
-    mut runner: Runner<D, E>,
-    part: &PartId,
-) {
-    for run in ["first run", "second run"] {
-        let error = failed(runner.run(&ShotSet::ids([3, 1]), SEED));
-        assert_eq!(error.shot, ShotId::new(3), "{row}, {run}");
-        assert!(
-            matches!(&error.failure, Failure::Panicked { part: named, .. } if named == part),
-            "{row}, {run}: {error:?}"
-        );
-    }
-}
-
-/// Two decoders of one name, a profiler above an adapter that panics, in
-/// each of the five bracketings of four parts: every failure names the
-/// lower one, part 2, so its position tells it from the other.
-#[test]
-fn a_panic_tells_two_parts_of_one_name_apart_by_position() {
     in_each_bracketing!(
         [d, a, b, e] from {
-            let log = Log::default();
             let counted = Rc::new(Cell::new(0));
             let d = Program::new(&[("mz", 0)]);
             let a = Renamed::new(Profiler::new(&counted, &log), "decoder");
@@ -530,16 +499,24 @@ fn a_panic_tells_two_parts_of_one_name_apart_by_position() {
             let e = Bits::new(&log);
         },
         |chain, brackets| {
-            let error = failed(runner(chain).run(&ShotSet::ids([3, 1]), SEED));
-            assert!(
-                matches!(
-                    &error.failure,
-                    Failure::Panicked { part, .. } if *part == PartId::new(2, "decoder")
-                ),
-                "{brackets}: {error:?}"
-            );
+            let row = format!("the lower of two adapters of one name, {brackets}");
+            each_run_names(&row, runner(chain), &PartId::new(2, "decoder"));
         }
     );
+}
+
+/// Checks that two runs of shots 3 and 1 on `runner` each fail naming
+/// shot 3 and `part`, a row of [`a_panic_names_the_part_by_its_name`].
+fn each_run_names<D: Driver<Output: Debug>, E: Executor<Accepts = D::Sends>>(
+    row: &str,
+    mut runner: Runner<D, E>,
+    part: &PartId,
+) {
+    for run in ["first run", "second run"] {
+        let error = failed(runner.run(&ShotSet::ids([3, 1]), SEED));
+        assert_eq!(error.shot, ShotId::new(3), "{row}, {run}");
+        panic_of(&error, part, &format!("{row}, {run}"));
+    }
 }
 
 /// A driver that panics, over a noise, over bits, bracketed both ways:
@@ -563,59 +540,75 @@ fn a_run_failed_by_a_drivers_panic_ends_its_shots() {
     }
 }
 
-/// A program, over a profiler, over a noise, over bits, each a part whose
-/// futures may panic once dropped.
-type DropChain = (
+/// A program, over a profiler, over two noises, over bits, each a part
+/// whose futures may panic when dropped, and when polled too.
+type PanicsInDropChain = (
     StatesLimits<PanicsInDrop<StatesLimits<Program>>>,
     StatesLimits<PanicsInDrop<Profiler>>,
+    StatesLimits<PanicsInDrop<BitFlip>>,
     StatesLimits<PanicsInDrop<BitFlip>>,
     StatesLimits<PanicsInDrop<StatesLimits<Bits>>>,
 );
 
-/// The parts of a [`DropChain`], whose part at position `armed` panics in
-/// its futures' destructor.
-fn drop_chain(armed: usize, log: &Log) -> DropChain {
+/// The parts of a [`PanicsInDropChain`], whose part at position `armed`
+/// panics in its futures' destructor, and when they are polled too if
+/// `polled_too`.
+fn panics_in_drop_chain(armed: usize, polled_too: bool, log: &Log) -> PanicsInDropChain {
+    fn arm<P>(part: P, armed: bool, polled_too: bool) -> StatesLimits<PanicsInDrop<P>> {
+        if polled_too {
+            PanicsInDrop::polled_too(part, armed)
+        } else {
+            PanicsInDrop::new(part, armed)
+        }
+    }
     let counted = Rc::new(Cell::new(0));
     (
-        PanicsInDrop::new(Program::new(&[("mz", 0)]), armed == 0),
-        PanicsInDrop::new(Profiler::new(&counted, log), armed == 1),
-        PanicsInDrop::new(BitFlip::new(0.0, log), armed == 2),
-        PanicsInDrop::new(Bits::new(log), armed == 3),
+        arm(Program::new(&[("mz", 0)]), armed == 0, polled_too),
+        arm(Profiler::new(&counted, log), armed == 1, polled_too),
+        arm(BitFlip::new(0.0, log), armed == 2, polled_too),
+        arm(BitFlip::new(0.0, log), armed == 3, polled_too),
+        arm(Bits::new(log), armed == 4, polled_too),
     )
 }
 
-/// A program, over a profiler, over a noise, over bits, in each
-/// bracketing, one of them panicking in the destructor of each future it
-/// returns, once its answer is given: the run fails naming that part, at
-/// its position, with its message, as for a panic while it is polled.
+/// A program, over a profiler, over two noises, over bits, in each of
+/// the 14 bracketings, one of them panicking in the destructor of each
+/// future it returns, once its answer is given: the run of shots 9 and 1
+/// fails naming shot 9, that part, at its position, and its message, as
+/// for a panic while it is polled. Panicking while its future is polled,
+/// and again when that future is dropped: the run fails the same way, with
+/// the message of its first panic, and the second is dropped; the process
+/// does not abort, as it would if a composition's future dropped the
+/// part's while the first unwinds.
 #[test]
 fn a_panic_dropping_a_parts_future_is_a_failure_naming_that_part() {
     let parts = [
         type_name::<Program>(),
         type_name::<Profiler>(),
         type_name::<BitFlip>(),
+        type_name::<BitFlip>(),
         type_name::<Bits>(),
     ];
-    for (armed, name) in parts.into_iter().enumerate() {
-        let named = PartId::new(armed, name);
-        in_each_bracketing!(
-            [d, a, b, e] from {
-                let log = Log::default();
-                let (d, a, b, e) = drop_chain(armed, &log);
-            },
-            |chain, brackets| {
-                let error = failed(runner(chain).run(&ShotSet::ids([9, 1]), SEED));
-                assert_eq!(error.shot, ShotId::new(9), "{named}, {brackets}");
-                assert!(
-                    matches!(
-                        &error.failure,
-                        Failure::Panicked { part, message: Some(message) }
-                            if *part == named && message == "the part's future broke when dropped"
-                    ),
-                    "{named}, {brackets}: {error:?}"
-                );
-            }
-        );
+    for (polled_too, message) in [
+        (false, "the part's future broke when dropped"),
+        (true, "the part's future broke when polled"),
+    ] {
+        for (armed, name) in parts.into_iter().enumerate() {
+            let named = PartId::new(armed, name);
+            in_each_bracketing!(
+                [program, profiler, noise, more_noise, bits] from {
+                    let log = Log::default();
+                    let (program, profiler, noise, more_noise, bits) =
+                        panics_in_drop_chain(armed, polled_too, &log);
+                },
+                |chain, brackets| {
+                    let row = format!("{named}, polled too: {polled_too}, {brackets}");
+                    let error = failed(runner(chain).run(&ShotSet::ids([9, 1]), SEED));
+                    assert_eq!(error.shot, ShotId::new(9), "{row}");
+                    assert_eq!(panic_of(&error, &named, &row), Some(message), "{row}");
+                }
+            );
+        }
     }
 }
 
@@ -637,76 +630,13 @@ fn a_panic_dropping_a_future_a_part_above_stopped_waiting_for_names_that_part() 
         |chain, brackets| {
             let error = failed(runner(chain).run(&ShotSet::ids([3, 1]), SEED));
             assert_eq!(error.shot, ShotId::new(3), "{brackets}");
-            assert!(
-                matches!(
-                    &error.failure,
-                    Failure::Panicked { part, message: Some(message) }
-                        if *part == adapter && message == "the part's future broke when dropped"
-                ),
-                "{brackets}: {error:?}"
+            assert_eq!(
+                panic_of(&error, &adapter, brackets),
+                Some("the part's future broke when dropped"),
+                "{brackets}"
             );
         }
     );
-}
-
-/// A program, over a profiler, over two noises, over bits, each a part
-/// whose futures may panic when polled, and again when dropped.
-type CompoundChain = (
-    StatesLimits<PanicsInDrop<StatesLimits<Program>>>,
-    StatesLimits<PanicsInDrop<Profiler>>,
-    StatesLimits<PanicsInDrop<BitFlip>>,
-    StatesLimits<PanicsInDrop<BitFlip>>,
-    StatesLimits<PanicsInDrop<StatesLimits<Bits>>>,
-);
-
-/// The parts of a [`CompoundChain`], whose part at position `armed`
-/// panics when its futures are polled, and again when they are dropped.
-fn compound_chain(armed: usize, log: &Log) -> CompoundChain {
-    let counted = Rc::new(Cell::new(0));
-    (
-        PanicsInDrop::polled_too(Program::new(&[("mz", 0)]), armed == 0),
-        PanicsInDrop::polled_too(Profiler::new(&counted, log), armed == 1),
-        PanicsInDrop::polled_too(BitFlip::new(0.0, log), armed == 2),
-        PanicsInDrop::polled_too(BitFlip::new(0.0, log), armed == 3),
-        PanicsInDrop::polled_too(Bits::new(log), armed == 4),
-    )
-}
-
-/// A program, over a profiler, over two noises, over bits, in each of
-/// the 14 bracketings, one of them panicking while its future is polled,
-/// and again when that future is dropped: the run fails naming that
-/// part, at its position, with the message of its first panic, and the
-/// second is dropped; the process does not abort, as it would if a
-/// composition's future dropped the part's while the first unwinds.
-#[test]
-fn a_part_panicking_polled_then_dropped_is_named_with_its_first_panic() {
-    let parts = [
-        type_name::<Program>(),
-        type_name::<Profiler>(),
-        type_name::<BitFlip>(),
-        type_name::<BitFlip>(),
-        type_name::<Bits>(),
-    ];
-    for (armed, name) in parts.into_iter().enumerate() {
-        let named = PartId::new(armed, name);
-        in_each_bracketing!(
-            [program, profiler, noise, more_noise, bits] from {
-                let log = Log::default();
-                let (program, profiler, noise, more_noise, bits) = compound_chain(armed, &log);
-            },
-            |chain, brackets| {
-                let error = failed(runner(chain).run(&ShotSet::ids([9, 1]), SEED));
-                assert!(
-                    matches!(
-                        &error.failure,
-                        Failure::Panicked { part, message: Some(message) }
-                            if *part == named && message == "the part's future broke when polled"
-                    ),
-                    "{named}, {brackets}: {error:?}"
-                );
-            }
-        );
-    }
 }
 
 /// A program, over two noises, over bits, in each bracketing, one of them
@@ -739,11 +669,7 @@ fn a_panic_in_ready_polled_then_dropped_is_raised_with_its_first_message() {
                     Some("the part's future broke when polled"),
                     "part {armed}, {brackets}"
                 );
-                let ended: Vec<String> = log
-                    .entries()
-                    .into_iter()
-                    .filter(|entry| entry.contains("end_shots"))
-                    .collect();
+                let ended = log.entries_containing("end_shots");
                 assert!(ended.is_empty(), "part {armed}, {brackets}: {ended:?}");
             }
         );

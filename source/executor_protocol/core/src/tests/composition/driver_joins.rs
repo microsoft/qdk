@@ -150,24 +150,27 @@ macro_rules! faults_in_each_bracketing {
 #[test]
 fn every_boundary_that_does_not_fit_is_a_fault_of_the_chain() {
     let counted = Rc::new(Cell::new(0));
-    let expected = listed(&[
-        fault(
-            part::<CoinCopy>(0),
-            part::<Profiler>(1),
-            instructions(coin_gates(), &NO_X),
-        ),
-        fault(
-            part::<Profiler>(1),
-            part::<Profiler>(2),
-            instructions(&NO_X, &NO_MZ),
-        ),
-        fault(
-            part::<Profiler>(2),
-            part::<Bits>(3),
-            instructions(&NO_MZ, &NO_H),
-        ),
-    ]);
-    in_each_bracketing!(
+    let each_boundary = || {
+        vec![
+            fault(
+                part::<CoinCopy>(0),
+                part::<Profiler>(1),
+                instructions(coin_gates(), &NO_X),
+            ),
+            fault(
+                part::<Profiler>(1),
+                part::<Profiler>(2),
+                instructions(&NO_X, &NO_MZ),
+            ),
+            fault(
+                part::<Profiler>(2),
+                part::<Bits>(3),
+                instructions(&NO_MZ, &NO_H),
+            ),
+        ]
+    };
+    faults_in_each_bracketing!(
+        "sets",
         [d, a, b, e] from {
             let log = Log::default();
             let d = CoinCopy::new();
@@ -175,12 +178,9 @@ fn every_boundary_that_does_not_fit_is_a_fault_of_the_chain() {
             let b = Profiler::on(NO_MZ, &counted, &log);
             let e = Bits::accepting(NO_H, &log);
         },
-        |chain, brackets| assert_eq!(
-            listed(chain.err().as_ref().map_or(&[][..], CompositionFaults::faults)),
-            expected,
-            "sets, {brackets}"
-        ),
+        each_boundary(),
     );
+    let expected = listed(&each_boundary());
     let log = Log::default();
     let profiler = |set| Profiler::on(set, &counted, &log);
     let mut lent_executor = profiler(NO_X)
@@ -280,9 +280,15 @@ impl Adapter for Decomposer {
 /// does, short itself or over a smaller limit, and with an interleaver
 /// above it; a job queue's limit on shots, where the value falls short at
 /// both the queue and below it; and a replayer, which passes the seeded
-/// runs replay states. Instructions a batch and shots stand for any value:
-/// which values fit is each kind's rule, pinned once.
+/// runs replay states. A part stating limits is checked beside parts
+/// stating none: a decoder's limit between a logger and an executor that
+/// state none receives, through the logger, what the program requires, a
+/// fault naming the decoder when its limit falls short; the executor
+/// limits nothing, as it states none of the bits' batches of 4, so the
+/// larger limit composes. Instructions a batch and shots stand for any
+/// value: which values fit is each kind's rule, pinned once.
 #[test]
+#[expect(clippy::too_many_lines, reason = "a row per way a part passes a value")]
 fn a_requirement_passed_unchanged_is_checked_at_each_part_below_naming_its_requirer() {
     let counted = Rc::new(Cell::new(0));
     faults_in_each_bracketing!(
@@ -367,17 +373,6 @@ fn a_requirement_passed_unchanged_is_checked_at_each_part_below_naming_its_requi
             missing(FeatureMismatch::SeededRuns),
         )],
     );
-}
-
-/// Parts that state limits and parts that state none join in one chain,
-/// in each bracketing: a decoder's limit between a logger and an executor
-/// that state none receives, through the logger, what the program
-/// requires, a fault naming the decoder when its limit falls short; the
-/// executor limits nothing, as it states none of the bits' batches of 4,
-/// so the larger limit composes.
-#[test]
-fn a_part_stating_limits_is_checked_beside_parts_stating_none() {
-    let counted = Rc::new(Cell::new(0));
     for (row, limit, expected) in [
         (
             "batches through a logger and a decoder's limit, over no limit",

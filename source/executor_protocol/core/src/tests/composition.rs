@@ -17,11 +17,12 @@ mod driver_joins;
 mod part_panics;
 mod runner;
 
-use runner::{refused, runner};
-
 use std::any::type_name;
 use std::cell::Cell;
 use std::rc::Rc;
+use std::sync::mpsc;
+use std::thread;
+use std::time::Duration;
 
 use crate::prelude::*;
 use crate::tests::example_sets::Measuring;
@@ -29,35 +30,76 @@ use crate::tests::fake_parts::{
     BitFlip, Bits, CoinCopy, FromThread, GateForGate, Later, Log, NamesBelow, Profiler, Program,
     Renamed, Splitter, Spread, Stating, Trap, Values, batches_of, coin_gate, in_each_bracketing,
 };
+use crate::tests::runner;
 use crate::{
-    CompositionFaults, Features, Lowered, Resources, RunRefusal, RunRequirement, Runner, ShotSet,
-    StatesLimits, TranslatingAdapter,
+    CompositionFaults, DriveError, Failure, Features, Lowered, PartId, Resources, RunError,
+    RunRefusal, RunRequirement, Runner, ShotSet, StatesLimits, TranslatingAdapter,
 };
 
 const SEED: u64 = 7;
 
+/// How long a test waits for a thread before it fails, rather than hangs.
+const PATIENT: Duration = Duration::from_secs(20);
+
 /// The records of `shots` on the chain `composed` gave, which must compose.
-pub(super) fn records<D: Driver, E: Executor<Accepts = D::Sends>>(
+fn records<D: Driver, E: Executor<Accepts = D::Sends>>(
     composed: Result<Runner<D, E>, CompositionFaults>,
     shots: &ShotSet,
 ) -> Vec<D::Output> {
-    let Ok(mut runner) = composed else {
-        panic!("the chain composes");
-    };
-    runner.run(shots, SEED).expect("the run succeeds")
+    runner(composed).run(shots, SEED).expect("the run succeeds")
 }
 
 /// The faults of the chain `composed` gave, which must not compose.
-pub(super) fn faults<D: Driver, E: Executor<Accepts = D::Sends>>(
+fn faults<D: Driver, E: Executor<Accepts = D::Sends>>(
     composed: Result<Runner<D, E>, CompositionFaults>,
 ) -> CompositionFaults {
     composed.err().expect("the chain does not compose")
 }
 
 /// The records of [`CoinCopy`] on bits alone, for `shots`.
-pub(super) fn plain(shots: &ShotSet) -> Vec<Values> {
+fn plain(shots: &ShotSet) -> Vec<Values> {
     let log = Log::default();
     records(CoinCopy::new().on(Bits::new(&log)), shots)
+}
+
+/// The failure that ended a run.
+fn failed<T: std::fmt::Debug>(result: Result<T, RunError>) -> DriveError {
+    match result {
+        Err(RunError::Failed(error)) => error,
+        other => panic!("a failed run, not {other:?}"),
+    }
+}
+
+/// The refusal of a run.
+fn refused<T: std::fmt::Debug>(result: Result<T, RunError>) -> RunRefusal {
+    match result {
+        Err(RunError::Refused(refusal)) => refusal,
+        other => panic!("a refused run, not {other:?}"),
+    }
+}
+
+/// The message of the panic of `part` that ended a run, if it was a
+/// string; `row` names the case if the run ended otherwise.
+fn panic_of<'e>(error: &'e DriveError, part: &PartId, row: &str) -> Option<&'e str> {
+    let Failure::Panicked {
+        part: named,
+        message,
+    } = &error.failure
+    else {
+        panic!("{row}: a panic, not {error:?}");
+    };
+    assert_eq!(named, part, "{row}: the part named");
+    message.as_deref()
+}
+
+/// Runs `f` on a thread of its own, and fails the test if it does not end
+/// soon: a lost wake, or a blocked thread, would hang it.
+fn ends_soon<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || sender.send(f()).expect("the test waits"));
+    receiver
+        .recv_timeout(PATIENT)
+        .expect("it never ended: a wake was lost, or a thread blocked")
 }
 
 // ------------------------------------------------------------ the binding
@@ -170,9 +212,7 @@ fn two_runs<D: Driver, E: Executor<Accepts = D::Sends>>(
 where
     D::Output: std::fmt::Debug,
 {
-    let Ok(mut runner) = composed else {
-        panic!("the chain composes");
-    };
+    let mut runner = runner(composed);
     let first = runner.run(&ShotSet::ids(0..4), SEED);
     let second = runner.run(&ShotSet::ids(0..8), SEED);
     (format!("{first:?}, then {second:?}"), log.entries())
@@ -354,6 +394,12 @@ fn a_joined_part_runs_the_same_held_by_a_part_forwarding_its_role() {
 /// than run with them unread.
 #[test]
 fn a_part_whose_limits_a_holder_bypasses_refuses_the_run_naming_it() {
+    /// The refusal of the run of shots 0 to 3 on `chain`.
+    fn refused_run<D: Driver<Output: std::fmt::Debug>, E: Executor<Accepts = D::Sends>>(
+        chain: Result<Runner<D, E>, CompositionFaults>,
+    ) -> RunRefusal {
+        refused(runner(chain).run(&ShotSet::ids(0..4), SEED))
+    }
     let log = Log::default();
     let bits = type_name::<Bits>();
     let spread = type_name::<Spread>();
@@ -363,79 +409,60 @@ fn a_part_whose_limits_a_holder_bypasses_refuses_the_run_naming_it() {
             "an executor",
             (1, "user's executor"),
             bits,
-            refused(
-                runner(
-                    CoinCopy::new()
-                        .on(Renamed::stating_nothing(Bits::new(&log), "user's executor")),
-                )
-                .run(&ShotSet::ids(0..4), SEED),
+            refused_run(
+                CoinCopy::new().on(Renamed::stating_nothing(Bits::new(&log), "user's executor")),
             ),
         ),
         (
             "an executor under an adapter",
             (1, "user's executor"),
             bits,
-            refused(
-                runner(CoinCopy::new().on(Renamed::stating_nothing(
-                    BitFlip::new(0.3, &log).on(Bits::new(&log)),
-                    "user's executor",
-                )))
-                .run(&ShotSet::ids(0..4), SEED),
-            ),
+            refused_run(CoinCopy::new().on(Renamed::stating_nothing(
+                BitFlip::new(0.3, &log).on(Bits::new(&log)),
+                "user's executor",
+            ))),
         ),
         (
             "an adapter on an executor",
             (1, "user's executor"),
             spread,
-            refused(
-                runner(CoinCopy::new().on(Renamed::stating_nothing(
-                    Spread::new(2, &log).on(Bits::new(&log).part),
-                    "user's executor",
-                )))
-                .run(&ShotSet::ids(0..4), SEED),
-            ),
+            refused_run(CoinCopy::new().on(Renamed::stating_nothing(
+                Spread::new(2, &log).on(Bits::new(&log).part),
+                "user's executor",
+            ))),
         ),
         (
             "a driver",
             (0, "user's driver"),
             coin_copy,
-            refused(
-                runner(
-                    Renamed::stating_nothing(CoinCopy::new(), "user's driver").on(Bits::new(&log)),
-                )
-                .run(&ShotSet::ids(0..4), SEED),
+            refused_run(
+                Renamed::stating_nothing(CoinCopy::new(), "user's driver").on(Bits::new(&log)),
             ),
         ),
         (
             "a driver through an adapter",
             (0, "user's driver"),
             coin_copy,
-            refused(
-                runner(
-                    Renamed::stating_nothing(
-                        CoinCopy::new().through(BitFlip::new(0.3, &log)),
-                        "user's driver",
-                    )
-                    .on(Bits::new(&log)),
+            refused_run(
+                Renamed::stating_nothing(
+                    CoinCopy::new().through(BitFlip::new(0.3, &log)),
+                    "user's driver",
                 )
-                .run(&ShotSet::ids(0..4), SEED),
+                .on(Bits::new(&log)),
             ),
         ),
         (
             "an adapter through an adapter, under a driver",
             (0, "user's driver"),
             spread,
-            refused(
-                runner(
-                    Renamed::stating_nothing(
-                        CoinCopy::new()
-                            .part
-                            .through(BitFlip::new(0.3, &log).through(Spread::new(2, &log))),
-                        "user's driver",
-                    )
-                    .on(Bits::new(&log)),
+            refused_run(
+                Renamed::stating_nothing(
+                    CoinCopy::new()
+                        .part
+                        .through(BitFlip::new(0.3, &log).through(Spread::new(2, &log))),
+                    "user's driver",
                 )
-                .run(&ShotSet::ids(0..4), SEED),
+                .on(Bits::new(&log)),
             ),
         ),
     ];
@@ -487,18 +514,13 @@ fn logged_over_two_runs<D: Driver, E: Executor<Accepts = D::Sends>>(
     log: &Log,
     containing: &str,
 ) -> Vec<String> {
-    let Ok(mut runner) = composed else {
-        panic!("the chain composes");
-    };
+    let mut runner = runner(composed);
     for _ in 0..2 {
         runner
             .run(&ShotSet::ids(0..4), SEED)
             .expect("the run succeeds");
     }
-    log.entries()
-        .into_iter()
-        .filter(|entry| entry.contains(containing))
-        .collect()
+    log.entries_containing(containing)
 }
 
 /// Parts over bits, in each bracketing the joins make a runner of, the
@@ -625,16 +647,10 @@ fn driver_ready_for<D: Driver, E: Executor<Accepts = D::Sends>>(
     log: &Log,
     seed: Option<u64>,
 ) -> Vec<String> {
-    let Ok(mut runner) = composed else {
-        panic!("the chain composes");
-    };
-    runner
+    runner(composed)
         .run(&ShotSet::ids(0..3), seed)
         .expect("the run succeeds");
-    log.entries()
-        .into_iter()
-        .filter(|entry| entry.starts_with("CoinCopy ready"))
-        .collect()
+    log.entries_starting_with("CoinCopy ready")
 }
 
 /// A coin copy through an encoding of 2 built for its batches of 2, over
@@ -688,11 +704,8 @@ fn a_joined_part_gets_ready_for_what_each_chain_it_is_lent_to_requires() {
     for program in [Program::new(&[("mz", 0)]), Program::new(&[("mz", 0); 3])] {
         records(program.on(&mut lent), &ShotSet::ids(0..1));
     }
-    let ready: Vec<_> = (log.entries().into_iter())
-        .filter(|entry| entry.starts_with("Bits ready"))
-        .collect();
     assert_eq!(
-        ready,
+        log.entries_starting_with("Bits ready"),
         ["Bits ready for batches of 1", "Bits ready for batches of 3"]
     );
 }
@@ -712,9 +725,7 @@ fn an_adapter_reads_what_the_part_directly_below_provides_in_each_chain_it_is_le
         let program = Program::new(&[("mz", 0)]);
         records(program.through(&mut lent).on(bits), &ShotSet::ids(0..1));
     }
-    let told: Vec<_> = (log.entries().into_iter())
-        .filter(|entry| entry.starts_with("below takes"))
-        .collect();
+    let told = log.entries_starting_with("below takes");
     let takes = |most: Option<u32>| format!("below takes {most:?} a batch");
     assert_eq!(
         told,

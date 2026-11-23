@@ -18,7 +18,8 @@ use crate::{
     StatesLimits,
 };
 
-use super::{SEED, failed, runner};
+use crate::tests::composition::{SEED, failed};
+use crate::tests::runner;
 
 /// A program trapping on shot 5, run on 8 shots: the run fails naming shot
 /// 5 and the trap, and gives no records.

@@ -8,6 +8,7 @@
 
 mod readouts;
 
+use super::panics_saying;
 use crate::tests::allocations;
 use crate::tests::example_sets::Measuring;
 use crate::tests::example_sets::{BitReadout, ShotFlags};
@@ -245,15 +246,7 @@ fn a_shot_beyond_the_rows_panics() {
         ),
     ];
     for (method, mut batch, call, expected) in panics {
-        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| call(&mut batch)))
-            .expect_err(method);
-        let message = panic.downcast_ref::<String>().map(String::as_str);
-        for said in expected {
-            assert!(
-                message.is_some_and(|m| m.contains(said)),
-                "{method}: {message:?} says {said:?}"
-            );
-        }
+        panics_saying(method, || call(&mut batch), &expected);
     }
 }
 
@@ -328,48 +321,31 @@ fn concat_unions_each_shots_conditions() {
     }
 }
 
-/// Parts that answer different numbers of shots cannot be one batch's,
-/// whether the later part answers more shots than the first or fewer:
-/// the panic names both counts.
+/// Parts that cannot be one batch's do not fill its rows: parts that
+/// answer different numbers of shots, whether the later part answers more
+/// shots than the first or fewer, or parts whose readout slots add up to
+/// fewer or more than the rows', since parts must answer all of the
+/// batch's instructions and no more, also where they add up beyond a
+/// `u32`, of no rows so that `u32::MAX` slots cost no memory: the panic
+/// names both counts.
 #[test]
-fn concat_panics_on_parts_of_other_shots() {
+fn concat_panics_on_parts_not_of_one_batch() {
     let one = || readouts(1, &[(&[One], ShotFlags::NONE)]);
     let two = || readouts(1, &[(&[One], ShotFlags::NONE), (&[Zero], ShotFlags::NONE)]);
-    for (row, parts, expected) in [
+    let part = |shots, slots| BatchReadouts::<Measuring>::new(shots, slots);
+    for (row, mut rows, parts, expected) in [
         (
             "a later part of more shots",
-            [one(), two()],
+            part(1, 2),
+            vec![one(), two()],
             ["2 shots", "of 1"],
         ),
         (
             "a later part of fewer shots",
-            [two(), one()],
+            part(2, 2),
+            vec![two(), one()],
             ["1 shot", "of 2"],
         ),
-    ] {
-        let shots = parts[0].shots();
-        let panic = std::panic::catch_unwind(|| {
-            BatchReadouts::<Measuring>::new(shots, 2).concat_from(&parts);
-        })
-        .expect_err(row);
-        let message = panic.downcast_ref::<String>().map(String::as_str);
-        for said in expected {
-            assert!(
-                message.is_some_and(|m| m.contains(said)),
-                "{row}: {message:?} says {said:?}"
-            );
-        }
-    }
-}
-
-/// Parts must answer all of the batch's instructions, and no more: parts
-/// whose readout slots add up to fewer or more than the rows' cannot fill
-/// them, also where they add up beyond a `u32`, of no rows so that
-/// `u32::MAX` slots cost no memory: the panic names both counts.
-#[test]
-fn concat_panics_on_parts_of_other_summed_readout_slots() {
-    let part = |shots, slots| BatchReadouts::<Measuring>::new(shots, slots);
-    for (row, rows, parts, expected) in [
         (
             "fewer slots",
             part(1, 3),
@@ -389,18 +365,7 @@ fn concat_panics_on_parts_of_other_summed_readout_slots() {
             ["4294967296 readout slots", "rows of 0"],
         ),
     ] {
-        let mut rows = rows;
-        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            rows.concat_from(&parts);
-        }))
-        .expect_err(row);
-        let message = panic.downcast_ref::<String>().map(String::as_str);
-        for said in expected {
-            assert!(
-                message.is_some_and(|m| m.contains(said)),
-                "{row}: {message:?} says {said:?}"
-            );
-        }
+        panics_saying(row, || rows.concat_from(&parts), &expected);
     }
 }
 

@@ -18,69 +18,30 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use super::driver_joins::{NO_X, fault, listed, part, short_shots};
+use super::{PATIENT, SEED, ends_soon, failed, plain, refused};
 use crate::prelude::*;
 use crate::tests::example_sets::Measuring;
 use crate::tests::example_sets::{BitReadout, ShotFlags};
 use crate::tests::fake_parts::{
     BitFlip, Bits, CoinCopy, FailsOnce, FromThread, GateForGate, Later, Log, Panics, PanicsWhen,
-    Profiler, Program, Renamed, SeesSeeds, Splitter, Spread, Stating, Trap, Values, YieldNow,
-    batches_of, coin_gates, in_each_bracketing,
+    Profiler, Program, Renamed, Splitter, Spread, Stating, Trap, Values, YieldNow, batches_of,
+    coin_gates, in_each_bracketing,
 };
+use crate::tests::runner;
 use crate::{
-    BoundaryCompatible, BoundaryMismatch, CapabilitiesMismatch, CompositionFault, DriveError,
-    Failure, FeatureMismatch, Features, Lowered, ResourceMismatch, RunError, RunRefusal, Runner,
-    ShotSet, StatesLimits,
+    BoundaryCompatible, BoundaryMismatch, CapabilitiesMismatch, CompositionFault, Failure,
+    FeatureMismatch, Features, Lowered, ResourceMismatch, RunError, RunRefusal, Runner, ShotSet,
+    StatesLimits,
 };
-
-pub(super) const SEED: u64 = 7;
-
-/// How long a test waits for a thread before it fails, rather than hangs.
-const PATIENT: Duration = Duration::from_secs(20);
-
-/// The runner of the chain `composed` gave, which must compose.
-pub(super) fn runner<D: Driver, E: Executor<Accepts = D::Sends>>(
-    composed: Result<Runner<D, E>, crate::CompositionFaults>,
-) -> Runner<D, E> {
-    let Ok(runner) = composed else {
-        panic!("the chain composes");
-    };
-    runner
-}
 
 /// [`CoinCopy`] on bits alone.
 fn coin_copy(log: &Log) -> Runner<StatesLimits<CoinCopy>, StatesLimits<Bits>> {
     runner(CoinCopy::new().on(Bits::new(log)))
 }
 
-/// The records of `shots` on [`CoinCopy`] on bits alone.
-fn plain(shots: &ShotSet) -> Vec<Values> {
-    coin_copy(&Log::default())
-        .run(shots, SEED)
-        .expect("the run succeeds")
-}
-
-/// The failure that ended a run.
-pub(super) fn failed<T: std::fmt::Debug>(result: Result<T, RunError>) -> DriveError {
-    match result {
-        Err(RunError::Failed(error)) => error,
-        other => panic!("a failed run, not {other:?}"),
-    }
-}
-
-/// The refusal of a run.
-pub(super) fn refused<T: std::fmt::Debug>(result: Result<T, RunError>) -> RunRefusal {
-    match result {
-        Err(RunError::Refused(refusal)) => refusal,
-        other => panic!("a refused run, not {other:?}"),
-    }
-}
-
 /// The shots' ends `log` saw, in order.
 fn ended(log: &Log) -> Vec<String> {
-    log.entries()
-        .into_iter()
-        .filter(|entry| entry.contains("end_shots"))
-        .collect()
+    log.entries_containing("end_shots")
 }
 
 // ---------------------------------------------------------------- records
@@ -93,7 +54,7 @@ fn ended(log: &Log) -> Vec<String> {
 /// depend on the run's seed alone; a run of another seed gets that seed.
 #[test]
 fn every_part_gets_the_runs_seed_unchanged() {
-    /// The seeds `log` holds, by the label of the part that got each, in
+    /// The seeds `log` holds, by the name of the part that got each, in
     /// the order they came.
     fn seen(log: &Log) -> Vec<(String, String)> {
         log.entries()
@@ -107,7 +68,7 @@ fn every_part_gets_the_runs_seed_unchanged() {
     /// The seed a driver alone over bits gets in a run on `seed`.
     fn runs_seed(seed: u64) -> String {
         let log = Log::default();
-        let driver = SeesSeeds::new(CoinCopy::new(), "driver", &log);
+        let driver = Renamed::seeing_seeds(CoinCopy::new(), "driver", &log);
         runner(driver.on(Bits::new(&log)))
             .run(&ShotSet::ids([0]), seed)
             .expect("the run succeeds");
@@ -118,10 +79,10 @@ fn every_part_gets_the_runs_seed_unchanged() {
     in_each_bracketing!(
         [d, a, b, e] from {
             let log = Log::default();
-            let d = SeesSeeds::new(CoinCopy::new(), "driver", &log);
-            let a = SeesSeeds::new(BitFlip::new(0.3, &log), "noise", &log);
-            let b = SeesSeeds::new(Splitter::new(), "splitter", &log);
-            let e = SeesSeeds::new(Bits::new(&log), "bits", &log);
+            let d = Renamed::seeing_seeds(CoinCopy::new(), "driver", &log);
+            let a = Renamed::seeing_seeds(BitFlip::new(0.3, &log), "noise", &log);
+            let b = Renamed::seeing_seeds(Splitter::new(), "splitter", &log);
+            let e = Renamed::seeing_seeds(Bits::new(&log), "bits", &log);
         },
         |chain, brackets| {
             let mut runner = runner(chain);
@@ -431,16 +392,6 @@ fn run_tasks(mut tasks: Vec<Pin<Box<dyn Future<Output = ()> + '_>>>, log: &RefCe
     }
 }
 
-/// Runs `f` on a thread of its own, and fails the test if it does not end
-/// soon: a lost wake, or a blocked thread, would hang it.
-fn ends_soon<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
-    let (sender, receiver) = mpsc::channel();
-    thread::spawn(move || sender.send(f()).expect("the test waits"));
-    receiver
-        .recv_timeout(PATIENT)
-        .expect("it never ended: a wake was lost, or a thread blocked")
-}
-
 /// Task A awaits a run whose executor answers only after task B's fifth
 /// step, B on the same thread: B runs while A awaits, and the thread does
 /// not sleep while B has work.
@@ -494,10 +445,11 @@ fn two_tasks_on_one_thread() {
     );
 }
 
-/// Coin copies under a noise flipping 30% of the `x`s, over bits, in both
-/// bracketings, whose first run does not finish: it is dropped after its
+/// Coin copies under a noise flipping 30% of the `x`s, over bits, in each
+/// bracketing, whose first run does not finish: it is dropped after its
 /// first `execute`, the bits answering later, or failed by an adapter
-/// failing, or panicking in, its second `execute`. The unfinished run
+/// between the noise and the bits failing, or panicking in, its second
+/// `execute`. The unfinished run
 /// leaves no shot's state in any part, and a caught panic does not keep
 /// the chain from running, so the rerun with the same seed gives the
 /// records of a new chain.
@@ -519,34 +471,27 @@ fn a_rerun_after_an_unfinished_run_gives_a_new_chains_records() {
         assert_eq!(log.count("Bits execute"), 1, "one execute before the drop");
     }
     let shots = ShotSet::ids(0..16);
-    let noise = |log: &Log| BitFlip::new(0.3, log);
-    let coin_copy = || CoinCopy::new();
     let new_chain = runner(
-        coin_copy()
-            .through(noise(&Log::default()))
+        CoinCopy::new()
+            .through(BitFlip::new(0.3, &Log::default()))
             .on(Bits::new(&Log::default())),
     )
     .run(&shots, SEED)
     .expect("the run succeeds");
     let mut reruns = Vec::new();
-    let log = Log::default();
-    let mut left = runner(
-        coin_copy()
-            .through(noise(&log))
-            .on(Later(Bits::new(&log)).stating_limits()),
+    in_each_bracketing!(
+        [d, a, e] from {
+            let log = Log::default();
+            let d = CoinCopy::new();
+            let a = BitFlip::new(0.3, &log);
+            let e = Later(Bits::new(&log)).stating_limits();
+        },
+        |chain, brackets| {
+            let mut runner = runner(chain);
+            drop_unfinished(&mut runner, &shots, &log);
+            reruns.push((format!("dropped, {brackets}"), runner.run(&shots, SEED)));
+        }
     );
-    drop_unfinished(&mut left, &shots, &log);
-    reruns.push((
-        "dropped, the noise with the driver".to_owned(),
-        left.run(&shots, SEED),
-    ));
-    let log = Log::default();
-    let mut right = runner(coin_copy().on(noise(&log).on(Later(Bits::new(&log)).stating_limits())));
-    drop_unfinished(&mut right, &shots, &log);
-    reruns.push((
-        "dropped, the noise with the bits".to_owned(),
-        right.run(&shots, SEED),
-    ));
     for (ended, panics) in [("failed", false), ("panicked", true)] {
         let fails_once = || {
             if panics {
@@ -562,25 +507,21 @@ fn a_rerun_after_an_unfinished_run_gives_a_new_chains_records() {
                 matches!(failure, Failure::Part(_))
             }
         };
-        let log = Log::default();
-        let mut left = runner(
-            coin_copy()
-                .through(noise(&log))
-                .through(fails_once())
-                .on(Bits::new(&log)),
+        in_each_bracketing!(
+            [d, a, b, e] from {
+                let log = Log::default();
+                let d = CoinCopy::new();
+                let a = BitFlip::new(0.3, &log);
+                let b = fails_once();
+                let e = Bits::new(&log);
+            },
+            |chain, brackets| {
+                let mut runner = runner(chain);
+                let first = failed(runner.run(&shots, SEED));
+                assert!(as_expected(&first.failure), "{ended}, {brackets}: {first:?}");
+                reruns.push((format!("{ended}, {brackets}"), runner.run(&shots, SEED)));
+            }
         );
-        let first = failed(left.run(&shots, SEED));
-        assert!(as_expected(&first.failure), "{ended}: {first:?}");
-        let row = format!("{ended}, the noise with the driver");
-        reruns.push((row, left.run(&shots, SEED)));
-        let log = Log::default();
-        let mut right = runner(coin_copy().on(noise(&log).on(fails_once().on(Bits::new(&log)))));
-        let first = failed(right.run(&shots, SEED));
-        assert!(as_expected(&first.failure), "{ended}: {first:?}");
-        reruns.push((
-            format!("{ended}, the noise with the bits"),
-            right.run(&shots, SEED),
-        ));
     }
     for (row, rerun) in reruns {
         assert_eq!(rerun.expect("the rerun succeeds"), new_chain, "{row}");
@@ -616,10 +557,7 @@ fn a_runs_future_is_send_when_every_part_and_its_future_are() {
 
 /// How often `log` says [`Bits`] were asked whether they can take a run.
 pub(super) fn bits_asked(log: &Log) -> usize {
-    log.entries()
-        .iter()
-        .filter(|entry| entry.starts_with("Bits ready"))
-        .count()
+    log.entries_starting_with("Bits ready").len()
 }
 
 /// The position and the name's last segment of the part `refusal`
@@ -651,10 +589,7 @@ fn calibrating(refusal: &RunRefusal) -> Option<(usize, &str)> {
 fn the_parts_are_asked_bottom_up_until_one_refuses() {
     /// The parts `log` says were asked, in order.
     fn asked(log: &Log) -> Vec<String> {
-        log.entries()
-            .into_iter()
-            .filter(|entry| entry.contains(" ready"))
-            .collect()
+        log.entries_containing(" ready")
     }
     let counted = Rc::new(Cell::new(0));
     // Busy bits under a profiler: refused with the bits' reason, and the
@@ -785,22 +720,23 @@ fn the_parts_are_asked_bottom_up_until_one_refuses() {
 }
 
 /// The refusals of runs of `shots`, in turn, on the one runner of the
-/// chain `composed` gave, which must compose, and whether anything ran:
-/// the instructions `counted` saw and the shots' ends `log` saw.
+/// chain `compose` makes on a new log, which must compose, and whether
+/// anything ran: the instructions `counted` saw and the shots' ends the
+/// log saw.
 fn refused_in_turn<D: Driver, E: Executor<Accepts = D::Sends>>(
-    composed: Result<Runner<D, E>, crate::CompositionFaults>,
     shots: &[u32],
     counted: &Cell<usize>,
-    log: &Log,
+    compose: impl FnOnce(&Log) -> Result<Runner<D, E>, crate::CompositionFaults>,
 ) -> (Vec<RunRefusal>, usize, Vec<String>)
 where
     D::Output: std::fmt::Debug,
 {
-    let mut runner = runner(composed);
+    let log = Log::default();
+    let mut runner = runner(compose(&log));
     let refusals = (shots.iter())
         .map(|&n| refused(runner.run(&ShotSet::ids(0..n), SEED)))
         .collect();
-    (refusals, counted.get(), ended(log))
+    (refusals, counted.get(), ended(&log))
 }
 
 /// A part of each role joined from two parts, wrapped by a part of a
@@ -875,130 +811,109 @@ fn a_wrapped_joined_part_refuses_each_run_its_inner_boundary_does_not_take() {
             0,
             "user's driver",
             vec![&no_x_fault; 2],
-            {
-                let log = Log::default();
+            refused_in_turn(&[4, 4], &counted, |log| {
                 let held = Renamed::new(
-                    CoinCopy::new().through(profiler(NO_X, &log)),
+                    CoinCopy::new().through(profiler(NO_X, log)),
                     "user's driver",
                 );
-                refused_in_turn(
-                    held.on(Bits::accepting(NO_X, &log)),
-                    &[4, 4],
-                    &counted,
-                    &log,
-                )
-            },
+                held.on(Bits::accepting(NO_X, log))
+            }),
         ),
         (
             "an adapter through an adapter",
             1,
             "user's adapter",
             vec![&no_x_fault; 2],
-            {
-                let log = Log::default();
+            refused_in_turn(&[4, 4], &counted, |log| {
                 let held = Renamed::new(
-                    profiler(*coin_gates(), &log).through(profiler(NO_X, &log)),
+                    profiler(*coin_gates(), log).through(profiler(NO_X, log)),
                     "user's adapter",
                 );
-                refused_in_turn(
-                    CoinCopy::new()
-                        .through(held)
-                        .on(Bits::accepting(NO_X, &log)),
-                    &[4, 4],
-                    &counted,
-                    &log,
-                )
-            },
+                CoinCopy::new().through(held).on(Bits::accepting(NO_X, log))
+            }),
         ),
         (
             "an adapter on an executor",
             1,
             "user's executor",
             vec![&no_x_fault; 2],
-            {
-                let log = Log::default();
+            refused_in_turn(&[4, 4], &counted, |log| {
                 let held = Renamed::new(
-                    profiler(*coin_gates(), &log).on(Bits::accepting(NO_X, &log)),
+                    profiler(*coin_gates(), log).on(Bits::accepting(NO_X, log)),
                     "user's executor",
                 );
-                refused_in_turn(CoinCopy::new().on(held), &[4, 4], &counted, &log)
-            },
+                CoinCopy::new().on(held)
+            }),
         ),
         (
             "an adapter on an executor, held stating nothing",
             1,
             "user's executor",
             vec![&no_x_fault; 2],
-            {
-                let log = Log::default();
+            refused_in_turn(&[4, 4], &counted, |log| {
                 let held = Renamed::stating_nothing(
-                    profiler(*coin_gates(), &log).on(Bits::accepting(NO_X, &log)),
+                    profiler(*coin_gates(), log).on(Bits::accepting(NO_X, log)),
                     "user's executor",
                 );
-                refused_in_turn(CoinCopy::new().on(held), &[4, 4], &counted, &log)
-            },
+                CoinCopy::new().on(held)
+            }),
         ),
         (
             "an adapter on an executor of 3 shots",
             1,
             "user's executor",
             vec![&shots_fault; 2],
-            {
-                let log = Log::default();
+            refused_in_turn(&[4, 4], &counted, |log| {
                 let held = Renamed::new(
-                    profiler(*coin_gates(), &log)
-                        .on(Bits::new(&log).with_resources(batches_of(64).with_shots(3))),
+                    profiler(*coin_gates(), log)
+                        .on(Bits::new(log).with_resources(batches_of(64).with_shots(3))),
                     "user's executor",
                 );
-                refused_in_turn(CoinCopy::new().on(held), &[4, 4], &counted, &log)
-            },
+                CoinCopy::new().on(held)
+            }),
         ),
         (
             "a repetition on an adapter on an executor of 3 shots and no `x`",
             1,
             "user's executor",
             vec![&no_x_fault, &no_x_and_shots, &no_x_fault],
-            {
-                let log = Log::default();
-                let bits = Bits::accepting(NO_X, &log).with_resources(batches_of(64).with_shots(3));
+            refused_in_turn(&[1, 2, 1], &counted, |log| {
+                let bits = Bits::accepting(NO_X, log).with_resources(batches_of(64).with_shots(3));
                 let held = Renamed::new(
-                    Stating::repeating_shots(2, &log).on(profiler(*coin_gates(), &log).on(bits)),
+                    Stating::repeating_shots(2, log).on(profiler(*coin_gates(), log).on(bits)),
                     "user's executor",
                 );
-                refused_in_turn(CoinCopy::new().on(held), &[1, 2, 1], &counted, &log)
-            },
+                CoinCopy::new().on(held)
+            }),
         ),
         (
             "a driver through a queue of 3 shots",
             0,
             "user's driver",
             vec![&shots_fault; 2],
-            {
-                let log = Log::default();
+            refused_in_turn(&[4, 4], &counted, |log| {
                 let held = Renamed::new(
-                    CoinCopy::new().through(Stating::queue(3, &log)),
+                    CoinCopy::new().through(Stating::queue(3, log)),
                     "user's driver",
                 );
-                refused_in_turn(held.on(Bits::new(&log)), &[4, 4], &counted, &log)
-            },
+                held.on(Bits::new(log))
+            }),
         ),
         (
             "an adapter through a decoder of batches of 4",
             1,
             "user's adapter",
             vec![&batches_fault; 2],
-            {
-                let log = Log::default();
+            refused_in_turn(&[4, 4], &counted, |log| {
                 let held = Renamed::new(
-                    Stating::interleaving(3, &log).through(Stating::capping(4, &log)),
+                    Stating::interleaving(3, log).through(Stating::capping(4, log)),
                     "user's adapter",
                 );
-                let chain = Program::new(&[("mz", 0)])
+                Program::new(&[("mz", 0)])
                     .with_resources(batches_of(5))
                     .through(held)
-                    .on(Bits::new(&log).with_resources(batches_of(10)));
-                refused_in_turn(chain, &[4, 4], &counted, &log)
-            },
+                    .on(Bits::new(log).with_resources(batches_of(10)))
+            }),
         ),
     ];
     for (row, position, name, faults, (refusals, ran, ended)) in rows {
@@ -1037,50 +952,88 @@ fn the_one_fault(refusal: &RunRefusal) -> Option<&CapabilitiesMismatch> {
     }
 }
 
-/// Runs one shot more than `most` on `runner`, refused before any part is
-/// asked or runs, then `most` shots, a record each: a row of
-/// [`a_run_of_more_shots_than_its_chain_provides_is_refused`], named
-/// `row`.
-fn takes_at_most<D: Driver<Output: std::fmt::Debug>, E: Executor<Accepts = D::Sends>>(
+/// A run a chain does not provide, in a row of
+/// [`a_run_the_chain_does_not_provide_is_refused_before_any_part_runs`].
+#[derive(Clone, Copy)]
+enum Unprovided {
+    /// One shot more than the most the chain provides.
+    ShotsBeyond(u32),
+    /// A seed, on a chain not providing seeded runs, for so many shots.
+    Seed(u32),
+}
+
+/// Runs `unprovided` on `runner`, refused before any part is asked or
+/// runs, with the one fault it names, then the run the chain provides
+/// instead (the most shots, or no seed), a record each: a row named `row`.
+fn refused_before_any_part_runs<
+    D: Driver<Output: std::fmt::Debug>,
+    E: Executor<Accepts = D::Sends>,
+>(
     row: &str,
     mut runner: Runner<D, E>,
-    most: u32,
+    unprovided: Unprovided,
     log: &Log,
 ) {
     let asked = bits_asked(log);
     let ran = log.count("Bits execute");
-    let refusal = refused(runner.run(&ShotSet::ids(0..=most), SEED));
-    let short = ResourceMismatch::Shots {
-        required: most + 1,
-        provided: most,
+    let (refused_run, provided) = match unprovided {
+        Unprovided::ShotsBeyond(most) => (
+            (ShotSet::ids(0..=most), Some(SEED)),
+            (ShotSet::ids(0..most), Some(SEED)),
+        ),
+        Unprovided::Seed(shots) => (
+            (ShotSet::ids(0..shots), Some(SEED)),
+            (ShotSet::ids(0..shots), None),
+        ),
     };
-    assert_eq!(
-        the_one_fault(&refusal).map(|mismatch| &mismatch.resources[..]),
-        Some(&[short][..]),
-        "{row}: {refusal:?}"
-    );
+    let refusal = refused(runner.run(&refused_run.0, refused_run.1));
+    let mismatch = the_one_fault(&refusal);
+    let named = match unprovided {
+        Unprovided::ShotsBeyond(most) => {
+            let short = ResourceMismatch::Shots {
+                required: most + 1,
+                provided: most,
+            };
+            mismatch.map(|mismatch| &mismatch.resources[..]) == Some(&[short][..])
+        }
+        Unprovided::Seed(_) => {
+            let not_seeded = FeatureMismatch::SeededRuns;
+            mismatch.map(|mismatch| &mismatch.features[..]) == Some(&[not_seeded][..])
+        }
+    };
+    assert!(named, "{row}: {refusal:?}");
     assert_eq!(bits_asked(log), asked, "{row}: no part asked");
     assert_eq!(log.count("Bits execute"), ran, "{row}: nothing ran");
     let records = runner
-        .run(&ShotSet::ids(0..most), SEED)
-        .unwrap_or_else(|error| panic!("{row}: a run of {most}: {error:?}"));
-    assert_eq!(records.len(), most as usize, "{row}: a record per shot");
+        .run(&provided.0, provided.1)
+        .unwrap_or_else(|error| panic!("{row}: the run provided: {error:?}"));
+    assert_eq!(records.len(), provided.0.len(), "{row}: a record per shot");
 }
 
+/// A run asks of the parts below its driver its shots and, if seeded,
+/// seeded runs; a chain that does not provide them refuses the run before
+/// any part is asked or runs, and runs what it provides.
+///
 /// A run's shots arrive at each part below its driver, passed unchanged
 /// by each part that does not require otherwise, so a chain runs at most
 /// the fewest the parts they arrive at take. In every bracketing, a run of
-/// one more is refused before any part is asked or runs, and a run of that
-/// many runs. So an adapter may lower
-/// the most shots a run may have, and raise it only by requiring fewer
-/// below, as a job splitter does, which then runs any.
+/// one more is refused, and a run of that many runs. So an adapter may
+/// lower the most shots a run may have, and raise it only by requiring
+/// fewer below, as a job splitter does, which then runs any.
+///
+/// A seeded run requires seeded runs below its driver: on an executor
+/// stating seeded runs `false`, a seeded run is refused, and a run with no
+/// seed runs. An adapter requiring no seeded runs below, as a sampler
+/// seeding its own draws does, runs a seeded run over the same executor,
+/// in every bracketing.
 #[test]
-fn a_run_of_more_shots_than_its_chain_provides_is_refused() {
+fn a_run_the_chain_does_not_provide_is_refused_before_any_part_runs() {
+    use Unprovided::{Seed, ShotsBeyond};
     let log = Log::default();
     let bits = |most| Bits::new(&log).with_resources(batches_of(64).with_shots(most));
     // An executor running 4 shots at most.
     let alone = runner(CoinCopy::new().on(bits(4)));
-    takes_at_most("the executor alone", alone, 4, &log);
+    refused_before_any_part_runs("the executor alone", alone, ShotsBeyond(4), &log);
     // Bits under a job queue of 4 shots at most: the fewer of the two
     // holds, wherever the brackets go.
     for (bits_most, most) in [(None, 4), (Some(8), 4), (Some(1), 1)] {
@@ -1090,7 +1043,7 @@ fn a_run_of_more_shots_than_its_chain_provides_is_refused() {
             let e = bits_most.map_or_else(|| Bits::new(&log), bits);
         }, |chain, brackets| {
             let row = format!("under a queue, over bits of {bits_most:?}, {brackets}");
-            takes_at_most(&row, runner(chain), most, &log);
+            refused_before_any_part_runs(&row, runner(chain), ShotsBeyond(most), &log);
         });
     }
     // Bits running 1 shot at most, under a decoder that does not state
@@ -1101,7 +1054,7 @@ fn a_run_of_more_shots_than_its_chain_provides_is_refused() {
         let e = bits(1);
     }, |chain, brackets| {
         let row = format!("a decoder with no limit, {brackets}");
-        takes_at_most(&row, runner(chain), 1, &log);
+        refused_before_any_part_runs(&row, runner(chain), ShotsBeyond(1), &log);
     });
     // Bits running 8 shots at most, under a job queue of 4, under a decoder
     // with no shot limit: the queue's limit, though neither the executor's
@@ -1113,7 +1066,22 @@ fn a_run_of_more_shots_than_its_chain_provides_is_refused() {
         let e = bits(8);
     }, |chain, brackets| {
         let row = format!("a queue under a decoder, {brackets}");
-        takes_at_most(&row, runner(chain), 4, &log);
+        refused_before_any_part_runs(&row, runner(chain), ShotsBeyond(4), &log);
+    });
+    let bits_without_seeded_runs =
+        || Bits::new(&log).with_features(Features::unconstrained().with_seeded_runs(false));
+    // An executor without seeded runs.
+    let alone = runner(CoinCopy::new().on(bits_without_seeded_runs()));
+    refused_before_any_part_runs("the executor alone, seeded", alone, Seed(4), &log);
+    // Bits without seeded runs, under a sampler that seeds its own
+    // draws: a seeded run runs.
+    in_each_bracketing!([d, sampler, e] from {
+        let d = CoinCopy::new();
+        let sampler = Stating::seeding_itself(&log);
+        let e = bits_without_seeded_runs();
+    }, |chain, brackets| {
+        (runner(chain).run(&ShotSet::ids(0..2), SEED))
+            .unwrap_or_else(|error| panic!("a sampler, {brackets}: {error:?}"));
     });
 }
 
@@ -1195,59 +1163,4 @@ fn a_refused_run_names_each_part_whose_requirement_is_not_provided_and_its_provi
             fault(part::<Stating>(2), part::<Bits>(3), short_shots(6, 4)),
         ]),
     );
-}
-
-/// Runs `shots` shots with a seed on `runner`, refused before any part is
-/// asked or runs, then with no seed: a row of
-/// [`a_seeded_run_is_refused_unless_the_chain_provides_seeded_runs`], named
-/// `row`.
-fn refuses_a_seed<D: Driver<Output: std::fmt::Debug>, E: Executor<Accepts = D::Sends>>(
-    row: &str,
-    mut runner: Runner<D, E>,
-    shots: u32,
-    log: &Log,
-) {
-    let shots = ShotSet::ids(0..shots);
-    let asked = bits_asked(log);
-    let ran = log.count("Bits execute");
-    let refusal = refused(runner.run(&shots, SEED));
-    let not_seeded = FeatureMismatch::SeededRuns;
-    assert_eq!(
-        the_one_fault(&refusal).map(|mismatch| &mismatch.features[..]),
-        Some(&[not_seeded][..]),
-        "{row}: {refusal:?}"
-    );
-    assert_eq!(bits_asked(log), asked, "{row}: no part asked");
-    assert_eq!(log.count("Bits execute"), ran, "{row}: nothing ran");
-    runner
-        .run(&shots, None)
-        .unwrap_or_else(|error| panic!("{row}: a run with no seed: {error:?}"));
-}
-
-/// A seeded run requires seeded runs of the parts below its driver: on an
-/// executor stating seeded runs `false`, a seeded run is refused before
-/// any part is asked or runs, and a run with no seed runs. An adapter
-/// requiring no seeded runs below, as a sampler seeding its own draws
-/// does, runs a seeded run over
-/// the same executor, in every bracketing. How the run's requirement
-/// passes each part below is the walk's, pinned with shots in
-/// [`a_run_of_more_shots_than_its_chain_provides_is_refused`].
-#[test]
-fn a_seeded_run_is_refused_unless_the_chain_provides_seeded_runs() {
-    let log = Log::default();
-    let bits_without_seeded_runs =
-        || Bits::new(&log).with_features(Features::unconstrained().with_seeded_runs(false));
-    // An executor without seeded runs.
-    let alone = runner(CoinCopy::new().on(bits_without_seeded_runs()));
-    refuses_a_seed("the executor alone", alone, 4, &log);
-    // Bits without seeded runs, under a sampler that seeds its own
-    // draws: a seeded run runs.
-    in_each_bracketing!([d, sampler, e] from {
-        let d = CoinCopy::new();
-        let sampler = Stating::seeding_itself(&log);
-        let e = bits_without_seeded_runs();
-    }, |chain, brackets| {
-        (runner(chain).run(&ShotSet::ids(0..2), SEED))
-            .unwrap_or_else(|error| panic!("a sampler, {brackets}: {error:?}"));
-    });
 }
