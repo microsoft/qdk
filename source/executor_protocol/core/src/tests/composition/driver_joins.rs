@@ -19,8 +19,8 @@ use crate::tests::example_sets::{
 };
 use crate::tests::fake_parts::{
     AncillaReuse, Bits, CczDecomposition, CliffordTRegister, CoinCopy, Log, Profiler, Program,
-    Renamed, ResettableProgram, Spread, StatesNoLimits, Stating, ToffoliProgram, Zeros, batches_of,
-    coin_gates, in_each_bracketing,
+    QubitProgram, Renamed, ResetInsertion, ResettableProgram, Spread, StatesNoLimits, Stating,
+    ToffoliProgram, Zeros, batches_of, coin_gates, in_each_bracketing,
 };
 use crate::{
     Batch, BatchReadouts, BoundaryCompatible, BoundaryMismatch, Capabilities, CapabilitiesMismatch,
@@ -312,6 +312,10 @@ impl Adapter for Decomposer {
 /// executor of 8 qubits and no reset falls short of the program's qubits
 /// and of the reuse's reset, two faults; and of a program needing both,
 /// its reset passed unchanged through the reuse, one fault holding both.
+/// A need is traced only through parts whose capabilities are of its
+/// type: a translating adapter onto a set of qubits and a reset, which
+/// copies a program's 10 qubits and adds a need of reset, is the first to
+/// require both, one fault naming it.
 /// Instructions a batch, shots and qubits stand for any value: which
 /// values fit is each kind's rule, pinned once.
 #[test]
@@ -472,6 +476,19 @@ fn a_requirement_passed_unchanged_is_checked_at_each_part_below_naming_its_requi
             expected,
         );
     }
+    faults_in_each_bracketing!(
+        "qubits through a translation that changes their type, adding a need of reset",
+        [d, t, e] from {
+            let d = QubitProgram::new(&[], 10);
+            let t = ResetInsertion;
+            let e = Zeros::providing(Resettable, Some(qubits_and_reset(8, false)));
+        },
+        vec![fault(
+            part::<ResetInsertion>(1),
+            register.clone(),
+            needs_short(&[qubits_short, reset_short]),
+        )],
+    );
     for (qubits, expected) in [
         (
             2,

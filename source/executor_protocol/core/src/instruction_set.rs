@@ -48,9 +48,11 @@ pub trait InstructionSet:
     /// above, provided below, compared by
     /// [`fits`](BoundaryCompatible::fits) with the same rule as theirs.
     /// Equal values are what a part passes below unchanged, which a
-    /// composition fault traces to the part that first required them;
-    /// each piece of a mismatch is traced on its own, by the
-    /// [`SameNeed`] that [`split_mismatch`](Self::split_mismatch) gives it.
+    /// composition fault traces to the part that first required them,
+    /// through the parts whose capabilities are of this type, as the
+    /// crate's `docs/capabilities.md` says; each piece of a mismatch is
+    /// traced on its own, by the [`SameNeed`] that
+    /// [`split_mismatch`](Self::split_mismatch) gives it.
     ///
     /// A value reads per side: as a requirement, what the part above needs
     /// (an unstated field, no need); as a provision, the part's limits (an
@@ -90,9 +92,11 @@ pub trait InstructionSet:
     /// The set's capabilities that need nothing: what a requirement that
     /// states nothing of the set holds, such as no qubit, and what a driver
     /// that states nothing requires of the set. It fits every provision,
-    /// stated or not, as a need of nothing is within any limits: a chain of
-    /// parts that state nothing composes and runs on any part below. A
-    /// part that limits nothing states no provision at all (`None`), never
+    /// stated or not, as a need of nothing is within any limits; what else
+    /// a chain meets (the instructions each part sends, the run's own
+    /// requirements, each part's `ready`) is checked on its own, as the
+    /// crate's `docs/composing-and-running.md` says. A part that limits
+    /// nothing states no provision at all (`None`), never
     /// this value, which as a provision may limit, such as to no qubit.
     fn needs_nothing() -> Self::SetCapabilities;
 
@@ -100,10 +104,11 @@ pub trait InstructionSet:
     /// per need, each with how two parts' capabilities state the same need
     /// ([`SameNeed`]): so that a composition fault names, for each need,
     /// the part that stated it, as it does for each resource and feature.
-    /// A need a part passes below unchanged is the first stater's: where a
-    /// driver needs 10 qubits and an adapter below it adds a need of
-    /// reset, an executor of 8 qubits and no reset falls short of the
-    /// driver's qubits and of the adapter's reset, two faults.
+    /// A need a part passes below unchanged is the first stater's, traced
+    /// as the crate's `docs/capabilities.md` says: where a driver needs 10
+    /// qubits and an adapter below it adds a need of reset, an executor of
+    /// 8 qubits and no reset falls short of the driver's qubits and of the
+    /// adapter's reset, two faults.
     ///
     /// By default, the whole mismatch is one piece, a need two parts state
     /// alike when their capabilities are equal: a set whose capabilities

@@ -2,15 +2,17 @@
 // Licensed under the MIT License.
 
 //! The fake parts on [`Resettable`], whose capabilities are qubits and a
-//! reset: a driver needing qubits, and an adapter needing a reset below,
-//! for the tests of a fault naming the part that stated each need. Its
-//! executor is [`Zeros`](super::Zeros), of any set.
+//! reset: a driver needing qubits, an adapter needing a reset below, and a
+//! translating adapter onto it from [`QubitLimited`], for the tests of a
+//! fault naming the part that stated each need. Its executor is
+//! [`Zeros`](super::Zeros), of any set.
 
 use crate::prelude::*;
-use crate::tests::example_sets::{QubitsAndReset, Resettable};
+use crate::roles::lent_translating_adapter;
+use crate::tests::example_sets::{QubitLimited, Qubits, QubitsAndReset, Resettable};
 use crate::{
     Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, RunRequirement, Seed, ShotSet,
-    StatesLimits,
+    StatesLimits, TranslatingAdapter,
 };
 
 /// A driver requiring the run's capabilities on `needs`, qubits and a
@@ -98,3 +100,61 @@ impl Adapter for AncillaReuse {
         below.execute(batches, seed, readouts).await
     }
 }
+
+/// A translating adapter of [`QubitLimited`] to [`Resettable`], as a
+/// compiler pass inserting mid-circuit resets: it requires below the
+/// qubits that arrive, with a reset, and sends each gate as it came.
+pub(crate) struct ResetInsertion;
+
+impl TranslatingAdapter for ResetInsertion {
+    type Accepts = QubitLimited;
+    type Sends = Resettable;
+
+    fn accepts(&self) -> &QubitLimited {
+        &QubitLimited
+    }
+
+    fn sends(&self) -> &Resettable {
+        &Resettable
+    }
+
+    /// What arrives, its qubits with a reset.
+    fn requires(&self, above: &Capabilities<QubitLimited>) -> Capabilities<Resettable> {
+        let Qubits(qubits) = *above.set_capabilities();
+        let needs = QubitsAndReset {
+            qubits,
+            reset: true,
+        };
+        Capabilities::new(*above.resources(), *above.features(), needs)
+    }
+
+    fn bind(&mut self, (): ()) {}
+
+    async fn adapt(
+        &mut self,
+        batches: &[Batch<'_, QubitLimited>],
+        seed: Seed,
+        below: &mut impl Executor<Accepts = Resettable>,
+        readouts: &mut [BatchReadouts<QubitLimited>],
+    ) -> Result<(), ExecuteError> {
+        let sent: Vec<Batch<'_, Resettable>> = (batches.iter())
+            .map(|batch| {
+                Batch::new(batch.shots, batch.instructions, batch.readout_slots())
+                    .checked_if(batch.is_checked())
+            })
+            .collect();
+        let mut sent_readouts: Vec<BatchReadouts<Resettable>> = (batches.iter())
+            .map(|batch| BatchReadouts::new(batch.shots.len(), batch.readout_slots()))
+            .collect();
+        below.execute(&sent, seed, &mut sent_readouts).await?;
+        for (below, above) in sent_readouts.iter().zip(readouts) {
+            for shot in 0..below.shots() {
+                above.row_mut(shot).copy_from_slice(below.row(shot));
+                above.set_conditions(shot, below.conditions(shot));
+            }
+        }
+        Ok(())
+    }
+}
+
+lent_translating_adapter!([] ResetInsertion);

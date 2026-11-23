@@ -66,8 +66,8 @@ Today the protocol holds:
   [`Resources`](src/capabilities/resources.rs), such as a run's shots,
   [`Features`](src/capabilities/features.rs), such as whether a run may
   fix its seed and whether a shot replays, and the instruction set's own,
-  such as the qubits a shot holds. By default a part states none, and
-  composes with any part on them. A part that states some gives
+  such as the qubits a shot holds. By default a part states none, adding
+  no need and no limit of its own. A part that states some gives
   its fixed limits on what arrives at it (`provides`), and what it
   requires of the part below given what arrives (`requires`): what it
   passes below unchanged arrives at each part below it, down to the first

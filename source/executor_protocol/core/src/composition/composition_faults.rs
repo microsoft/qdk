@@ -53,7 +53,8 @@ impl Error for CompositionFaults {}
 pub struct CompositionFault {
     /// The part whose instructions are not accepted, or whose requirement
     /// is not provided: for a value that passed parts unchanged, the
-    /// first part that required it.
+    /// first part that required it, traced as the crate's
+    /// `docs/capabilities.md` says.
     pub requirer: PartId,
     /// The part that does not accept or provide it.
     pub provider: PartId,

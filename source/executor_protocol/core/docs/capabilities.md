@@ -14,22 +14,25 @@ needs it holds; a provision, for the requirements it takes. What arrives
 fits a provision when the first set is inside the second: every need
 it holds is within the limits.
 
-| Value                                                                       | As a requirement                                                           | As a provision                                                                                 |
-| --------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `None`                                                                      | not one: a requirement is always a value                                   | no limit, which every requirement fits: a part's default `provides`                            |
-| nothing stated: `Resources::nothing_stated()`, `Features::nothing_stated()` | no need of any resource or feature                                         | no limit on any resource or feature                                                            |
-| the requirement of nothing: these, with the set's `needs_nothing()`         | no need, which fits every provision: what arrives before any run says more | never one (law (c)): depending on the set, its part can read as tight limits, such as no qubit |
-| a stated value                                                              | the needs it states, such as 3 qubits a shot                               | the limits it states, such as at most 8 qubits a shot                                          |
-| a field left unstated, inside a stated value                                | no need of that field                                                      | no limit on that field                                                                         |
+| Value                                                                       | As a requirement                              | As a provision                                                                                 |
+| --------------------------------------------------------------------------- | --------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `None`                                                                      | not one: a requirement is always a value      | no limit, which every requirement fits: a part's default `provides`                            |
+| nothing stated: `Resources::nothing_stated()`, `Features::nothing_stated()` | no need of any resource or feature            | no limit on any resource or feature                                                            |
+| the requirement of nothing: these, with the set's `needs_nothing()`         | no need, which fits every provision (law (a)) | never one (law (c)): depending on the set, its part can read as tight limits, such as no qubit |
+| a stated value                                                              | the needs it states, such as 3 qubits a shot  | the limits it states, such as at most 8 qubits a shot                                          |
+| a field left unstated, inside a stated value                                | no need of that field                         | no limit on that field                                                                         |
 
 One requirement **requires no more than** another when it fits every
 provision the other fits, as [`Capabilities`](../src/capabilities.rs)
 says field by field. The protocol relies on three laws:
 
 - **(a) Needing nothing fits every provision.** The set's `needs_nothing()`
-  fits every provision, stated or not, so a chain of parts that state
-  nothing composes and runs over any part below
-  ([`src/tests/capabilities.rs`](../src/tests/capabilities.rs)).
+  fits every provision, stated or not
+  ([`src/tests/capabilities.rs`](../src/tests/capabilities.rs)). What else
+  a chain meets, the instructions each part sends, the run's own shots
+  and seeded runs, and each part's `ready`, is checked on its own, as
+  [Where and when each check runs](composing-and-running.md#where-and-when-each-check-runs)
+  says.
 - **(b) Each `requires` is monotone in this order**, not in the fit: given
   what arrives requiring no more than another, it requires no more than
   given the other. The writer keeps it; the `on` that makes a runner
@@ -46,10 +49,10 @@ says field by field. The protocol relies on three laws:
 
 ## By default, nothing
 
-A part that does not state a capability composes with any part on it, so most
-writers write only the instructions their part accepts and sends
-(`accepts`, `sends`, as [Instruction sets](instruction-sets.md) says). The
-three defaults:
+A part that does not state a capability adds no need and no limit of its
+own on it, so most writers write only the instructions their part
+accepts and sends (`accepts`, `sends`, as
+[Instruction sets](instruction-sets.md) says). The three defaults:
 
 | Method                                                    | By default                              | So the part                                    |
 | --------------------------------------------------------- | --------------------------------------- | ---------------------------------------------- |
@@ -118,8 +121,14 @@ feature, and each need of the set's own, as the set's `split_mismatch`
 splits its mismatch, is traced on its own: where a driver needs 10 qubits
 and an adapter below it adds a need of reset, an executor of 8 qubits and
 no reset falls short of the driver's qubits and of the adapter's reset,
-two faults. Each part then gets ready, on every run, for what arrives at
-it.
+two faults. A need of the set's own is traced only through the parts
+whose requirements are of its capabilities' type, so the trace stops at
+a translating adapter onto a set whose capabilities are of another type,
+which the fault names, even for a need it copied: where a driver needs
+10 qubits and a translator below it, onto a set of qubits and a reset,
+copies them and adds a need of reset, an executor of 8 qubits and no
+reset falls short of the translator's qubits and reset, one fault. Each
+part then gets ready, on every run, for what arrives at it.
 
 A `requires` is deterministic, and monotone: given what arrives requiring
 no more than another, as [`Capabilities`](../src/capabilities.rs) defines

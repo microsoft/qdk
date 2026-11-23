@@ -24,9 +24,11 @@ use crate::{
 /// passes below unchanged is the requirement of the first part that
 /// required it, which a fault names: each resource, each feature, and each
 /// need of the set's own, as [`InstructionSet::split_mismatch`] splits
-/// them, on its own. A translating adapter that changes what it sends
-/// below is the first to require it, and one that passes a value unchanged
-/// is not.
+/// them, on its own. A need of the set's own is traced only through parts
+/// whose requirements are of its capabilities' type, as the crate's
+/// `docs/capabilities.md` says: a translating adapter onto a set whose
+/// capabilities are of another type is the first to require each such
+/// need it sends below, even one it copied.
 ///
 /// It is public, because the roles' hidden hooks name it, but no public
 /// path reaches it, so that no other crate can call or override the hooks.
