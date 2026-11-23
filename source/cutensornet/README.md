@@ -40,7 +40,8 @@ says what the crate needs of it.
 [`discover`](src/discovery.rs) opens the shared libraries it needs (today
 the CUDA Runtime, `libcudart.so.12`, and cuTensorNet,
 `libcutensornet.so.2`), looks up by name each C function the crate uses
-(its _symbol_), cuTensorNet's tensor API among them, and checks the
+(its _symbol_), cuTensorNet's tensor decompositions and contraction
+networks among them, and checks the
 versions the libraries report. It returns an `Availability`, which keeps
 them loaded, or an `AvailabilityError` that says what is missing.
 
