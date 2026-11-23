@@ -9,13 +9,10 @@ use std::fmt;
 
 use super::TRUNCATION_TOLERANCE;
 
-/// A run whose truncations lost more weight than [`TRUNCATION_TOLERANCE`].
-/// After one truncation with gates only after it, its results are within
-/// √`lost_weight` of the exact ones in total variation distance (the
-/// engine contract); otherwise `lost_weight` estimates the infidelity
-/// (1 − the fidelity) and bounds nothing: a shot that measures after a
-/// truncation may read further off. It displays as the message a user
-/// reads.
+/// A run whose truncations lost more weight than [`TRUNCATION_TOLERANCE`];
+/// when `lost_weight` bounds the error, and when it is only an estimate, is
+/// in the header of `mps_simulator/mps_run_report.rs`. It displays as the
+/// message a user reads.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TruncationWarning {
     /// The most weight a shot lost: 1 − its retained weight.

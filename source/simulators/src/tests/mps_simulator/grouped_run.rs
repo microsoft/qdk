@@ -29,7 +29,7 @@ use super::programs::{
     program_with, read_result, readout_noise, reset, ret, set,
 };
 use super::reference_spy::{Call, ReferenceSpy, ReferenceSpyError};
-use super::{LONE_SHOT_CALLS, bell, copies, ids, results, run};
+use super::{LONE_SHOT_CALLS, bell, coin_shots_reading, copies, ids, results, run};
 use crate::bytecode::encoding::{OPID_CX, OPID_H, OPID_MRESETZ, OPID_MZ, OPID_RY, OPID_X};
 
 /// A shot reads One only where One has a probability: a qubit at |0⟩ reads
@@ -236,16 +236,10 @@ fn failing_alone<E: MpsEngine>(
 /// each reads alone: on the split, the shot that reads 0 goes on, the
 /// fewer, and the two wait.
 fn a_zero_then_two_ones() -> [QirShotId; 3] {
-    let coin = coins(1);
-    let reading = |value: u8| {
-        let coin = &coin;
-        QirShotId::first(16).into_iter().filter(move |&shot| {
-            run(&mut MpsResumer::new(ReferenceSpy::new(), 5), coin, &[shot]).expect("a coin runs")
-                == [results(&[value])]
-        })
-    };
-    let zero = reading(0).next().expect("some of 16 coins read 0");
-    let mut ones = reading(1);
+    let zero = coin_shots_reading(0, 5)
+        .next()
+        .expect("some of 16 coins read 0");
+    let mut ones = coin_shots_reading(1, 5);
     let one = ones.next().expect("some of 16 coins read 1");
     let other_one = ones.next().expect("two of 16 coins read 1");
     [zero, one, other_one]
@@ -346,9 +340,9 @@ fn a_failed_run_names_its_first_failing_shot_in_shot_order() {
         }
     }
 
-    // Among several failing groups, on two coins whose every history but
-    // 0, 0 traps, 16 shots forward and reversed: the first of the shots
-    // that fail alone.
+    // Among several failing groups, on two coins whose every group but the
+    // one that read 0, 0 traps, 16 shots forward and reversed: the first of
+    // the shots that fail alone.
     let sixteen = QirShotId::first(16);
     let sixteen_reversed: Vec<_> = sixteen.iter().rev().copied().collect();
     for (order, shots) in [("forward", &sixteen), ("reversed", &sixteen_reversed)] {

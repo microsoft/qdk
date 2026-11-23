@@ -7,10 +7,7 @@
 //!
 //! A run that fails names the failing shot
 //! ([`QirResumeError::Resumer`](crate::qir::QirResumeError::Resumer));
-//! this says what about the shot failed: a call the MPS simulation method
-//! does not run, a call it cannot run, a capacity that is no chain, or the
-//! engine; or the run was stopped (no shot failed: the shot named is the
-//! first that had not ended).
+//! this says what about the shot failed, one variant per cause.
 
 use std::fmt;
 

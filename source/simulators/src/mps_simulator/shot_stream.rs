@@ -9,25 +9,17 @@
 //! id and the settings, not on the shots run beside it (to what precision:
 //! [`MpsResumer`]'s doc): so each shot needs a stream of uniforms of its
 //! own, fixed by the run's seed and its id.
-//! The tests need streams that are the same on every run too, and use the
-//! generator alone.
 //!
 //! The generator is `SplitMix64` (Steele, Lea and Flood, 2014), written
 //! here rather than taken from a dependency (`rand_xoshiro` has one, for
 //! instance, which the workspace does not use): small, and fixed by this
 //! crate, so a seed's values do not change with a dependency's version.
 //! `tensornet` has its own, internal to its sampler; this one gives the
-//! same values.
+//! same values. It is no cryptographic generator.
 //!
 //! **Known issue:** the two copies are one generator written twice. One
 //! copy needs `tensornet` to make its generator public; until then, a test
 //! here pins the published values, which both give. It blocks nothing.
-//!
-//! Each step adds the odd constant `0x9E37_79B9_7F4A_7C15` (2⁶⁴ over the
-//! golden ratio) to the state, wrapping, and returns the state mixed by a
-//! finalizer of two multiplications and three shifts: the values of the
-//! published algorithm. A uniform is the top 53 bits of the next value, as
-//! a multiple of 2⁻⁵³, in [0, 1). It is no cryptographic generator.
 
 use crate::qir::QirShotId;
 

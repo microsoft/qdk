@@ -15,11 +15,10 @@
 //! variation distance. A shot's state is read after its measurements,
 //! which project it: a readout conditioned on an outcome may be far off
 //! though the weight is near 1. After several truncations, as in a program
-//! of many gates, the weight is an estimate of the fidelity, not a bound.
-//! So, for the report, the weight is the bookkeeping of what truncation
-//! dropped, an estimate of the fidelity: the report keeps the least weight
-//! among the shots that ended, and warns when one lost more than
-//! [`TRUNCATION_TOLERANCE`], for the user to raise χ.
+//! of many gates, the weight is an estimate of the fidelity, not a bound:
+//! the report keeps the least weight among the shots that ended, and warns
+//! when one lost more than [`TRUNCATION_TOLERANCE`], for the user to raise
+//! χ.
 //!
 //! The max bond dimension is the engine's to keep: an engine that does not
 //! truncate (an exact engine) may hold bonds above it, which

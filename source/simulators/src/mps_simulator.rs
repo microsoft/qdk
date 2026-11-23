@@ -13,20 +13,24 @@
 //!
 //! [`qir`](crate::qir) runs a program's classical part and hands each shot's
 //! quantum calls to a resumer; an engine holds states on a chain of sites,
-//! applies matrices to them and answers probabilities. This module joins them:
-//! [`MpsResumer`], in this file, runs the calls of each shot on an MPS that an
-//! engine holds, and this module's submodules, in `mps_simulator/`, map qubits
-//! to sites (`qubit_order.rs`), turn calls into steps on sites (`lowering.rs`),
-//! run the shots in groups (`grouped_run.rs`), give each shot its stream
-//! (`shot_stream.rs`), and report and fail a run (`mps_run_report.rs`,
-//! `mps_resumer_error.rs`).
+//! applies matrices to them and answers probabilities. This module joins
+//! them; its parts, each in its file under `mps_simulator/`:
+//!
+//! ```text
+//! MpsResumer           runs a program's shots       (this file)
+//! └─ GroupedRun        groups, splits and failures  grouped_run.rs
+//!    ├─ QubitOrder     the site of each qubit       qubit_order.rs
+//!    ├─ lower          each call as steps on sites  lowering.rs
+//!    ├─ shot_stream    each shot's uniforms         shot_stream.rs
+//!    └─ MpsEngine      states on a chain of sites   (tensornet)
+//! MpsRunReport         what a run cost              mps_run_report.rs
+//! MpsResumerError      why a shot failed            mps_resumer_error.rs
+//! ```
 //!
 //! Shots that drew the same values share one state, forked where their draws
 //! differ, so a program whose draws never differ holds at most one; as the
 //! smaller group goes on where they differ, a run of N shots holds at most
-//! ⌊log₂ N⌋ + 1 states at once. Each shot draws from its own stream, so its
-//! records do not depend on the shots beside it (beyond rounding, on some
-//! engines: [`MpsResumer`]).
+//! ⌊log₂ N⌋ + 1 states at once.
 //!
 //! An overview, with the phases of a run, the public types and an example,
 //! is in `src/mps_simulator/README.md`; each phase's mechanics and engine
@@ -69,10 +73,8 @@ use grouped_run::GroupedRun;
 /// falls within rounding of a probability, and the shot's later draws may
 /// then differ.
 ///
-/// The qubit order, which site holds each qubit, chosen from the program's
-/// two-qubit gates, changes the bonds and the time; on an engine that does
-/// not truncate, not the state (to what precision, and what truncation
-/// changes: the header of `mps_simulator/qubit_order.rs`).
+/// The qubit order (`mps_simulator/qubit_order.rs`) changes the bonds and
+/// the time, and, on an engine that truncates, the state.
 ///
 /// The cutoff below which an engine drops singular values is the engine's
 /// own setting: the engine contract takes only a capacity (here
@@ -85,7 +87,7 @@ pub struct MpsResumer<E: MpsEngine> {
     last_run: MpsRunReport,
 }
 
-/// The max bond dimension χ by default: 128. H₂'s iterative phase
+/// The default max bond dimension χ. H₂'s iterative phase
 /// estimation (29 qubits), run on a CPU engine with this default, kept
 /// every bond it needed within it (its largest was 24).
 pub const DEFAULT_MAX_BOND_DIMENSION: NonZeroUsize =
@@ -170,13 +172,10 @@ impl<E: MpsEngine> QirResumer for MpsResumer<E> {
     /// or the resumer failed it ([`MpsResumerError`]): a noise or loss call,
     /// a gate on one qubit twice, a capacity that is no chain, the engine's
     /// failure, or the stop flag, once read set, naming the first shot that
-    /// had not ended ([`MpsResumer::with_stop_flag`]). An engine's failure
-    /// to fork a group's state fails all the group's shots, as the engine
-    /// leaves that state unspecified; its failure to settle the fork
-    /// (project it, and apply a reset's X) fails only the shots that were
-    /// to wait with the fork. Either fails shots that alone would not have
-    /// forked: a shot's failure, unlike its records, may depend on the
-    /// shots beside it.
+    /// had not ended ([`MpsResumer::with_stop_flag`]). A shot's failure,
+    /// unlike its records, may depend on the shots beside it: a fork that
+    /// fails fails shots that alone would not have forked
+    /// (`mps_simulator/design.md`, "How a run fails").
     fn run(
         &mut self,
         machine: &QirMachine<'_>,

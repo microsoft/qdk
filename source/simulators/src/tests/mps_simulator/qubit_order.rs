@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The qubit order's rules: the identity unless another order spans less,
+//! The qubit order's rules: the identity unless another order spans less;
 //! a permutation, the same for the same gates; a chain of gates placed on
 //! neighbouring sites; and the gates whose qubits are in registers not
 //! weighed.
@@ -15,14 +15,88 @@ use crate::mps_simulator::shot_stream::SplitMix64;
 /// the span of the order found, where a test gives it.
 type Scene = (String, usize, Vec<(usize, usize)>, Option<u64>);
 
-/// The order is the identity unless another order spans less; it is a
-/// permutation, and the same gates give the same order. Each row is a
-/// scene of interaction weights, and, where given, the span of the order
-/// found: random graphs; scenes the identity spans more than an order
-/// found; and no two-qubit gate, where every order ties and the identity
-/// is kept.
+/// The order is the identity unless another order spans less. Each scene
+/// gives, where it can, the span of the order found: scenes the identity
+/// spans more than an order found, and no two-qubit gate, where every
+/// order ties and the identity is kept.
 #[test]
 fn the_order_is_the_identity_unless_another_spans_less() {
+    for (scene, qubits, gates, span) in scenes() {
+        let weights = InteractionWeights::from_gates(qubits, gates.iter().copied());
+        let order = local_search_order(&weights);
+        let identity = QubitOrder::identity(qubits);
+        assert!(
+            order == identity || weights.span(&order) < weights.span(&identity),
+            "{scene}: the identity unless another spans less"
+        );
+        if let Some(span) = span {
+            assert_eq!(weights.span(&order), span, "{scene}");
+        }
+    }
+}
+
+/// The order is a permutation of the qubits, and the same gates give the
+/// same order, in every scene.
+#[test]
+fn the_order_is_a_permutation_fixed_by_the_gates() {
+    for (scene, qubits, gates, _) in scenes() {
+        let weights = InteractionWeights::from_gates(qubits, gates.iter().copied());
+        let order = local_search_order(&weights);
+        let mut sites = order.sites().to_vec();
+        sites.sort_unstable();
+        assert_eq!(
+            sites,
+            (0..qubits).collect::<Vec<_>>(),
+            "{scene}: a permutation"
+        );
+        assert_eq!(
+            local_search_order(&weights),
+            order,
+            "{scene}: the same each time"
+        );
+    }
+}
+
+/// A chain of gates on qubits far apart is placed on neighbouring sites:
+/// each gate's span is one.
+#[test]
+fn a_chain_of_gates_is_placed_on_neighbouring_sites() {
+    let chain = [(0, 5), (5, 2), (2, 4), (4, 1), (1, 3)];
+    let weights = InteractionWeights::from_gates(6, chain);
+    assert_eq!(
+        weights.span(&local_search_order(&weights)),
+        chain.len() as u64
+    );
+}
+
+/// A gate whose qubit is in a register is not weighed: the program orders
+/// its qubits as its gates of known qubits alone would.
+#[test]
+fn gates_with_a_qubit_in_a_register_are_not_weighed() {
+    let known = [(0, 3), (3, 1), (1, 2)];
+    let mut block = vec![set(0, 1)];
+    block.extend(known.iter().map(|&(a, b)| gate2(OPID_CX, a, b)));
+    block.extend((0..4).map(|_| gate2_from_register(OPID_CX, 0, 3)));
+    block.push(ret());
+    let program = program(4, &[&block]);
+    let weights = InteractionWeights::from_gates(
+        4,
+        known.map(|(a, b)| {
+            (
+                usize::try_from(a).expect("a qubit"),
+                usize::try_from(b).expect("a qubit"),
+            )
+        }),
+    );
+    assert_eq!(
+        QubitOrder::for_program(&program),
+        local_search_order(&weights)
+    );
+}
+
+/// The scenes of interaction weights: two the identity spans more than an
+/// order found, one with no two-qubit gate, and 50 random graphs.
+fn scenes() -> Vec<Scene> {
     let mut rows: Vec<Scene> = vec![
         // Qubit 2 meets each of the others, qubit 0 twice, and qubit 0
         // meets 1: the identity spans 9.
@@ -64,67 +138,7 @@ fn the_order_is_the_identity_unless_another_spans_less() {
             .collect();
         rows.push((format!("random graph {graph}"), qubits, gates, None));
     }
-    for (scene, qubits, gates, span) in rows {
-        let weights = InteractionWeights::from_gates(qubits, gates.iter().copied());
-        let order = local_search_order(&weights);
-        let identity = QubitOrder::identity(qubits);
-        let mut sites = order.sites().to_vec();
-        sites.sort_unstable();
-        assert_eq!(
-            sites,
-            (0..qubits).collect::<Vec<_>>(),
-            "{scene}: a permutation"
-        );
-        assert!(
-            order == identity || weights.span(&order) < weights.span(&identity),
-            "{scene}: the identity unless another spans less"
-        );
-        assert_eq!(
-            local_search_order(&weights),
-            order,
-            "{scene}: the same each time"
-        );
-        if let Some(span) = span {
-            assert_eq!(weights.span(&order), span, "{scene}");
-        }
-    }
-}
-
-/// A chain of gates on qubits far apart is placed on neighbouring sites:
-/// each gate's span is one.
-#[test]
-fn a_chain_of_gates_is_placed_on_neighbouring_sites() {
-    let chain = [(0, 5), (5, 2), (2, 4), (4, 1), (1, 3)];
-    let weights = InteractionWeights::from_gates(6, chain);
-    assert_eq!(
-        weights.span(&local_search_order(&weights)),
-        chain.len() as u64
-    );
-}
-
-/// A gate whose qubit is in a register is not weighed: the program orders
-/// its qubits as its gates of known qubits alone would.
-#[test]
-fn gates_with_a_qubit_in_a_register_are_not_weighed() {
-    let known = [(0, 3), (3, 1), (1, 2)];
-    let mut block = vec![set(0, 1)];
-    block.extend(known.iter().map(|&(a, b)| gate2(OPID_CX, a, b)));
-    block.extend((0..4).map(|_| gate2_from_register(OPID_CX, 0, 3)));
-    block.push(ret());
-    let program = program(4, &[&block]);
-    let weights = InteractionWeights::from_gates(
-        4,
-        known.map(|(a, b)| {
-            (
-                usize::try_from(a).expect("a qubit"),
-                usize::try_from(b).expect("a qubit"),
-            )
-        }),
-    );
-    assert_eq!(
-        QubitOrder::for_program(&program),
-        local_search_order(&weights)
-    );
+    rows
 }
 
 /// A value of `stream` below `n`, for the random graphs.
