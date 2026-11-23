@@ -39,7 +39,6 @@ from qdk.simulation import (
 from qdk.simulation import _tensor_network
 from qdk import _native
 
-
 gpu = pytest.mark.skipif(
     not check_tensornetwork_setup().ready, reason="the GPU engine is not set up"
 )
@@ -812,4 +811,3 @@ def test_ctrl_c_stops_a_run_with_keyboard_interrupt():
         timer.cancel()
     interrupted = time.perf_counter() - started
     assert interrupted < whole / 2, f"{interrupted:.2f} s of {whole:.2f} s"
-
