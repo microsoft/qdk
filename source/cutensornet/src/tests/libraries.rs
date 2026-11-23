@@ -29,10 +29,10 @@ use super::{RemoveFile, not_a_shared_object, packaged_file, packaged_path};
 use crate::{LibraryFault, libraries::validate_override_path};
 #[cfg(unix)]
 use crate::{
-    LibraryReport, PackagedLibraries, Version,
+    LibraryReport, LibrarySource, PackagedLibraries, Version,
     libraries::{
-        InstalledLibraries, LoadedLibraries, NativeLibrary, Opening, candidates,
-        cuda_runtime::CudaRuntime, cutensornet::CuTensorNet, inspect, open, other_copies,
+        NativeLibrary, candidates, cuda_runtime::CudaRuntime, cutensornet::CuTensorNet, inspect,
+        open, other_copies,
     },
 };
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
@@ -53,7 +53,7 @@ fn opened<L: NativeLibrary>() -> LibraryReport {
         versions: Vec::new(),
         faults: Vec::new(),
         other_copies: Vec::new(),
-        from_override: false,
+        source: None,
     }
 }
 
@@ -248,7 +248,8 @@ fn each_library_is_overridden_by_its_own_variable() {
         "the CUDA Runtime tries its override: {cudart:?}"
     );
     assert!(
-        !cutensornet.from_override && !format!("{cutensornet:?}").contains("override-candidate"),
+        cutensornet.source != Some(LibrarySource::Override)
+            && !format!("{cutensornet:?}").contains("override-candidate"),
         "cuTensorNet does not: {cutensornet:?}"
     );
 }
@@ -832,82 +833,106 @@ fn absolute_c_library() -> PathBuf {
     .expect("the C library is at one of the usual paths")
 }
 
-/// The copy its override names is reported so, loaded or not, for the
-/// setup check to advise changing or unsetting the variable when that copy
-/// is at fault, even if the variable changes during the check (another
-/// thread unsets it); a copy from its defaults, or none when its override
-/// is invalid, is not.
+/// A library whose one default path is an absolute file, the shell, which
+/// the system loader refuses, as it is no library.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+struct RefusedAtItsDefaultPath;
+
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+impl NativeLibrary for RefusedAtItsDefaultPath {
+    const NAME: &'static str = "shell";
+    const VARIABLE: &'static str = "QDK_CUTENSORNET_TEST_UNSET_VARIABLE";
+    const FILE_NAME: &'static str = "sh";
+    const DEFAULTS: &'static [&'static str] = &["/bin/sh"];
+    type Functions = AbsentFunctionTable;
+
+    fn probe_versions<R: SymbolResolver>(_resolver: &R) -> ProbedVersions {
+        ProbedVersions::default()
+    }
+}
+
+/// Each library reports where the copy tried, loaded or refused by the
+/// system loader, was found: the path its override names, even if the
+/// variable changes during the check (another thread unsets it), its
+/// packaged file, a default absolute path, or a file name the system
+/// loader searched for; and no source when no copy was tried. A user whose
+/// override names a copy at fault is advised that override, which no
+/// install displaces.
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 #[test]
-fn only_the_copy_its_override_names_is_reported_so() {
+fn each_library_reports_where_the_copy_tried_was_found() {
+    let no_package = PackagedLibraries::default();
     let c_library = absolute_c_library();
-    let read_variable = |variable: &'static str| {
+    let names_c_library = |variable: &'static str| {
         (variable == OpenedBesideAnotherFile::VARIABLE).then(|| OsString::from(&c_library))
     };
-    let (from_override, _) =
-        open::<OpenedBesideAnotherFile>(read_variable, &PackagedLibraries::default());
-    assert_eq!(
-        from_override.path.as_deref(),
-        Some(c_library.as_path()),
-        "the override is loaded"
-    );
-    assert!(from_override.from_override);
-    let (from_defaults, _) =
-        open::<OpenedBesideAnotherFile>(|_| None, &PackagedLibraries::default());
-    assert!(from_defaults.path.is_some(), "a default path is loaded");
-    assert!(!from_defaults.from_override);
-    let relative = |_: &'static str| Some(OsString::from("libc.so.6"));
-    let (not_loaded, _) = open::<OpenedBesideAnotherFile>(relative, &PackagedLibraries::default());
-    assert!(not_loaded.path.is_none(), "a relative override is refused");
-    assert!(!not_loaded.from_override);
-    let (not_a_library, _remove) = packaged_file::<OpenedBesideAnotherFile>("override-fails");
-    let names_it = |_: &'static str| Some(OsString::from(&not_a_library));
-    let (failed_to_load, _) =
-        open::<OpenedBesideAnotherFile>(names_it, &PackagedLibraries::default());
-    assert!(
-        matches!(failed_to_load.faults[..], [LibraryFault::LoadFailed { .. }]),
-        "a file that is not a library does not load: {:?}",
-        failed_to_load.faults
-    );
-    assert!(failed_to_load.from_override);
+    let (not_a_library, _remove) = packaged_file::<OpenedBesideAnotherFile>("source-of-copy");
+    let names_not_a_library = |_: &'static str| Some(OsString::from(&not_a_library));
     let reads = std::cell::Cell::new(0);
     let unset_after_one_read = |_: &'static str| {
         reads.set(reads.get() + 1);
         (reads.get() == 1).then(|| OsString::from(&not_a_library))
     };
-    let (unset_later, _) =
-        open::<OpenedBesideAnotherFile>(unset_after_one_read, &PackagedLibraries::default());
-    assert!(
-        matches!(&unset_later.faults[..], [LibraryFault::LoadFailed { path, .. }] if *path == not_a_library),
-        "the copy the override named is tried: {unset_later:?}"
-    );
-    assert!(unset_later.from_override, "{unset_later:?}");
-}
-
-/// The setup check has advice for every library a GPU run opens, in the
-/// order it opens them, so none is left out of what it shows and advises,
-/// and the first library it lists at fault is the one its advice addresses
-/// (the CUDA Runtime before cuTensorNet, which runs on it).
-#[cfg(unix)]
-#[test]
-fn every_library_discovery_opens_has_setup_advice() {
-    let guided: Vec<_> = LoadedLibraries::SETUP_GUIDES
-        .iter()
-        .map(|guide| guide.library)
-        .collect();
-    let packaged = PackagedLibraries::default();
-    let mut opening = Opening::new(InstalledLibraries {
-        read_variable: |_: &'static str| Some(OsString::from("relative.so")),
-        packaged: &packaged,
-    });
-    assert!(
-        LoadedLibraries::open(&mut opening).is_none(),
-        "a relative override makes every library unusable"
-    );
-    let opened: Vec<_> = opening
-        .into_reports()
-        .iter()
-        .map(|report| report.library)
-        .collect();
-    assert_eq!(guided, opened);
+    let relative = |_: &'static str| Some(OsString::from("libc.so.6"));
+    let packaged = PackagedLibraries {
+        files: vec![not_a_library.clone()],
+        install_command: None,
+    };
+    let open_c = |read_variable: &dyn Fn(&'static str) -> Option<OsString>,
+                  packaged: &PackagedLibraries| {
+        open::<OpenedBesideAnotherFile>(read_variable, packaged).0
+    };
+    for (case, report, tried, source) in [
+        (
+            "an override loaded",
+            open_c(&names_c_library, &no_package),
+            Some(c_library.clone()),
+            Some(LibrarySource::Override),
+        ),
+        (
+            "an override refused",
+            open_c(&names_not_a_library, &no_package),
+            Some(not_a_library.clone()),
+            Some(LibrarySource::Override),
+        ),
+        (
+            "an override unset during the check",
+            open_c(&unset_after_one_read, &no_package),
+            Some(not_a_library.clone()),
+            Some(LibrarySource::Override),
+        ),
+        (
+            "a packaged file refused",
+            open_c(&|_| None, &packaged),
+            Some(not_a_library.clone()),
+            Some(LibrarySource::Packaged),
+        ),
+        (
+            "a default absolute path refused",
+            open::<RefusedAtItsDefaultPath>(|_| None, &no_package).0,
+            Some(PathBuf::from("/bin/sh")),
+            Some(LibrarySource::DefaultPath),
+        ),
+        (
+            "a file name the system loader found",
+            open_c(&|_| None, &no_package),
+            Some(PathBuf::from(ALWAYS_PRESENT_LIBRARY)),
+            Some(LibrarySource::SystemSearch),
+        ),
+        (
+            "an invalid override",
+            open_c(&relative, &no_package),
+            None,
+            None,
+        ),
+    ] {
+        let tried_path = report.path.clone().or_else(|| {
+            report.faults.iter().find_map(|fault| match fault {
+                LibraryFault::LoadFailed { path, .. } => Some(path.clone()),
+                _ => None,
+            })
+        });
+        assert_eq!(tried_path, tried, "{case}: the copy tried: {report:?}");
+        assert_eq!(report.source, source, "{case}: {report:?}");
+    }
 }

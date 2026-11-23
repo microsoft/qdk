@@ -14,7 +14,7 @@ fn not_opened(library: &'static str) -> LibraryReport {
         versions: Vec::new(),
         faults: Vec::new(),
         other_copies: Vec::new(),
-        from_override: false,
+        source: None,
     }
 }
 

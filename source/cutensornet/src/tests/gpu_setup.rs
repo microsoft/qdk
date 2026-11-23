@@ -10,7 +10,7 @@
 //! not tried) and the report's labels, never a message's full text, so
 //! that a reworded message keeps its tests.
 
-mod devices;
+mod device_report;
 
 #[cfg(unix)]
 use std::path::PathBuf;
@@ -18,14 +18,26 @@ use std::path::PathBuf;
 use crate::{AvailabilityError, GpuSetup};
 #[cfg(unix)]
 use crate::{
-    AvailabilityReport, CudaAlgebraError, LibraryFault, LibraryReport, Version,
+    AvailabilityReport, CudaAlgebraError, LibraryFault, LibraryReport, LibrarySource,
+    PackagedLibraries, Version,
     gpu_setup::LoadedSetup,
-    gpu_setup::devices::{DeviceReport, EngineDevice},
+    gpu_setup::device_report::{DeviceReport, EngineDevice},
+    libraries::setup_guide::{DriverFloor, SetupGuide},
+};
+#[cfg(unix)]
+use crate::{
+    CudaAlgebra, CudaMpsEngine,
+    engine::native_calls::{NativeCalls, fake_libraries::FakeLibraries},
+    gpu_setup::run_trial,
 };
 #[cfg(unix)]
 use canonical_mps::CanonicalMpsError;
 #[cfg(unix)]
 use std::error::Error;
+#[cfg(unix)]
+use std::ffi::OsString;
+#[cfg(unix)]
+use std::sync::Arc;
 
 /// Whether `advice` advises the install: it names each library at its
 /// audited version.
@@ -66,7 +78,8 @@ fn shows_with_its_cause(text: &str, error: &dyn Error) -> bool {
 #[cfg(unix)]
 const PIP_INSTALL: &str = "pip install \"qdk[tensornetwork]\"";
 
-/// The report of `library`, usable, loaded from `path`, with `versions`.
+/// The report of `library`, usable, loaded from `path`, a packaged file,
+/// with `versions`.
 #[cfg(unix)]
 fn usable(library: &'static str, path: &str, versions: [(&'static str, i128); 2]) -> LibraryReport {
     LibraryReport {
@@ -77,7 +90,7 @@ fn usable(library: &'static str, path: &str, versions: [(&'static str, i128); 2]
             .to_vec(),
         faults: Vec::new(),
         other_copies: Vec::new(),
-        from_override: false,
+        source: Some(LibrarySource::Packaged),
     }
 }
 
@@ -138,7 +151,8 @@ fn a100() -> EngineDevice {
 }
 
 /// What the steps find on a host where discovery found `report`, the
-/// process sees `engine_device` alone, if any, and the trial run succeeded.
+/// process sees `engine_device` alone, if any, and the trial run read the
+/// exact probability.
 #[cfg(unix)]
 fn loaded(report: AvailabilityReport, engine_device: Option<EngineDevice>) -> LoadedSetup {
     LoadedSetup {
@@ -147,8 +161,17 @@ fn loaded(report: AvailabilityReport, engine_device: Option<EngineDevice>) -> Lo
             count: i32::from(engine_device.is_some()),
             engine_device,
         }),
-        trial_run: Ok(()),
+        trial_run: Ok(0.5),
     }
+}
+
+/// The setup guides discovery gives the check, one per library it opens,
+/// in the order opened. Relative overrides make discovery open every
+/// library without reading a file.
+#[cfg(unix)]
+fn guides() -> Vec<SetupGuide> {
+    let relative = |_: &'static str| Some(OsString::from("relative.so"));
+    crate::discovery::discover_from(relative, &PackagedLibraries::default()).1
 }
 
 /// The setup of a host whose libraries loaded and whose steps found
@@ -157,6 +180,7 @@ fn loaded(report: AvailabilityReport, engine_device: Option<EngineDevice>) -> Lo
 fn setup(loaded: LoadedSetup) -> GpuSetup {
     GpuSetup {
         loaded: Ok(loaded),
+        guides: guides(),
         install_command: None,
     }
 }
@@ -170,9 +194,11 @@ fn found(report: AvailabilityReport, engine_device: Option<EngineDevice>) -> Gpu
 
 /// The setup of a host where discovery failed with `error`, checked with no
 /// packager's install command.
+#[cfg(unix)]
 fn failed(error: AvailabilityError) -> GpuSetup {
     GpuSetup {
         loaded: Err(error),
+        guides: guides(),
         install_command: None,
     }
 }
@@ -192,7 +218,7 @@ fn unreadable_devices() -> CudaAlgebraError {
 /// A trial run that failed with an error the earlier steps cannot foresee:
 /// the device ran out of memory.
 #[cfg(unix)]
-fn failed_trial_run() -> Result<(), CanonicalMpsError<CudaAlgebraError>> {
+fn failed_trial_run() -> Result<f64, CanonicalMpsError<CudaAlgebraError>> {
     Err(CanonicalMpsError::Algebra(
         CudaAlgebraError::NativeCallFailed {
             component: "CUDA Runtime",
@@ -315,58 +341,76 @@ fn a_path_the_process_cannot_access_is_advised_its_permissions_or_the_override()
 }
 
 /// A library that does not load, or is not the audited version, is
-/// advised the install of the audited libraries; when the copy at fault is
-/// the one its override names, which no install displaces, the override is
-/// advised instead, without blaming a copy that did not load, which may
-/// only miss a library it needs.
+/// advised the install of the audited libraries, wherever the copy at
+/// fault was found but its override.
 #[cfg(unix)]
 #[test]
-fn a_library_that_fails_to_load_or_is_not_audited_is_advised_the_install_or_its_override() {
-    let at_fault = ("at fault", "did not load");
-    for (fault, (why, not_why)) in [
-        (
-            LibraryFault::LoadFailed {
-                path: PathBuf::from("/usr/lib/libcutensornet.so.2"),
-                message: "libcutensor.so.2: cannot open shared object file".to_string(),
-            },
-            ("did not load", "at fault"),
-        ),
-        (
-            LibraryFault::UnsupportedVersion {
-                component: "cuTensorNet",
-                found: 21_400,
-                supported: 21_300,
-            },
-            at_fault,
-        ),
-        (
-            LibraryFault::MissingRequiredSymbol {
-                symbol: "cutensornetCreate",
-            },
-            at_fault,
-        ),
-    ] {
-        for from_override in [false, true] {
+fn a_library_that_fails_to_load_or_is_not_audited_is_advised_the_install() {
+    for fault in copy_faults() {
+        for source in [
+            Some(LibrarySource::Packaged),
+            Some(LibrarySource::DefaultPath),
+            Some(LibrarySource::SystemSearch),
+        ] {
             let AvailabilityError::Unusable(mut report) =
                 unusable("cuTensorNet", vec![fault.clone()])
             else {
                 unreachable!("unusable gives a report");
             };
-            report.libraries[1].from_override = from_override;
+            report.libraries[1].source = source;
             let advice = advice(&failed(AvailabilityError::Unusable(report)));
-            if from_override {
-                assert!(
-                    advice.contains("QDK_CUTENSORNET_LIBRARY")
-                        && advice.contains(why)
-                        && !advice.contains(not_why)
-                        && !advises_install(&advice),
-                    "{fault:?}: {advice}"
-                );
-            } else {
-                assert!(advises_install(&advice), "{fault:?}: {advice}");
-            }
+            assert!(
+                advises_install(&advice),
+                "{fault:?} of {source:?}: {advice}"
+            );
         }
     }
+}
+
+/// When the copy that does not load, or is not the audited version, is
+/// the one its override names, which no install displaces, the override is
+/// advised instead, without blaming a copy that did not load, which may
+/// only miss a library it needs.
+#[cfg(unix)]
+#[test]
+fn an_overridden_copy_that_fails_to_load_or_is_not_audited_is_advised_its_override() {
+    let at_fault = ("at fault", "did not load");
+    let whys = [("did not load", "at fault"), at_fault, at_fault];
+    for (fault, (why, not_why)) in copy_faults().into_iter().zip(whys) {
+        let AvailabilityError::Unusable(mut report) = unusable("cuTensorNet", vec![fault.clone()])
+        else {
+            unreachable!("unusable gives a report");
+        };
+        report.libraries[1].source = Some(LibrarySource::Override);
+        let advice = advice(&failed(AvailabilityError::Unusable(report)));
+        assert!(
+            advice.contains("QDK_CUTENSORNET_LIBRARY")
+                && advice.contains(why)
+                && !advice.contains(not_why)
+                && !advises_install(&advice),
+            "{fault:?}: {advice}"
+        );
+    }
+}
+
+/// The faults of cuTensorNet's copy itself: it does not load, it is of
+/// another version, it lacks a function.
+#[cfg(unix)]
+fn copy_faults() -> [LibraryFault; 3] {
+    [
+        LibraryFault::LoadFailed {
+            path: PathBuf::from("/usr/lib/libcutensornet.so.2"),
+            message: "libcutensor.so.2: cannot open shared object file".to_string(),
+        },
+        LibraryFault::UnsupportedVersion {
+            component: "cuTensorNet",
+            found: 21_400,
+            supported: 21_300,
+        },
+        LibraryFault::MissingRequiredSymbol {
+            symbol: "cutensornetCreate",
+        },
+    ]
 }
 
 /// A library found but not loaded usually misses a library it needs, so
@@ -411,94 +455,34 @@ fn an_invalid_override_is_advised_by_its_variable() {
     assert!(advice.contains("QDK_CUDART_LIBRARY"), "{advice}");
 }
 
-/// A user whose cuTensorNet override is mistyped, on a host without the
-/// CUDA Runtime, is advised the override first: it decides what is loaded,
-/// whatever the order the libraries are opened in.
+/// The advice is about the first problem met, in the order of the steps,
+/// and within the libraries step, an invalid override first, then the
+/// first fault of the first library at fault: a later problem is often
+/// the earlier one's consequence (a driver too old for the CUDA Runtime
+/// sees no device; no device fails the trial run), and the user fixes one
+/// thing at a time.
+/// Each row is a scene, a word of the advice about the problem met first,
+/// and one of the advice about the problem after it.
 #[cfg(unix)]
 #[test]
-fn an_invalid_override_is_advised_before_the_faults_of_libraries_opened_first() {
-    let AvailabilityError::Unusable(mut report) = unusable(
-        "CUDA Runtime",
-        vec![LibraryFault::NotFound {
-            attempted: vec![PathBuf::from("libcudart.so.12")],
-        }],
-    ) else {
-        unreachable!("unusable gives a report");
+fn the_first_problem_in_step_order_is_advised() {
+    let not_found = |library: &str| LibraryFault::NotFound {
+        attempted: vec![PathBuf::from(library)],
     };
-    report.libraries[1].faults = vec![LibraryFault::InvalidOverride {
+    let mut mistyped_override = audited_report();
+    mistyped_override.libraries[0].faults = vec![not_found("libcudart.so.12")];
+    mistyped_override.libraries[1].faults = vec![LibraryFault::InvalidOverride {
         variable: "QDK_CUTENSORNET_LIBRARY",
         path: PathBuf::from("libcutensornet.so.2"),
         reason: "path must be absolute",
     }];
-    let advice = advice(&failed(AvailabilityError::Unusable(report)));
-    assert!(
-        advice.contains("QDK_CUTENSORNET_LIBRARY") && !advice.contains("QDK_CUDART_LIBRARY"),
-        "{advice}"
-    );
-}
-
-/// Without an invalid override, the advice is about the first fault of the
-/// first library at fault, in the order discovery opens them: the CUDA
-/// Runtime, on which cuTensorNet runs.
-#[cfg(unix)]
-#[test]
-fn the_first_library_at_fault_is_advised() {
-    let AvailabilityError::Unusable(mut report) = unusable(
-        "CUDA Runtime",
-        vec![LibraryFault::LoadFailed {
-            path: PathBuf::from("/usr/lib/libcudart.so.12"),
-            message: "wrong ELF class".to_string(),
-        }],
-    ) else {
-        unreachable!("unusable gives a report");
-    };
-    report.libraries[1].faults = vec![LibraryFault::NotFound {
-        attempted: vec![PathBuf::from("libcutensornet.so.2")],
+    let mut both_at_fault = audited_report();
+    both_at_fault.libraries[0].faults = vec![LibraryFault::LoadFailed {
+        path: PathBuf::from("/usr/lib/libcudart.so.12"),
+        message: "wrong ELF class".to_string(),
     }];
-    let advice = advice(&failed(AvailabilityError::Unusable(report)));
-    assert!(
-        advice.contains("did not load") && !advice.contains("QDK_CUTENSORNET_LIBRARY"),
-        "{advice}"
-    );
-}
-
-/// A CUDA Runtime that cannot report its version (status 35: the driver is
-/// older than the runtime) points at the driver, its CUDA 12 floor and
-/// `nvidia-smi`, not at the install, nor at the override that named it, as
-/// a failed version probe is not taken as the copy's.
-#[cfg(unix)]
-#[test]
-fn a_failed_cuda_version_probe_points_at_the_driver() {
-    for from_override in [false, true] {
-        let AvailabilityError::Unusable(mut report) = unusable(
-            "CUDA Runtime",
-            vec![LibraryFault::VersionProbeFailed {
-                component: "CUDA driver",
-                status: 35,
-                message: "CUDA driver version is insufficient".to_string(),
-            }],
-        ) else {
-            unreachable!("unusable gives a report");
-        };
-        report.libraries[0].from_override = from_override;
-        let advice = advice(&failed(AvailabilityError::Unusable(report)));
-        assert!(
-            advice.contains("nvidia-smi")
-                && advice.contains("525.60.13")
-                && !advises_install(&advice)
-                && !advice.contains("QDK_CUDART_LIBRARY"),
-            "{advice}"
-        );
-    }
-}
-
-/// A CUDA Runtime of another release lacks a function and, on this host,
-/// also fails a version probe: the advice is about the first fault found,
-/// the missing function (install the audited version), not the driver.
-#[cfg(unix)]
-#[test]
-fn the_first_fault_of_a_library_is_advised() {
-    let advice = advice(&failed(unusable(
+    both_at_fault.libraries[1].faults = vec![not_found("libcutensornet.so.2")];
+    let other_release = unusable(
         "CUDA Runtime",
         vec![
             LibraryFault::MissingRequiredSymbol {
@@ -510,11 +494,92 @@ fn the_first_fault_of_a_library_is_advised() {
                 message: "CUDA driver version is insufficient".to_string(),
             },
         ],
-    )));
-    assert!(
-        advises_install(&advice) && !advice.contains("nvidia-smi"),
-        "{advice}"
     );
+    let old = EngineDevice {
+        compute_capability: (7, 0),
+        ..a100()
+    };
+    let rows = [
+        (
+            "a mistyped cuTensorNet override, then no CUDA Runtime",
+            failed(AvailabilityError::Unusable(mistyped_override)),
+            "QDK_CUTENSORNET_LIBRARY",
+            "QDK_CUDART_LIBRARY",
+        ),
+        (
+            "a CUDA Runtime that did not load, then no cuTensorNet",
+            failed(AvailabilityError::Unusable(both_at_fault)),
+            "did not load",
+            "QDK_CUTENSORNET_LIBRARY",
+        ),
+        (
+            "a missing function, then a failed version probe",
+            failed(other_release),
+            "cuTensorNet 2.13",
+            "nvidia-smi",
+        ),
+        (
+            "a driver for CUDA 11.8, then no device",
+            found(with_driver(11_080), None),
+            "11.8",
+            "nvidia-smi",
+        ),
+        (
+            "no device, then a failed trial run",
+            setup(LoadedSetup {
+                trial_run: failed_trial_run(),
+                ..loaded(audited_report(), None)
+            }),
+            "nvidia-smi",
+            "cudaMalloc",
+        ),
+        (
+            "a device of compute capability 7.0, then a failed trial run",
+            setup(LoadedSetup {
+                trial_run: failed_trial_run(),
+                ..loaded(audited_report(), Some(old))
+            }),
+            "7.0",
+            "cudaMalloc",
+        ),
+    ];
+    for (scene, setup, first, later) in rows {
+        let advice = advice(&setup);
+        assert!(
+            advice.contains(first) && !advice.contains(later),
+            "{scene}: {advice}"
+        );
+    }
+}
+
+/// A CUDA Runtime that cannot report its version (status 35: the driver is
+/// older than the runtime) points at the driver, its floor and
+/// `nvidia-smi`, not at the install, nor at the override that named it, as
+/// a failed version probe is not taken as the copy's.
+#[cfg(unix)]
+#[test]
+fn a_failed_cuda_version_probe_points_at_the_driver() {
+    for source in [Some(LibrarySource::Override), Some(LibrarySource::Packaged)] {
+        let AvailabilityError::Unusable(mut report) = unusable(
+            "CUDA Runtime",
+            vec![LibraryFault::VersionProbeFailed {
+                component: "CUDA driver",
+                status: 35,
+                message: "CUDA driver version is insufficient".to_string(),
+            }],
+        ) else {
+            unreachable!("unusable gives a report");
+        };
+        report.libraries[0].source = source;
+        let advice = advice(&failed(AvailabilityError::Unusable(report)));
+        assert!(
+            advice.contains("nvidia-smi")
+                && advice.contains("525.60.13")
+                && !advises_install(&advice)
+                && !advice.contains("QDK_CUDART_LIBRARY"),
+            "{advice}"
+        );
+    }
 }
 
 /// A user who installs or upgrades a library is told to restart the
@@ -637,14 +702,70 @@ fn a_trial_run_that_finds_no_device_is_advised_as_no_device() {
     );
 }
 
+/// Libraries or a device that compute wrong results pass every other
+/// check: a trial run that reads a probability of One other than 1/2,
+/// beyond rounding, leaves the setup unready and is advised a reinstall of
+/// the libraries, naming the value read. Each row is the value read, and
+/// whether it is within rounding of 1/2.
+#[cfg(unix)]
+#[test]
+fn a_trial_run_that_reads_a_wrong_probability_is_advised_a_reinstall() {
+    for (probability, right) in [
+        (0.5 + 1e-9, true),
+        (0.5 - 1e-9, true),
+        (0.5 + 1e-3, false),
+        (0.73, false),
+        (0.0, false),
+        (f64::NAN, false),
+    ] {
+        let setup = setup(LoadedSetup {
+            trial_run: Ok(probability),
+            ..loaded(audited_report(), Some(a100()))
+        });
+        if right {
+            assert!(setup.is_ready(), "{probability}: {setup}");
+            continue;
+        }
+        let advice = advice(&setup);
+        assert!(
+            advice.contains(&probability.to_string())
+                && advises_install(&advice)
+                && advises_restart(&advice),
+            "{advice}"
+        );
+    }
+}
+
+/// The trial run, on an engine whose libraries compute right (the fake
+/// libraries, which simulate cuTensorNet and the CUDA Runtime on the CPU),
+/// reads a probability the check takes for right: a check that took its
+/// own run for wrong would refuse every sound host.
+#[cfg(unix)]
+#[test]
+fn a_trial_run_on_an_engine_that_computes_right_is_ready() {
+    let libraries: Arc<dyn NativeCalls> = Arc::new(FakeLibraries::new());
+    let algebra = CudaAlgebra::with_native_calls(libraries)
+        .unwrap_or_else(|error| panic!("the fake libraries open an algebra: {error}"));
+    let engine = CudaMpsEngine::new(algebra);
+    let setup = setup(LoadedSetup {
+        trial_run: run_trial(&engine),
+        ..loaded(audited_report(), Some(a100()))
+    });
+    assert!(setup.is_ready(), "{setup}");
+}
+
 /// Off Linux x86-64 the advice says where the GPU engine runs. There, the
 /// check itself stops at discovery, with no device read and no trial run,
 /// and so advises.
 #[test]
 fn an_unsupported_platform_is_advised_where_the_engine_runs() {
-    let mut setups = vec![failed(AvailabilityError::UnsupportedPlatform {
-        platform: "macos aarch64".to_string(),
-    })];
+    let mut setups = vec![GpuSetup {
+        loaded: Err(AvailabilityError::UnsupportedPlatform {
+            platform: "macos aarch64".to_string(),
+        }),
+        guides: Vec::new(),
+        install_command: None,
+    }];
     if cfg!(not(all(target_os = "linux", target_arch = "x86_64"))) {
         setups.push(GpuSetup::check(&crate::PackagedLibraries::default()));
     }
@@ -756,10 +877,101 @@ fn device_0_is_supported_from_the_minimum_compute_capability_on() {
             let (major, minor) = compute_capability;
             let advice = advice(&setup);
             assert!(
-                advice.contains(&format!("{major}.{minor}")) && advice.contains("7.5"),
+                advice.contains(&format!("{major}.{minor}"))
+                    && advice.contains("cuTensorNet")
+                    && advice.contains("7.5"),
                 "{advice}"
             );
         }
+    }
+}
+
+/// Each library declares, in its setup guide, the oldest compute
+/// capability it runs on, and the GPU engine's device must meet the most
+/// demanding, which the advice names with its library: a library bound
+/// later adds its floor without changing the check. Each row gives the
+/// floors of the CUDA Runtime and cuTensorNet, the device's compute
+/// capability, and the library and floor advised, if any.
+#[cfg(unix)]
+#[test]
+fn the_device_must_meet_the_most_demanding_compute_capability_floor() {
+    let rows = [
+        (
+            [Some((8, 0)), Some((7, 5))],
+            (7, 5),
+            Some(("CUDA Runtime", "8.0")),
+        ),
+        ([Some((8, 0)), Some((7, 5))], (8, 0), None),
+        ([None, Some((7, 5))], (7, 4), Some(("cuTensorNet", "7.5"))),
+        ([None, None], (6, 1), None),
+    ];
+    for (floors, compute_capability, advised) in rows {
+        let device = EngineDevice {
+            compute_capability,
+            ..a100()
+        };
+        let mut setup = found(audited_report(), Some(device));
+        for (guide, floor) in setup.guides.iter_mut().zip(floors) {
+            guide.minimum_compute_capability = floor;
+        }
+        let Some((library, floor)) = advised else {
+            assert!(
+                setup.is_ready(),
+                "{floors:?}, {compute_capability:?}: {setup}"
+            );
+            continue;
+        };
+        let advice = advice(&setup);
+        assert!(
+            advice.contains(library) && advice.contains(floor),
+            "{floors:?}: {advice}"
+        );
+    }
+}
+
+/// Each library declares, in its setup guide, the oldest driver it runs
+/// on, and a host where no device is found is advised the most demanding,
+/// here a cuTensorNet bound later that needs a driver for CUDA 12.4, above
+/// the CUDA Runtime's 12.0; with no floor, the advice is to check that
+/// `nvidia-smi` lists a GPU, and no release. Each row gives the floors of
+/// the CUDA Runtime and cuTensorNet, the release advised, if any, and one
+/// not advised.
+#[cfg(unix)]
+#[test]
+fn no_device_is_advised_the_most_demanding_driver_floor() {
+    let cuda_12_0 = DriverFloor {
+        cuda: 12_000,
+        release: "525.60.13",
+    };
+    let cuda_12_4 = DriverFloor {
+        cuda: 12_040,
+        release: "550.54.14",
+    };
+    let rows = [
+        (
+            [Some(cuda_12_0), Some(cuda_12_4)],
+            Some("550.54.14"),
+            "525.60.13",
+        ),
+        (
+            [Some(cuda_12_4), Some(cuda_12_0)],
+            Some("550.54.14"),
+            "525.60.13",
+        ),
+        ([None, None], None, "or later"),
+    ];
+    for (floors, advised, not_advised) in rows {
+        let mut setup = found(audited_report(), None);
+        for (guide, floor) in setup.guides.iter_mut().zip(floors) {
+            guide.minimum_driver = floor;
+        }
+        let advice = advice(&setup);
+        assert!(
+            advice.contains("nvidia-smi")
+                && advised.is_none_or(|release| advice.contains(release))
+                && !advice.contains(not_advised),
+            "{floors:?}: {advice}"
+        );
     }
 }
 
@@ -780,69 +992,30 @@ fn a_devices_problem_points_at_nvidia_smi() {
     }
 }
 
-/// A driver that supports no CUDA 12, or no driver at all (CUDA reports
-/// version 0), is a problem naming NVIDIA's floor; a driver for CUDA 12.0,
-/// the floor, is not.
+/// A driver below the CUDA Runtime's floor, CUDA 12.0, is a problem
+/// naming the floor's driver release and the CUDA the driver supports, or
+/// that there is no driver (CUDA reports version 0), never CUDA 0.0; a
+/// driver at the floor is not. Each row is the CUDA the driver supports,
+/// and what the advice shows of it when it is a problem.
 #[cfg(unix)]
 #[test]
-fn a_driver_below_cuda_12_or_none_is_a_problem_naming_the_floor() {
-    for (driver, shown) in [(11_080, Some("11.8")), (0, None)] {
-        let advice = advice(&found(with_driver(driver), Some(a100())));
+fn a_driver_below_the_cuda_runtimes_floor_is_a_problem_naming_the_floor() {
+    for (driver, shown) in [
+        (11_080, Some("11.8")),
+        (0, Some("no NVIDIA driver")),
+        (12_000, None),
+    ] {
+        let setup = found(with_driver(driver), Some(a100()));
+        let Some(shown) = shown else {
+            assert!(setup.is_ready(), "{setup}");
+            continue;
+        };
+        let advice = advice(&setup);
         assert!(
-            advice.contains("525.60.13")
-                && shown.is_none_or(|version| advice.contains(version))
-                && !advice.contains("0.0"),
+            advice.contains("525.60.13") && advice.contains(shown) && !advice.contains("0.0"),
             "{advice}"
         );
     }
-    assert!(found(with_driver(12_000), Some(a100())).is_ready());
-}
-
-/// A host whose driver supports CUDA 11.8 only sees no device through it:
-/// the advice is about the driver, the cause, not the missing device.
-#[cfg(unix)]
-#[test]
-fn a_driver_below_cuda_12_is_advised_before_the_devices() {
-    let advice = advice(&found(with_driver(11_080), None));
-    assert!(
-        advice.contains("11.8") && !advice.contains("nvidia-smi"),
-        "{advice}"
-    );
-}
-
-/// A host with no device fails the trial run too: the advice is about the
-/// devices, which come first, not the trial run.
-#[cfg(unix)]
-#[test]
-fn the_devices_are_advised_before_the_trial_run() {
-    let advice = advice(&setup(LoadedSetup {
-        trial_run: failed_trial_run(),
-        ..loaded(audited_report(), None)
-    }));
-    assert!(
-        advice.contains("nvidia-smi") && !advice.contains("cudaMalloc"),
-        "{advice}"
-    );
-}
-
-/// A CUDA device 0 of compute capability 7.0 on which the trial run also
-/// failed: the advice is about the device's compute capability, not the
-/// trial run.
-#[cfg(unix)]
-#[test]
-fn device_0s_compute_capability_is_advised_before_the_trial_run() {
-    let old = EngineDevice {
-        compute_capability: (7, 0),
-        ..a100()
-    };
-    let advice = advice(&setup(LoadedSetup {
-        trial_run: failed_trial_run(),
-        ..loaded(audited_report(), Some(old))
-    }));
-    assert!(
-        advice.contains("7.0") && !advice.contains("cudaMalloc"),
-        "{advice}"
-    );
 }
 
 /// A host with no CUDA device reads so on the devices' line.
@@ -902,7 +1075,7 @@ fn two_other_copies() -> AvailabilityReport {
     let mut report = audited_report();
     report.libraries[0].other_copies = vec![PathBuf::from("/usr/local/cuda/libcudart.so.12")];
     report.libraries[1].path = Some(PathBuf::from("/opt/override/libcutensornet.so.2"));
-    report.libraries[1].from_override = true;
+    report.libraries[1].source = Some(LibrarySource::Override);
     report.libraries[1].other_copies =
         vec![PathBuf::from("/env/cuquantum/lib/libcutensornet.so.2")];
     report
@@ -987,20 +1160,21 @@ fn a_warning_says_to_change_the_copy_loaded_only_when_it_is_at_fault() {
     }];
     let variable = "QDK_CUDART_LIBRARY";
     let sound: (&[&str], &[&str]) = (&["remove", "other"], &[variable, "unset"]);
-    for (from_override, faults, (named, not_named)) in [
+    let (overridden, packaged) = (LibrarySource::Override, LibrarySource::Packaged);
+    for (source, faults, (named, not_named)) in [
         (
-            true,
+            overridden,
             at_fault.clone(),
             (&[variable, "unset"][..], &["remove"][..]),
         ),
-        (false, at_fault, (&[variable, "remove"], &["unset"])),
-        (true, driver_at_fault.clone(), sound),
-        (false, driver_at_fault, sound),
-        (true, Vec::new(), sound),
-        (false, Vec::new(), sound),
+        (packaged, at_fault, (&[variable, "remove"], &["unset"])),
+        (overridden, driver_at_fault.clone(), sound),
+        (packaged, driver_at_fault, sound),
+        (overridden, Vec::new(), sound),
+        (packaged, Vec::new(), sound),
     ] {
         let mut report = audited_report();
-        report.libraries[0].from_override = from_override;
+        report.libraries[0].source = Some(source);
         report.libraries[0].other_copies = vec![PathBuf::from("/usr/local/cuda/libcudart.so.12")];
         let setup = if faults.is_empty() {
             found(report, Some(a100()))
@@ -1041,7 +1215,7 @@ fn another_copy_is_warned_of_when_discovery_fails() {
         unreachable!("unusable gives a report");
     };
     report.libraries[0].path = Some(PathBuf::from("/opt/cuda-12.8/libcudart.so.12"));
-    report.libraries[0].from_override = true;
+    report.libraries[0].source = Some(LibrarySource::Override);
     report.libraries[0].other_copies = vec![PathBuf::from(
         "/env/nvidia/cuda_runtime/lib/libcudart.so.12",
     )];
@@ -1122,47 +1296,31 @@ fn without_a_packager_the_advice_names_no_command() {
 }
 
 /// A packager's files and install command reach the check: it reports
-/// what discovery finds given the same files, whatever the host's
-/// overrides and installs, and advises a failure with the packager's
-/// command. On a host with no override, that is the packaged CUDA Runtime,
-/// here not a library, failing to load; with the default files, it would
-/// not be tried at all. On a GPU host whose overrides name working
-/// libraries, discovery succeeds and the check runs its trial run on the
-/// GPU. A host with an invalid override fails this test: that override is
-/// advised first, with no command.
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+/// what discovery finds given those files, and advises a failure with the
+/// packager's command. Here, with no override set, the packaged CUDA
+/// Runtime, not a library, is the copy tried, and fails to load; with the
+/// default files, it would not be tried at all.
+#[cfg(unix)]
 #[test]
 fn the_check_discovers_with_the_packaged_files() {
     use crate::libraries::cuda_runtime::CudaRuntime;
 
     let (cudart, _remove) = super::packaged_file::<CudaRuntime>("check-packaged-cudart");
-    let packaged = crate::PackagedLibraries {
-        files: vec![cudart],
+    let packaged = PackagedLibraries {
+        files: vec![cudart.clone()],
         install_command: Some(PIP_INSTALL.to_string()),
     };
-    let setup = GpuSetup::check(&packaged);
-    let discovered =
-        crate::discover_with(&packaged).map(|availability| availability.report().clone());
-    match (&setup.loaded, discovered) {
-        (Ok(checked), Ok(discovered)) => assert_eq!(checked.libraries, discovered),
-        (Err(AvailabilityError::Unusable(checked)), Err(error)) => {
-            let AvailabilityError::Unusable(discovered) = &error else {
-                panic!("the check found {checked:?}, discovery {error:?}");
-            };
-            assert_eq!(checked, discovered);
-            let advised = GpuSetup {
-                loaded: Err(error),
-                install_command: Some(PIP_INSTALL.to_string()),
-            };
-            assert_eq!(setup.advice(), advised.advice());
-            let advice = setup.advice().expect("an unusable setup has advice");
-            assert!(
-                advice.contains(PIP_INSTALL),
-                "a host with no invalid override is advised the packager's command: {advice}"
-            );
-        }
-        (checked, discovered) => {
-            panic!("the check found {checked:?}, discovery {discovered:?}")
-        }
-    }
+    let setup = GpuSetup::check_from(|_| None, &packaged);
+    let Err(AvailabilityError::Unusable(report)) = &setup.loaded else {
+        panic!("the packaged CUDA Runtime is not a library: {setup}");
+    };
+    assert!(
+        matches!(
+            &report.libraries[0].faults[..],
+            [LibraryFault::LoadFailed { path, .. }] if *path == cudart
+        ),
+        "{setup}"
+    );
+    let advice = advice(&setup);
+    assert!(advice.contains(PIP_INSTALL), "{advice}");
 }

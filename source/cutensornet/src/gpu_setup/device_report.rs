@@ -5,18 +5,15 @@
 //! see them: how many the process sees, and the compute capability and
 //! memory of the one the GPU engine runs on ([`DEVICE_ORDINAL`]).
 //!
-//! NVIDIA supports cuTensorNet on devices of compute capability
-//! [`MINIMUM_COMPUTE_CAPABILITY`] or later, and a run's max bond dimension
-//! is bounded by the device's free memory, so the setup check reports both
-//! of the engine's device. It reads no other device: reading a device's
-//! memory needs a CUDA context on it, created when the device is made
-//! current and kept as long as the process, and a device the engine does
-//! not use must not make the setup look broken. Counting the devices
-//! creates no context.
+//! A library may run only on devices of some compute capability or later
+//! (its setup guide says), and a run's max bond dimension is bounded by the
+//! device's free memory, so the setup check reports both of the engine's
+//! device. It reads no other device: reading a device's memory needs a
+//! CUDA context on it, created when the device is made current and kept as
+//! long as the process, and a device the engine does not use must not make
+//! the setup look broken. Counting the devices creates no context.
 //!
-//! [`read_devices`] reads them through [`DeviceCalls`]
-//! (`cudaGetDeviceCount`, then, on the engine's device, `cudaSetDevice`,
-//! `cudaMemGetInfo` and `cudaDeviceGetAttribute`).
+//! [`read_devices`] reads them through [`DeviceCalls`].
 
 mod device_calls;
 
@@ -44,19 +41,6 @@ pub(crate) struct EngineDevice {
     /// Its total memory, in bytes.
     pub(crate) total_bytes: usize,
 }
-
-impl EngineDevice {
-    /// Whether NVIDIA supports cuTensorNet on it: compute capability at
-    /// least [`MINIMUM_COMPUTE_CAPABILITY`].
-    pub(crate) fn is_supported(&self) -> bool {
-        self.compute_capability >= MINIMUM_COMPUTE_CAPABILITY
-    }
-}
-
-/// The oldest compute capability NVIDIA supports cuTensorNet on. The GPU
-/// engine does not check it; the setup check applies it to the engine's
-/// device.
-pub(crate) const MINIMUM_COMPUTE_CAPABILITY: (i32, i32) = (7, 5);
 
 /// How many devices `calls` sees, and the GPU engine's device,
 /// [`DEVICE_ORDINAL`], read with it current; no other device is selected
