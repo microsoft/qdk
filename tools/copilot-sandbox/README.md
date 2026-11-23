@@ -134,7 +134,7 @@ There can also be private configuration and history data in `.git`.
 ## Prerequisites
 
 - Python 3.10 or newer. Use this checkout's `.venv` interpreter when available.
-- Rootless Podman 4.9 or newer with cgroup v2.
+- Rootless Podman 6 or newer with cgroup v2 (5.x doesn't play nicely with cgroups in WSL 3).
   On Linux, the launcher uses Podman directly; your account needs `/etc/subuid` and `/etc/subgid` ranges.
   On Windows and macOS, it uses a dedicated Podman machine (see [Podman Machine](#podman-machine-windows-and-macos));
 - Git; 2.45.1 or newer is recommended and older versions get a warning.
