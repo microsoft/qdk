@@ -59,6 +59,36 @@ instruction_set! {
 }
 
 instruction_set! {
+    /// A set compiled out by a `cfg` a `cfg_attr` holds beside a derive
+    /// and a nested `cfg_attr` whose predicate is false, its constants and
+    /// `set()` too.
+    #[cfg_attr(all(), derive(Clone), cfg_attr(any(), derive(Debug)), cfg(any()))]
+    OffByACfgAttr {
+        H = h(qubit),
+    }
+}
+
+instruction_set! {
+    /// A set compiled out by a `cfg` a nested `cfg_attr` holds, its
+    /// constants and `set()` too.
+    #[cfg_attr(all(), cfg_attr(all(), cfg(any())))]
+    OffByANestedCfgAttr {
+        H = h(qubit),
+    }
+}
+
+instruction_set! {
+    /// A set a `cfg_attr` would compile out were its predicate true, or
+    /// were a nested one's and its outer one's both.
+    #[cfg_attr(any(), cfg(any()))]
+    #[cfg_attr(all(), cfg_attr(any(), cfg(any())))]
+    #[cfg_attr(any(), cfg_attr(all(), cfg(any())))]
+    OnUnderFalsePredicates {
+        H = h(qubit),
+    }
+}
+
+instruction_set! {
     /// A set whose instruction acts on a block type it does not list.
     Faulty {
         A = a(carbon),
@@ -240,6 +270,18 @@ fn macro_set_with_a_declaration_fault_panics() {
             );
         }
     }
+}
+
+/// A set gated through a `cfg_attr`, as on a feature
+/// (`#[cfg_attr(not(feature = "…"), cfg(any()))]`), is compiled in, its
+/// constants and `set()` with it, while the predicate is false, also a
+/// nested `cfg_attr`'s; while it is true, its type, constants and `set()`
+/// are all compiled out, or this crate would not compile (`OffByACfgAttr`,
+/// `OffByANestedCfgAttr`).
+#[test]
+fn macro_set_gated_by_a_cfg_attr_follows_its_predicate() {
+    let set = OnUnderFalsePredicates::set();
+    assert_eq!(set.opcode("h"), Some(OnUnderFalsePredicates::H));
 }
 
 /// The macro names the set for its type, as its doc promises: undeclared

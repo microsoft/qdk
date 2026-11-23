@@ -462,8 +462,8 @@ impl std::error::Error for DeclarationFault {}
 /// `blocks`: `pub CodeGates [carbon: 2] { … }`. Its instructions declare no
 /// meaning and no flags: a set that needs them is built with
 /// [`BlockInstructionSet::new`]. Attributes before the name go on its
-/// type, and a `#[cfg(…)]` also on its constants and `set()`, so a set
-/// compiled out leaves nothing behind.
+/// type, and a `#[cfg(…)]`, or one a `#[cfg_attr(…)]` holds, also on its
+/// constants and `set()`, so a set compiled out leaves nothing behind.
 ///
 /// # Panics
 ///
@@ -500,12 +500,52 @@ macro_rules! instruction_set {
     };
     // Splits the declaration's attributes, one at a time: its `cfg`s go on
     // the set's `impl` too, so a declaration compiled out leaves no `impl`
-    // of a missing type; the others (docs, derives, `cfg_attr`s, which may
-    // hold derives) on its type alone.
+    // of a missing type; the others (docs, derives) on its type alone. A
+    // `cfg_attr` goes on the type whole, and each `cfg` it holds, with its
+    // predicate, on the `impl` too, so its derives stay the type's.
     (@split [$($cfg:tt)*] [$($other:tt)*] #[cfg($($condition:tt)*)] $($rest:tt)*) => {
         $crate::instruction_set!(
             @split [$($cfg)* #[cfg($($condition)*)]] [$($other)*] $($rest)*
         );
+    };
+    (
+        @split $cfg:tt [$($other:tt)*]
+        #[cfg_attr($predicate:meta, $($attribute:tt)*)] $($rest:tt)*
+    ) => {
+        $crate::instruction_set!(
+            @gating [$predicate] $cfg [$($attribute)*]
+            [$($other)* #[cfg_attr($predicate, $($attribute)*)]] $($rest)*
+        );
+    };
+    // Finds the `cfg`s of a `cfg_attr`'s attributes, one token at a time,
+    // under the predicate in force: a nested `cfg_attr`'s, under both
+    // predicates, until `@outer` gives back the outer one.
+    (
+        @gating [$predicate:meta] [$($cfg:tt)*]
+        [cfg($($condition:tt)*) $($scan:tt)*] $($rest:tt)*
+    ) => {
+        $crate::instruction_set!(
+            @gating [$predicate] [$($cfg)* #[cfg_attr($predicate, cfg($($condition)*))]]
+            [$($scan)*] $($rest)*
+        );
+    };
+    (
+        @gating [$predicate:meta] $cfg:tt
+        [cfg_attr($nested:meta, $($attribute:tt)*) $($scan:tt)*] $($rest:tt)*
+    ) => {
+        $crate::instruction_set!(
+            @gating [all($predicate, $nested)] $cfg
+            [$($attribute)* @outer($predicate) $($scan)*] $($rest)*
+        );
+    };
+    (@gating $predicate:tt $cfg:tt [@outer($outer:meta) $($scan:tt)*] $($rest:tt)*) => {
+        $crate::instruction_set!(@gating [$outer] $cfg [$($scan)*] $($rest)*);
+    };
+    (@gating $predicate:tt $cfg:tt [$token:tt $($scan:tt)*] $($rest:tt)*) => {
+        $crate::instruction_set!(@gating $predicate $cfg [$($scan)*] $($rest)*);
+    };
+    (@gating $predicate:tt $cfg:tt [] $other:tt $($rest:tt)*) => {
+        $crate::instruction_set!(@split $cfg $other $($rest)*);
     };
     (@split [$($cfg:tt)*] [$($other:tt)*] #[$($attribute:tt)*] $($rest:tt)*) => {
         $crate::instruction_set!(
