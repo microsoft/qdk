@@ -15,12 +15,12 @@ use crate::prelude::*;
 use crate::tests::composition::faults;
 use crate::tests::example_sets::Measuring;
 use crate::tests::fake_parts::{
-    Bits, CoinCopy, Log, Profiler, Program, Renamed, Spread, Stating, batches_of, coin_gates,
-    in_each_bracketing, unconstrained,
+    Bits, CoinCopy, Log, Profiler, Program, Renamed, Spread, StatesNoLimits, Stating, batches_of,
+    coin_gates, in_each_bracketing, unconstrained,
 };
 use crate::{
     Batch, BatchReadouts, BoundaryCompatible, BoundaryMismatch, Capabilities, CapabilitiesMismatch,
-    CompositionFault, CompositionFaults, ExecuteError, FeatureMismatch, Features, PartId,
+    CompositionFault, CompositionFaults, ExecuteError, FeatureMismatch, Features, Limited, PartId,
     ResourceMismatch, Resources, RunRequirement, Seed, TranslatingAdapter,
 };
 
@@ -104,7 +104,7 @@ fn missing(feature: FeatureMismatch) -> BoundaryMismatch {
 
 /// The program measuring qubit 0, requiring batches of `n` instructions
 /// and `features`.
-pub(super) fn program(n: u32, features: Features) -> Program {
+pub(super) fn program(n: u32, features: Features) -> Limited<Program> {
     Program::new(&[("mz", 0)])
         .with_resources(batches_of(n))
         .with_features(features)
@@ -116,7 +116,7 @@ fn replay() -> Features {
 }
 
 /// Bits taking batches of `n` instructions.
-pub(super) fn bits_over(n: u32, log: &Log) -> Bits {
+pub(super) fn bits_over(n: u32, log: &Log) -> Limited<Bits> {
     Bits::new(log).with_resources(batches_of(n))
 }
 
@@ -369,6 +369,45 @@ fn a_requirement_passed_unchanged_is_checked_at_each_part_below_naming_its_requi
     );
 }
 
+/// Parts that state limits and parts that state none join in one chain,
+/// in each bracketing: a decoder's limit between a logger and an executor
+/// that state none receives, through the logger, what the program
+/// requires, a fault naming the decoder when its limit falls short; the
+/// executor limits nothing, as it states none of the bits' batches of 4,
+/// so the larger limit composes.
+#[test]
+fn a_part_stating_limits_is_checked_beside_parts_stating_none() {
+    let counted = Rc::new(Cell::new(0));
+    for (row, limit, expected) in [
+        (
+            "batches through a logger and a decoder's limit, over no limit",
+            4,
+            vec![fault(
+                part::<Program>(0),
+                part::<Stating>(2),
+                short_batches(5, 4),
+            )],
+        ),
+        (
+            "batches through a logger and a decoder's larger limit, over no limit",
+            10,
+            vec![],
+        ),
+    ] {
+        faults_in_each_bracketing!(
+            row,
+            [d, p, c, e] from {
+                let log = Log::default();
+                let d = program(5, Features::unconstrained());
+                let p = Profiler::new(&counted, &log);
+                let c = Stating::capping(limit, &log);
+                let e = StatesNoLimits(bits_over(4, &log));
+            },
+            expected,
+        );
+    }
+}
+
 /// What a part requires below, given what arrives at it, is what arrives
 /// at the part below, checked there, a fault naming that part, in each
 /// bracketing. A row per way a part requires otherwise: more than
@@ -576,7 +615,7 @@ fn a_joined_part_requires_its_parts_requirements_in_turn_and_provides_its_top_pa
         // program's replay.
         (
             "a driver through an encoding",
-            read(&Driver::requires(
+            read(&DriverReadings::required(
                 &program(2, replay()).through(Spread::new(7, &log).built_for(2)),
                 &RunRequirement::unconstrained(),
             )),
@@ -602,7 +641,7 @@ fn a_joined_part_requires_its_parts_requirements_in_turn_and_provides_its_top_pa
         // The interleaver's least, for a program smaller than it.
         (
             "a driver through an interleaver",
-            read(&Driver::requires(
+            read(&DriverReadings::required(
                 &program(2, Features::unconstrained()).through(Stating::interleaving(3, &log)),
                 &RunRequirement::unconstrained(),
             )),
@@ -611,7 +650,7 @@ fn a_joined_part_requires_its_parts_requirements_in_turn_and_provides_its_top_pa
         // The queue's 4 shots, not the bits' batches of 8.
         (
             "a queue on bits",
-            read(Executor::provides(&Stating::queue(4, &log).on(
+            read(ExecutorReadings::provided(&Stating::queue(4, &log).on(
                 Bits::new(&log).with_resources(batches_of(8).with_shots(8)),
             ))),
             (

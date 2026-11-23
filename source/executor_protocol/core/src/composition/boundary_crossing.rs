@@ -27,6 +27,7 @@
 use std::panic::resume_unwind;
 
 use super::part_panics::{catch_panic, panic_message};
+use crate::roles::Sealed;
 use crate::{
     Batch, BatchFault, BatchReadouts, Boundary, Capabilities, ExecuteError, ExecuteRefusal,
     Executor, Failure, InstructionSet, Seed, ShotSet,
@@ -68,7 +69,8 @@ impl<E: Executor> Executor for BoundaryCrossing<'_, E> {
     }
 
     /// What is provided across the boundary, as the joins' fit read it.
-    fn provides(&self) -> &Capabilities<E::Accepts> {
+    fn provision(&self, sealed: Sealed) -> &Capabilities<E::Accepts> {
+        let _ = sealed;
         &self.boundary.provided
     }
 

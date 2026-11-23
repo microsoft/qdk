@@ -5,7 +5,10 @@
 //! once: `use executor_protocol_core::prelude::*;`.
 //!
 //! The roles ([`Driver`], [`Adapter`], [`Executor`]) are what a part
-//! implements; [`InstructionSet`] is what the instructions they exchange
+//! implements, with their limits ([`DriverLimits`], [`AdapterLimits`],
+//! [`ExecutorLimits`]) when it states any, and what the protocol reads of
+//! any driver or executor ([`DriverReadings`], [`ExecutorReadings`]), which
+//! a part that wraps one forwards; [`InstructionSet`] is what the instructions they exchange
 //! implement, and [`Lowering`] what runs one set's instructions on
 //! another's; the joins ([`DriverJoins`], [`AdapterJoins`]) give every
 //! part `through` and `on`, and [`BoundaryCompatible`] gives
@@ -14,6 +17,6 @@
 //! in scope.
 
 pub use crate::{
-    Adapter, AdapterJoins, BoundaryCompatible, Driver, DriverJoins, Executor, InstructionSet,
-    Lowering,
+    Adapter, AdapterJoins, AdapterLimits, BoundaryCompatible, Driver, DriverJoins, DriverLimits,
+    DriverReadings, Executor, ExecutorLimits, ExecutorReadings, InstructionSet, Lowering,
 };

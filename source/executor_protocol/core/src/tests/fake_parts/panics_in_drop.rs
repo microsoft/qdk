@@ -9,7 +9,7 @@ use std::task::{Context, Poll};
 
 use crate::prelude::*;
 use crate::{
-    Batch, BatchReadouts, Binding, Capabilities, DriveError, ExecuteError, NotReady,
+    Batch, BatchReadouts, Binding, Capabilities, DriveError, ExecuteError, Limited, NotReady,
     RunRequirement, Seed, ShotSet, TranslatingAdapter,
 };
 
@@ -20,8 +20,9 @@ use crate::{
 /// [`in_ready`](Self::in_ready), whose future of `ready` does so instead;
 /// or, when made with [`pending_in_ready`](Self::pending_in_ready), whose
 /// future of `ready` is pending at its first poll, and panics if dropped
-/// then. It does as `part` does otherwise, in each role `part` takes. So
-/// that a chain of such parts has one type whichever is armed.
+/// then. It does as `part` does otherwise, in each role `part` takes,
+/// stating the limits `part` states. So that a chain of such parts has one
+/// type whichever is armed.
 pub(crate) struct PanicsInDrop<P> {
     part: P,
     breaks: Breaks,
@@ -43,33 +44,35 @@ enum Breaks {
 }
 
 impl<P> PanicsInDrop<P> {
-    pub(crate) fn new(part: P, armed: bool) -> Self {
+    pub(crate) fn new(part: P, armed: bool) -> Limited<Self> {
         Self::breaking(part, armed, Breaks::WhenDropped)
     }
 
     /// `part`, whose futures, when `armed`, panic when polled, and again
     /// when dropped.
-    pub(crate) fn polled_too(part: P, armed: bool) -> Self {
+    pub(crate) fn polled_too(part: P, armed: bool) -> Limited<Self> {
         Self::breaking(part, armed, Breaks::WhenPolled)
     }
 
     /// `part`, whose future of `ready`, when `armed`, panics when polled,
     /// and again when dropped; its other futures do not panic.
-    pub(crate) fn in_ready(part: P, armed: bool) -> Self {
+    pub(crate) fn in_ready(part: P, armed: bool) -> Limited<Self> {
         Self::breaking(part, armed, Breaks::InReady)
     }
 
     /// `part`, whose future of `ready`, when `armed`, is pending at its
     /// first poll, as a device's still calibrating, and panics if dropped
     /// then; its other futures do not panic.
-    pub(crate) fn pending_in_ready(part: P, armed: bool) -> Self {
+    pub(crate) fn pending_in_ready(part: P, armed: bool) -> Limited<Self> {
         Self::breaking(part, armed, Breaks::PendingInReady)
     }
 
-    fn breaking(part: P, armed: bool, breaks: Breaks) -> Self {
-        Self {
-            part,
-            breaks: if armed { breaks } else { Breaks::Never },
+    fn breaking(part: P, armed: bool, breaks: Breaks) -> Limited<Self> {
+        Limited {
+            part: Self {
+                part,
+                breaks: if armed { breaks } else { Breaks::Never },
+            },
         }
     }
 
@@ -125,6 +128,16 @@ impl<F> Drop for Dropping<F> {
     }
 }
 
+impl<P: Driver> DriverLimits for PanicsInDrop<P> {
+    fn requires(&self, run: &RunRequirement) -> Capabilities<P::Sends> {
+        self.part.required(run)
+    }
+
+    fn ready_for(&mut self, run: &RunRequirement) -> impl Future<Output = Result<(), NotReady>> {
+        Self::readying(self.breaks, self.part.ready_given(run))
+    }
+}
+
 impl<P: Driver> Driver for PanicsInDrop<P> {
     type Sends = P::Sends;
 
@@ -136,18 +149,14 @@ impl<P: Driver> Driver for PanicsInDrop<P> {
         self.part.sends()
     }
 
-    fn requires(&self, run: &RunRequirement) -> Capabilities<P::Sends> {
-        self.part.requires(run)
-    }
-
     fn bind(&mut self, below: Binding<P::Sends>) {
         self.part.bind(below);
     }
 
     type Output = P::Output;
 
-    fn ready(&mut self, run: &RunRequirement) -> impl Future<Output = Result<(), NotReady>> {
-        Self::readying(self.breaks, self.part.ready(run))
+    fn ready(&mut self) -> impl Future<Output = Result<(), NotReady>> {
+        Self::readying(self.breaks, self.part.ready())
     }
 
     fn drive(
@@ -161,39 +170,42 @@ impl<P: Driver> Driver for PanicsInDrop<P> {
     }
 }
 
-impl<P: TranslatingAdapter> TranslatingAdapter for PanicsInDrop<P> {
+/// A translating adapter states its limits itself, so one whose futures
+/// panic needs no [`AdapterLimits`]: it is the `Limited` its constructor
+/// returns that takes the role, as for a driver and an executor.
+impl<P: TranslatingAdapter> TranslatingAdapter for Limited<PanicsInDrop<P>> {
     type Accepts = P::Accepts;
     type Sends = P::Sends;
 
     fn name(&self) -> &str {
-        self.part.name()
+        self.part.part.name()
     }
 
     fn accepts(&self) -> &P::Accepts {
-        self.part.accepts()
+        self.part.part.accepts()
     }
 
     fn sends(&self) -> &P::Sends {
-        self.part.sends()
+        self.part.part.sends()
     }
 
     fn provides(&self) -> &Capabilities<P::Accepts> {
-        self.part.provides()
+        self.part.part.provides()
     }
 
     fn requires(&self, above: &Capabilities<P::Accepts>) -> Capabilities<P::Sends> {
-        self.part.requires(above)
+        self.part.part.requires(above)
     }
 
     fn bind(&mut self, below: Binding<P::Sends>) {
-        self.part.bind(below);
+        self.part.part.bind(below);
     }
 
     fn ready(
         &mut self,
         above: &Capabilities<P::Accepts>,
     ) -> impl Future<Output = Result<(), NotReady>> {
-        Self::readying(self.breaks, self.part.ready(above))
+        PanicsInDrop::<P>::readying(self.part.breaks, self.part.part.ready(above))
     }
 
     fn adapt(
@@ -203,12 +215,25 @@ impl<P: TranslatingAdapter> TranslatingAdapter for PanicsInDrop<P> {
         below: &mut impl Executor<Accepts = P::Sends>,
         readouts: &mut [BatchReadouts<P::Accepts>],
     ) -> impl Future<Output = Result<(), ExecuteError>> {
-        let future = self.part.adapt(batches, seed, below, readouts);
-        Self::working(self.breaks, future)
+        let future = self.part.part.adapt(batches, seed, below, readouts);
+        PanicsInDrop::<P>::working(self.part.breaks, future)
     }
 
     fn end_shots(&mut self, shots: &ShotSet) {
-        self.part.end_shots(shots);
+        self.part.part.end_shots(shots);
+    }
+}
+
+impl<P: Executor> ExecutorLimits for PanicsInDrop<P> {
+    fn provides(&self) -> &Capabilities<P::Accepts> {
+        self.part.provided()
+    }
+
+    fn ready_for(
+        &mut self,
+        above: &Capabilities<P::Accepts>,
+    ) -> impl Future<Output = Result<(), NotReady>> {
+        Self::readying(self.breaks, self.part.ready_given(above))
     }
 }
 
@@ -223,15 +248,8 @@ impl<P: Executor> Executor for PanicsInDrop<P> {
         self.part.accepts()
     }
 
-    fn provides(&self) -> &Capabilities<P::Accepts> {
-        self.part.provides()
-    }
-
-    fn ready(
-        &mut self,
-        above: &Capabilities<P::Accepts>,
-    ) -> impl Future<Output = Result<(), NotReady>> {
-        Self::readying(self.breaks, self.part.ready(above))
+    fn ready(&mut self) -> impl Future<Output = Result<(), NotReady>> {
+        Self::readying(self.breaks, self.part.ready())
     }
 
     fn execute(

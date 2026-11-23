@@ -5,6 +5,7 @@
 //! driver and an executor that may send another instruction set type than
 //! it receives. Every [`Adapter`] is one.
 
+use super::Sealed;
 use crate::composition::DeclaredParts;
 use crate::part_id::ChainPosition;
 use crate::{
@@ -20,8 +21,11 @@ use crate::{
 /// [`Lowered`](crate::Lowered) lowering, the per-instruction way to
 /// write one.
 ///
-/// Each method is as [`Adapter`]'s, but [`requires`](Self::requires) has
-/// no default: what arrives is of another set than what it requires.
+/// Each method is as [`Adapter`]'s, or, for what it provides and
+/// requires, and getting ready for what arrives, as
+/// [`AdapterLimits`](crate::AdapterLimits)'s, but
+/// [`requires`](Self::requires) has no default: what arrives is of another
+/// set than what it requires.
 pub trait TranslatingAdapter {
     /// The instruction set type it receives: the part above must send the
     /// same, checked at compile time.
@@ -42,18 +46,19 @@ pub trait TranslatingAdapter {
     /// As [`Adapter::sends`].
     fn sends(&self) -> &Self::Sends;
 
-    /// As [`Adapter::provides`].
+    /// As [`AdapterLimits::provides`](crate::AdapterLimits::provides).
     fn provides(&self) -> &Capabilities<Self::Accepts> {
         Self::Accepts::unconstrained()
     }
 
-    /// As [`Adapter::requires`], with no default.
+    /// As [`AdapterLimits::requires`](crate::AdapterLimits::requires), with
+    /// no default.
     fn requires(&self, above: &Capabilities<Self::Accepts>) -> Capabilities<Self::Sends>;
 
     /// As [`Adapter::bind`].
     fn bind(&mut self, below: Binding<Self::Sends>);
 
-    /// As [`Adapter::ready`].
+    /// As [`AdapterLimits::ready_for`](crate::AdapterLimits::ready_for).
     fn ready(
         &mut self,
         above: &Capabilities<Self::Accepts>,
@@ -120,7 +125,9 @@ pub trait TranslatingAdapter {
 }
 
 // Every method forwards, but the protocol hooks: an `Adapter` cannot
-// override them, so their defaults are its.
+// override them, so their defaults are its. What it provides and requires,
+// and getting it ready for what arrives, are the adapter's own hooks: what
+// a `Limited` adapter states, else nothing.
 impl<A: Adapter> TranslatingAdapter for A {
     type Accepts = A::Set;
     type Sends = A::Set;
@@ -138,11 +145,11 @@ impl<A: Adapter> TranslatingAdapter for A {
     }
 
     fn provides(&self) -> &Capabilities<A::Set> {
-        Adapter::provides(self)
+        Adapter::provision(self, Sealed(()))
     }
 
     fn requires(&self, above: &Capabilities<A::Set>) -> Capabilities<A::Set> {
-        Adapter::requires(self, above)
+        Adapter::requirement(self, above, Sealed(()))
     }
 
     fn bind(&mut self, below: Binding<A::Set>) {
@@ -153,7 +160,7 @@ impl<A: Adapter> TranslatingAdapter for A {
         &mut self,
         above: &Capabilities<A::Set>,
     ) -> impl Future<Output = Result<(), NotReady>> {
-        Adapter::ready(self, above)
+        Adapter::ready_at(self, above, ChainPosition::UNKNOWN)
     }
 
     fn adapt(

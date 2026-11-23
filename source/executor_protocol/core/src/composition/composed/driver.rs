@@ -11,9 +11,10 @@ use crate::composition::boundary_crossing::BoundaryCrossing;
 use crate::composition::part_panics::{PanicEndingShots, await_part, catch_panic};
 use crate::composition::unended_shots::UnendedShots;
 use crate::part_id::ChainPosition;
+use crate::roles::Sealed;
 use crate::{
-    Binding, Capabilities, DriveError, Driver, Executor, NotReady, RunRequirement, Seed, ShotSet,
-    TranslatingAdapter,
+    Binding, Capabilities, DriveError, Driver, DriverReadings, Executor, NotReady, RunRequirement,
+    Seed, ShotSet, TranslatingAdapter,
 };
 
 impl<U: Driver, L: TranslatingAdapter<Accepts = U::Sends>> Composed<U, L, U::Sends> {
@@ -48,18 +49,15 @@ impl<U: Driver, L: TranslatingAdapter<Accepts = U::Sends>> Driver for Composed<U
         self.lower.sends()
     }
 
-    /// What the adapter requires, given what the driver requires.
-    fn requires(&self, run: &RunRequirement) -> Capabilities<L::Sends> {
-        self.lower.requires(&self.upper.requires(run))
-    }
-
     fn bind(&mut self, below: Binding<L::Sends>) {
         self.lower.bind(below);
     }
 
-    /// As [`ready_at`](Self::ready_at), at a position not known.
-    fn ready(&mut self, run: &RunRequirement) -> impl Future<Output = Result<(), NotReady>> {
-        self.ready_at(run, ChainPosition::UNKNOWN)
+    /// As [`ready_at`](Self::ready_at), for a run that requires nothing,
+    /// at a position not known.
+    async fn ready(&mut self) -> Result<(), NotReady> {
+        self.ready_at(&RunRequirement::unconstrained(), ChainPosition::UNKNOWN)
+            .await
     }
 
     /// The driver's `drive`, on the adapter and the chain below as one
@@ -93,6 +91,12 @@ impl<U: Driver, L: TranslatingAdapter<Accepts = U::Sends>> Driver for Composed<U
         }
     }
 
+    /// What the adapter requires, given what the driver requires.
+    fn requirement(&self, run: &RunRequirement, sealed: Sealed) -> Capabilities<L::Sends> {
+        let _ = sealed;
+        self.lower.requires(&self.upper.required(run))
+    }
+
     /// The driver, then the adapter, given what the driver requires.
     fn declare<'a>(
         &'a self,
@@ -119,7 +123,7 @@ impl<U: Driver, L: TranslatingAdapter<Accepts = U::Sends>> Driver for Composed<U
         run: &RunRequirement,
         at: ChainPosition<'_>,
     ) -> Result<(), NotReady> {
-        let (lower, required, below, part) = self.start_run(|upper| upper.requires(run), at)?;
+        let (lower, required, below, part) = self.start_run(|upper| upper.required(run), at)?;
         await_part(lower.ready_at(required, below))
             .await
             .map_err(|not_ready| not_ready.answered_by(part))?;

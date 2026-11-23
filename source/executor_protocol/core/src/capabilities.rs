@@ -10,12 +10,14 @@
 
 mod boundary;
 mod features;
+mod limited;
 mod resources;
 mod run_requirement;
 
 pub use boundary::BatchFault;
 pub(crate) use boundary::Boundary;
 pub use features::{FeatureMismatch, Features};
+pub use limited::Limited;
 pub use resources::{ResourceMismatch, Resources};
 pub use run_requirement::RunRequirement;
 
@@ -31,13 +33,14 @@ use crate::{BoundaryCompatible, InstructionSet};
 ///
 /// A requirement flows down the chain: the runner states a run's
 /// ([`RunRequirement`]), from which the driver states its own
-/// ([`Driver::requires`](crate::Driver::requires)), and each part
-/// passes below what it requires given what arrives
+/// ([`DriverLimits::requires`](crate::DriverLimits::requires)), and each
+/// part passes below what it requires given what arrives
 /// ([`TranslatingAdapter::requires`](crate::TranslatingAdapter::requires)),
 /// an [`Adapter`](crate::Adapter), by default, what arrives. A provision
 /// is a part's fixed limits on what arrives at it
 /// ([`TranslatingAdapter::provides`](crate::TranslatingAdapter::provides),
-/// [`Executor::provides`](crate::Executor::provides)), by default none.
+/// [`ExecutorLimits::provides`](crate::ExecutorLimits::provides)), by
+/// default none.
 /// What arrives at a part must [`fit`](BoundaryCompatible::fits) what it
 /// provides, as the crate's `docs/capabilities.md` says.
 ///
@@ -82,7 +85,9 @@ impl<S: InstructionSet> Capabilities<S> {
 
     /// `run`'s resources and features, with the set's capabilities that
     /// state nothing: what a driver that states nothing of its own
-    /// requires ([`Driver::requires`](crate::Driver::requires)'s default).
+    /// requires
+    /// ([`DriverLimits::requires`](crate::DriverLimits::requires)'s
+    /// default).
     #[must_use]
     pub fn from_run(run: &RunRequirement) -> Self {
         Self::new(

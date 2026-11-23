@@ -2,8 +2,15 @@
 // Licensed under the MIT License.
 
 //! The adapter's role, [`Adapter`]: a part between a driver and an
-//! executor that receives and sends one instruction set type.
+//! executor that receives and sends one instruction set type. Beside it,
+//! the limits an adapter may state, [`AdapterLimits`].
 
+mod limits;
+
+pub use limits::AdapterLimits;
+
+use super::Sealed;
+use crate::part_id::ChainPosition;
 use crate::{
     Batch, BatchReadouts, Binding, Capabilities, ExecuteError, Executor, InstructionSet, NotReady,
     Seed, ShotSet,
@@ -28,8 +35,8 @@ use crate::{
 /// The joins ([`DriverJoins`](crate::DriverJoins) and
 /// [`AdapterJoins`](crate::AdapterJoins)) read them before any run:
 /// [`name`](Self::name), [`accepts`](Self::accepts),
-/// [`sends`](Self::sends), [`provides`](Self::provides) and
-/// [`requires`](Self::requires). The join to the part below hands back
+/// [`sends`](Self::sends), and what it provides and requires, which it
+/// states, if it has limits, in [`AdapterLimits`]. The join to the part below hands back
 /// what it made of them: [`bind`](Self::bind) gets the fit's binding.
 /// A join only decides, from what the parts declare; what prepares a part
 /// to run belongs to each run.
@@ -64,40 +71,6 @@ pub trait Adapter {
     /// The instructions it sends: the part below must accept them.
     fn sends(&self) -> &Self::Set;
 
-    /// Its fixed limits on what arrives from above, such as a job queue's
-    /// most shots, or what its set's capabilities say it takes: what
-    /// arrives must fit them, as [`Capabilities`] says.
-    ///
-    /// By default its set's
-    /// [`unconstrained`](InstructionSet::unconstrained): it states nothing.
-    /// Stating its real limits is the writer's job: an adapter that does
-    /// not lets `on` accept a chain that sends it more than it can take,
-    /// which then fails as it runs.
-    fn provides(&self) -> &Capabilities<Self::Set> {
-        Self::Set::unconstrained()
-    }
-
-    /// What it requires of the part below, given `above`, what arrives
-    /// from the part above: such as a job splitter's runs of at most 100
-    /// shots, whatever run arrives, or, in its set's capabilities, what an
-    /// encoding needs below for what arrives.
-    ///
-    /// By default `above` itself: it passes what arrives below unchanged.
-    /// Stating what it changes is the writer's job: an adapter that needs
-    /// more below, and does not say so, lets `on` accept a chain whose
-    /// executor cannot hold it, which then fails as it runs.
-    ///
-    /// It is deterministic, and monotone: given an `above` that requires
-    /// no more than another, as [`Capabilities`] defines it, it requires
-    /// no more than given the other. The protocol does not check either,
-    /// and relies on both: `on` checks a chain with nothing arriving at
-    /// its top, so a part short then is short on every run; and a joined
-    /// part calls `requires` again at `ready`, for what its run's start
-    /// checked (`docs/capabilities.md`, The rule).
-    fn requires(&self, above: &Capabilities<Self::Set>) -> Capabilities<Self::Set> {
-        above.clone()
-    }
-
     /// Receives, once, the fit's binding: what the
     /// [`fits`](crate::BoundaryCompatible::fits) of the set it sends gave
     /// against the part below's, such as the receiver's encoding of each
@@ -107,13 +80,9 @@ pub trait Adapter {
     /// instruction it forwards or adds.
     fn bind(&mut self, below: Binding<Self::Set>);
 
-    /// As [`Executor::ready`], for `above`, what arrives from the part
-    /// above.
-    fn ready(
-        &mut self,
-        above: &Capabilities<Self::Set>,
-    ) -> impl Future<Output = Result<(), NotReady>> {
-        let _ = above;
+    /// As [`Executor::ready`]; for what arrives from the part above, as
+    /// [`AdapterLimits::ready_for`].
+    fn ready(&mut self) -> impl Future<Output = Result<(), NotReady>> {
         async { Ok(()) }
     }
 
@@ -164,6 +133,50 @@ pub trait Adapter {
     fn end_shots(&mut self, shots: &ShotSet) {
         let _ = shots;
     }
+
+    // Protocol hooks: sealed and hidden, as `Driver`'s are. Through them the
+    // protocol reads the limits of a part that states them (`AdapterLimits`,
+    // on a `Limited` part), as the `TranslatingAdapter` every adapter is.
+
+    /// What it provides, as a
+    /// [`TranslatingAdapter`](crate::TranslatingAdapter): by default
+    /// nothing stated, its set's
+    /// [`unconstrained`](InstructionSet::unconstrained). Only the crate
+    /// overrides it, to answer a [`Limited`](crate::Limited) part's
+    /// [`AdapterLimits::provides`].
+    #[doc(hidden)]
+    fn provision(&self, sealed: Sealed) -> &Capabilities<Self::Set> {
+        let _ = sealed;
+        Self::Set::unconstrained()
+    }
+
+    /// What it requires of the part below, given `above`, as a
+    /// [`TranslatingAdapter`](crate::TranslatingAdapter): by default
+    /// `above` itself. Only the crate overrides it, to answer a
+    /// [`Limited`](crate::Limited) part's [`AdapterLimits::requires`].
+    #[doc(hidden)]
+    fn requirement(
+        &self,
+        above: &Capabilities<Self::Set>,
+        sealed: Sealed,
+    ) -> Capabilities<Self::Set> {
+        let _ = sealed;
+        above.clone()
+    }
+
+    /// Gets it ready for `above`, what arrives at it, as a
+    /// [`TranslatingAdapter`](crate::TranslatingAdapter), at `at` in its
+    /// chain: by default [`ready`](Self::ready). Only the crate overrides it, to answer a
+    /// [`Limited`](crate::Limited) part's [`AdapterLimits::ready_for`].
+    #[doc(hidden)]
+    fn ready_at(
+        &mut self,
+        above: &Capabilities<Self::Set>,
+        at: ChainPosition<'_>,
+    ) -> impl Future<Output = Result<(), NotReady>> {
+        let _ = (above, at);
+        self.ready()
+    }
 }
 
 // A lent adapter is the adapter itself: every method forwards, and the
@@ -186,23 +199,12 @@ impl<A: Adapter + ?Sized> Adapter for &mut A {
         (**self).sends()
     }
 
-    fn provides(&self) -> &Capabilities<A::Set> {
-        (**self).provides()
-    }
-
-    fn requires(&self, above: &Capabilities<A::Set>) -> Capabilities<A::Set> {
-        (**self).requires(above)
-    }
-
     fn bind(&mut self, below: Binding<A::Set>) {
         (**self).bind(below);
     }
 
-    fn ready(
-        &mut self,
-        above: &Capabilities<A::Set>,
-    ) -> impl Future<Output = Result<(), NotReady>> {
-        (**self).ready(above)
+    fn ready(&mut self) -> impl Future<Output = Result<(), NotReady>> {
+        (**self).ready()
     }
 
     fn adapt(
@@ -217,5 +219,21 @@ impl<A: Adapter + ?Sized> Adapter for &mut A {
 
     fn end_shots(&mut self, shots: &ShotSet) {
         (**self).end_shots(shots);
+    }
+
+    fn provision(&self, sealed: Sealed) -> &Capabilities<A::Set> {
+        (**self).provision(sealed)
+    }
+
+    fn requirement(&self, above: &Capabilities<A::Set>, sealed: Sealed) -> Capabilities<A::Set> {
+        (**self).requirement(above, sealed)
+    }
+
+    fn ready_at(
+        &mut self,
+        above: &Capabilities<A::Set>,
+        at: ChainPosition<'_>,
+    ) -> impl Future<Output = Result<(), NotReady>> {
+        (**self).ready_at(above, at)
     }
 }

@@ -10,8 +10,8 @@ use super::Log;
 use crate::prelude::*;
 use crate::tests::example_sets::{OnQubit, QubitLimited, Qubits, on_qubits};
 use crate::{
-    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, NotReady, RunRequirement, Seed,
-    ShotSet,
+    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, Limited, NotReady,
+    RunRequirement, Seed, ShotSet,
 };
 
 /// What `part` logs once ready for `above`: the qubits it states.
@@ -28,11 +28,19 @@ pub(crate) struct QubitProgram {
 }
 
 impl QubitProgram {
-    pub(crate) fn new(gates: &[u32], qubits: u32) -> Self {
+    pub(crate) fn new(gates: &[u32], qubits: u32) -> Limited<Self> {
         Self {
             gates: gates.iter().copied().map(OnQubit).collect(),
             qubits,
         }
+        .limited()
+    }
+}
+
+impl DriverLimits for QubitProgram {
+    /// The run's, on `qubits` qubits.
+    fn requires(&self, run: &RunRequirement) -> Capabilities<QubitLimited> {
+        Capabilities::new(run.resources, run.features, Qubits(self.qubits))
     }
 }
 
@@ -42,11 +50,6 @@ impl Driver for QubitProgram {
 
     fn sends(&self) -> &QubitLimited {
         &QubitLimited
-    }
-
-    /// The run's, on `qubits` qubits.
-    fn requires(&self, run: &RunRequirement) -> Capabilities<QubitLimited> {
-        Capabilities::new(run.resources, run.features, Qubits(self.qubits))
     }
 
     fn bind(&mut self, (): ()) {}
@@ -64,7 +67,7 @@ impl Driver for QubitProgram {
     }
 }
 
-/// An adapter that keeps every default but `ready`, which logs what
+/// An adapter that keeps every default but `ready_for`, which logs what
 /// arrives: it passes what arrives below, the set's qubits included, and
 /// each batch as it came.
 pub(crate) struct QubitPassThrough {
@@ -72,8 +75,15 @@ pub(crate) struct QubitPassThrough {
 }
 
 impl QubitPassThrough {
-    pub(crate) fn new(log: &Log) -> Self {
-        Self { log: log.clone() }
+    pub(crate) fn new(log: &Log) -> Limited<Self> {
+        Self { log: log.clone() }.limited()
+    }
+}
+
+impl AdapterLimits for QubitPassThrough {
+    async fn ready_for(&mut self, above: &Capabilities<QubitLimited>) -> Result<(), NotReady> {
+        self.log.push(ready_for("QubitPassThrough", above));
+        Ok(())
     }
 }
 
@@ -89,11 +99,6 @@ impl Adapter for QubitPassThrough {
     }
 
     fn bind(&mut self, (): ()) {}
-
-    async fn ready(&mut self, above: &Capabilities<QubitLimited>) -> Result<(), NotReady> {
-        self.log.push(ready_for("QubitPassThrough", above));
-        Ok(())
-    }
 
     async fn adapt(
         &mut self,
@@ -114,8 +119,15 @@ pub(crate) struct QubitNarrowing {
 }
 
 impl QubitNarrowing {
-    pub(crate) fn to(qubits: u32) -> Self {
-        Self { qubits }
+    pub(crate) fn to(qubits: u32) -> Limited<Self> {
+        Self { qubits }.limited()
+    }
+}
+
+impl AdapterLimits for QubitNarrowing {
+    /// What arrives, on `qubits` qubits.
+    fn requires(&self, above: &Capabilities<QubitLimited>) -> Capabilities<QubitLimited> {
+        Capabilities::new(*above.resources(), *above.features(), Qubits(self.qubits))
     }
 }
 
@@ -128,11 +140,6 @@ impl Adapter for QubitNarrowing {
 
     fn sends(&self) -> &QubitLimited {
         &QubitLimited
-    }
-
-    /// What arrives, on `qubits` qubits.
-    fn requires(&self, above: &Capabilities<QubitLimited>) -> Capabilities<QubitLimited> {
-        Capabilities::new(*above.resources(), *above.features(), Qubits(self.qubits))
     }
 
     fn bind(&mut self, (): ()) {}
@@ -156,11 +163,23 @@ pub(crate) struct QubitRegister {
 }
 
 impl QubitRegister {
-    pub(crate) fn new(qubits: u32, log: &Log) -> Self {
+    pub(crate) fn new(qubits: u32, log: &Log) -> Limited<Self> {
         Self {
             provides: on_qubits(qubits),
             log: log.clone(),
         }
+        .limited()
+    }
+}
+
+impl ExecutorLimits for QubitRegister {
+    fn provides(&self) -> &Capabilities<QubitLimited> {
+        &self.provides
+    }
+
+    async fn ready_for(&mut self, above: &Capabilities<QubitLimited>) -> Result<(), NotReady> {
+        self.log.push(ready_for("QubitRegister", above));
+        Ok(())
     }
 }
 
@@ -169,15 +188,6 @@ impl Executor for QubitRegister {
 
     fn accepts(&self) -> &QubitLimited {
         &QubitLimited
-    }
-
-    fn provides(&self) -> &Capabilities<QubitLimited> {
-        &self.provides
-    }
-
-    async fn ready(&mut self, above: &Capabilities<QubitLimited>) -> Result<(), NotReady> {
-        self.log.push(ready_for("QubitRegister", above));
-        Ok(())
     }
 
     async fn execute(

@@ -53,7 +53,7 @@ pub struct Runner<D: Driver, E: Executor<Accepts = D::Sends>> {
     pub(super) parts: Vec<PartId>,
     /// The boundary between the driver and the executor, as the joins' fit
     /// found it: what the executor gets ready for on each run, what the
-    /// driver's `below.accepts()` and `below.provides()` answer, the limits
+    /// driver's `below.accepts()` and `below.provided()` answer, the limits
     /// of the batches the driver sends, and the executor's top part, which
     /// its panic in an `execute` and its refusal name.
     pub(super) boundary: Boundary<D::Sends>,
@@ -92,7 +92,8 @@ impl<D: Driver, E: Executor<Accepts = D::Sends>> Runner<D, E> {
     /// seed is fixed
     /// ([`Features::seeded_runs`](crate::Features::seeded_runs)), stating
     /// nothing of the set's capabilities:
-    /// the driver's [`requires`](Driver::requires) gets that, and each part
+    /// the driver's [`required`](crate::DriverReadings::required) gets
+    /// that, and each part
     /// below gets what the part above requires given what arrived there.
     /// The run is refused, and nothing of it runs, when a part does not
     /// provide what arrives at it, before any part is asked

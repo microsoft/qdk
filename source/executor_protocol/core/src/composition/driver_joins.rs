@@ -8,7 +8,7 @@
 use super::composed::Composed;
 use super::{CompositionFaults, DeclaredParts};
 use crate::capabilities::Boundary;
-use crate::{Driver, Executor, RunRequirement, Runner, TranslatingAdapter};
+use crate::{Driver, Executor, ExecutorReadings, RunRequirement, Runner, TranslatingAdapter};
 
 /// The joins of a driver with the part below it: [`through`](Self::through)
 /// an adapter, which gives a driver, and [`on`](Self::on) an executor,
@@ -42,7 +42,8 @@ pub trait DriverJoins: Driver + Sized {
     /// accepts, and what arrives at each part against what it provides,
     /// starting from a run that requires nothing. What arrives at a part is
     /// what the part above requires given what arrived there
-    /// ([`Driver::requires`], [`TranslatingAdapter::requires`]). On any
+    /// ([`DriverReadings::required`](crate::DriverReadings::required),
+    /// [`TranslatingAdapter::requires`]). On any
     /// fault, every such fault, top to bottom, with the same parts'
     /// positions and mismatches in every bracketing, and the same names
     /// where each part's name stays the same through composition, `bind`
@@ -71,7 +72,7 @@ pub trait DriverJoins: Driver + Sized {
             });
         }
         let (mut boundary, binding) =
-            Boundary::fit(self.sends(), executor.accepts(), executor.provides())
+            Boundary::fit(self.sends(), executor.accepts(), executor.provided())
                 .expect("the chain fits where each part accepts what the part above sends");
         self.bind(binding);
         boundary.part = Some(ids[executor_at].clone());

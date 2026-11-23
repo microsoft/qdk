@@ -20,7 +20,7 @@ pub(crate) enum PanicsWhen {
 }
 
 /// A part that panics, as a driver in `drive` and as an executor in
-/// `execute`.
+/// `execute`. As a driver it states its limits, and is used wrapped.
 pub(crate) struct Panics(pub(crate) PanicsWhen);
 
 /// A part's panic while its future is polled.
@@ -28,17 +28,19 @@ fn broken<T>() -> T {
     panic!("the part broke while it was polled")
 }
 
+impl DriverLimits for Panics {
+    /// The run's, in batches of 1 instruction.
+    fn requires(&self, run: &RunRequirement) -> Capabilities<Measuring> {
+        Capabilities::from_run(run)
+            .map_resources(|resources| resources.with_instructions_per_batch(1))
+    }
+}
+
 impl Driver for Panics {
     type Sends = Measuring;
 
     fn sends(&self) -> &Measuring {
         coin_gates()
-    }
-
-    /// The run's, in batches of 1 instruction.
-    fn requires(&self, run: &RunRequirement) -> Capabilities<Measuring> {
-        Capabilities::from_run(run)
-            .map_resources(|resources| resources.with_instructions_per_batch(1))
     }
 
     fn bind(&mut self, _below: Vec<u32>) {}

@@ -8,16 +8,17 @@ use crate::composition::DeclaredParts;
 use crate::composition::boundary_crossing::BoundaryCrossing;
 use crate::composition::part_panics::{await_part, end_both};
 use crate::part_id::ChainPosition;
+use crate::roles::Sealed;
 use crate::{
-    Batch, BatchReadouts, Capabilities, ExecuteError, Executor, NotReady, Seed, ShotSet,
-    TranslatingAdapter,
+    Batch, BatchReadouts, Capabilities, ExecuteError, Executor, ExecutorReadings, InstructionSet,
+    NotReady, Seed, ShotSet, TranslatingAdapter,
 };
 
 impl<U: TranslatingAdapter, L: Executor<Accepts = U::Sends>> Composed<U, L, U::Sends> {
     /// `upper` on `lower`: binds `upper` where its set fits the one `lower`
     /// accepts.
     pub(crate) fn adapter_on(mut upper: U, lower: L) -> Self {
-        let fit = boundary(upper.sends(), lower.accepts(), lower.provides()).map(
+        let fit = boundary(upper.sends(), lower.accepts(), lower.provided()).map(
             |(boundary, binding)| {
                 upper.bind(binding);
                 boundary
@@ -44,18 +45,10 @@ impl<U: TranslatingAdapter, L: Executor<Accepts = U::Sends>> Executor for Compos
         self.upper.accepts()
     }
 
-    /// The adapter's: what arrives at the executor is checked against what
-    /// it provides when the joined part gets ready.
-    fn provides(&self) -> &Capabilities<U::Accepts> {
-        self.upper.provides()
-    }
-
-    /// As [`ready_at`](Self::ready_at), at a position not known.
-    fn ready(
-        &mut self,
-        above: &Capabilities<U::Accepts>,
-    ) -> impl Future<Output = Result<(), NotReady>> {
-        self.ready_at(above, ChainPosition::UNKNOWN)
+    /// As [`ready_at`](Self::ready_at), for what arrives from a part above
+    /// that states nothing, at a position not known.
+    fn ready(&mut self) -> impl Future<Output = Result<(), NotReady>> {
+        self.ready_at(U::Accepts::unconstrained(), ChainPosition::UNKNOWN)
     }
 
     async fn execute(
@@ -81,6 +74,13 @@ impl<U: TranslatingAdapter, L: Executor<Accepts = U::Sends>> Executor for Compos
             || self.upper.end_shots(shots),
             || self.lower.end_shots(shots),
         );
+    }
+
+    /// The adapter's: what arrives at the executor is checked against what
+    /// it provides when the joined part gets ready.
+    fn provision(&self, sealed: Sealed) -> &Capabilities<U::Accepts> {
+        let _ = sealed;
+        self.upper.provides()
     }
 
     /// The adapter, then the executor, given what the adapter requires.

@@ -5,13 +5,14 @@
 
 use crate::prelude::*;
 use crate::{
-    Batch, BatchReadouts, Binding, Capabilities, DriveError, ExecuteError, NotReady,
+    Batch, BatchReadouts, Binding, Capabilities, DriveError, ExecuteError, Limited, NotReady,
     RunRequirement, Seed, ShotSet, TranslatingAdapter,
 };
 
 /// `part`, named `name`, as a part built at run time is named by what it
 /// was built from rather than by its type; it does as `part` does
-/// otherwise, in each role `part` takes.
+/// otherwise, in each role `part` takes, stating the limits `part`
+/// states.
 pub(crate) struct Renamed<P> {
     part: P,
     name: &'static str,
@@ -20,19 +21,34 @@ pub(crate) struct Renamed<P> {
 }
 
 impl<P> Renamed<P> {
-    pub(crate) fn new(part: P, name: &'static str) -> Self {
-        Self {
-            part,
-            name,
-            name_once_ready: name,
+    pub(crate) fn new(part: P, name: &'static str) -> Limited<Self> {
+        Limited {
+            part: Self {
+                part,
+                name,
+                name_once_ready: name,
+            },
         }
     }
+}
 
+impl<P> Limited<Renamed<P>> {
     /// This part, named `name` once its role's `ready` is called: a part
     /// that breaks the rule that its name does not change once composed.
     pub(crate) fn renamed_once_ready(mut self, name: &'static str) -> Self {
-        self.name_once_ready = name;
+        self.part.name_once_ready = name;
         self
+    }
+}
+
+impl<P: Driver> DriverLimits for Renamed<P> {
+    fn requires(&self, run: &RunRequirement) -> Capabilities<P::Sends> {
+        self.part.required(run)
+    }
+
+    fn ready_for(&mut self, run: &RunRequirement) -> impl Future<Output = Result<(), NotReady>> {
+        self.name = self.name_once_ready;
+        self.part.ready_given(run)
     }
 }
 
@@ -47,19 +63,15 @@ impl<P: Driver> Driver for Renamed<P> {
         self.part.sends()
     }
 
-    fn requires(&self, run: &RunRequirement) -> Capabilities<P::Sends> {
-        self.part.requires(run)
-    }
-
     fn bind(&mut self, below: Binding<P::Sends>) {
         self.part.bind(below);
     }
 
     type Output = P::Output;
 
-    fn ready(&mut self, run: &RunRequirement) -> impl Future<Output = Result<(), NotReady>> {
+    fn ready(&mut self) -> impl Future<Output = Result<(), NotReady>> {
         self.name = self.name_once_ready;
-        self.part.ready(run)
+        self.part.ready()
     }
 
     fn drive(
@@ -72,40 +84,43 @@ impl<P: Driver> Driver for Renamed<P> {
     }
 }
 
-impl<P: TranslatingAdapter> TranslatingAdapter for Renamed<P> {
+/// A translating adapter states its limits itself, so a renamed one needs
+/// no [`AdapterLimits`]: it is the `Limited` its constructor returns that
+/// takes the role, as for a driver and an executor.
+impl<P: TranslatingAdapter> TranslatingAdapter for Limited<Renamed<P>> {
     type Accepts = P::Accepts;
     type Sends = P::Sends;
 
     fn name(&self) -> &str {
-        self.name
+        self.part.name
     }
 
     fn accepts(&self) -> &P::Accepts {
-        self.part.accepts()
+        self.part.part.accepts()
     }
 
     fn sends(&self) -> &P::Sends {
-        self.part.sends()
+        self.part.part.sends()
     }
 
     fn provides(&self) -> &Capabilities<P::Accepts> {
-        self.part.provides()
+        self.part.part.provides()
     }
 
     fn requires(&self, above: &Capabilities<P::Accepts>) -> Capabilities<P::Sends> {
-        self.part.requires(above)
+        self.part.part.requires(above)
     }
 
     fn bind(&mut self, below: Binding<P::Sends>) {
-        self.part.bind(below);
+        self.part.part.bind(below);
     }
 
     fn ready(
         &mut self,
         above: &Capabilities<P::Accepts>,
     ) -> impl Future<Output = Result<(), NotReady>> {
-        self.name = self.name_once_ready;
-        self.part.ready(above)
+        self.part.name = self.part.name_once_ready;
+        self.part.part.ready(above)
     }
 
     fn adapt(
@@ -115,11 +130,25 @@ impl<P: TranslatingAdapter> TranslatingAdapter for Renamed<P> {
         below: &mut impl Executor<Accepts = P::Sends>,
         readouts: &mut [BatchReadouts<P::Accepts>],
     ) -> impl Future<Output = Result<(), ExecuteError>> {
-        self.part.adapt(batches, seed, below, readouts)
+        self.part.part.adapt(batches, seed, below, readouts)
     }
 
     fn end_shots(&mut self, shots: &ShotSet) {
-        self.part.end_shots(shots);
+        self.part.part.end_shots(shots);
+    }
+}
+
+impl<P: Executor> ExecutorLimits for Renamed<P> {
+    fn provides(&self) -> &Capabilities<P::Accepts> {
+        self.part.provided()
+    }
+
+    fn ready_for(
+        &mut self,
+        above: &Capabilities<P::Accepts>,
+    ) -> impl Future<Output = Result<(), NotReady>> {
+        self.name = self.name_once_ready;
+        self.part.ready_given(above)
     }
 }
 
@@ -134,16 +163,9 @@ impl<P: Executor> Executor for Renamed<P> {
         self.part.accepts()
     }
 
-    fn provides(&self) -> &Capabilities<P::Accepts> {
-        self.part.provides()
-    }
-
-    fn ready(
-        &mut self,
-        above: &Capabilities<P::Accepts>,
-    ) -> impl Future<Output = Result<(), NotReady>> {
+    fn ready(&mut self) -> impl Future<Output = Result<(), NotReady>> {
         self.name = self.name_once_ready;
-        self.part.ready(above)
+        self.part.ready()
     }
 
     fn execute(

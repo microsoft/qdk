@@ -3,11 +3,20 @@
 
 //! The executor's role, [`Executor`], and what an `execute` returns when
 //! it does not answer: [`ExecuteError`], with [`ExecuteRefusal`] when
-//! nothing of it ran.
+//! nothing of it ran. Beside it, the limits an executor may state,
+//! [`ExecutorLimits`], and what the protocol reads of any executor,
+//! [`ExecutorReadings`].
+
+mod limits;
+mod readings;
 
 use std::error::Error;
 use std::fmt;
 
+pub use limits::ExecutorLimits;
+pub use readings::ExecutorReadings;
+
+use super::Sealed;
 use crate::composition::DeclaredParts;
 use crate::part_id::ChainPosition;
 use crate::{
@@ -34,11 +43,13 @@ use crate::{
 ///
 /// The joins ([`DriverJoins`](crate::DriverJoins) and
 /// [`AdapterJoins`](crate::AdapterJoins)) read them before any run:
-/// [`name`](Self::name), [`accepts`](Self::accepts) and
-/// [`provides`](Self::provides). It gets no hand-back: it sends nothing,
+/// [`name`](Self::name), [`accepts`](Self::accepts) and what it
+/// provides ([`ExecutorReadings::provided`]), which it states, if it has
+/// limits, in [`ExecutorLimits`]. It gets no hand-back: it sends nothing,
 /// so it gets no binding. A join only decides, from what the parts
 /// declare; what prepares a part to run belongs to each run, which starts
-/// with [`ready`](Self::ready), given what arrives at it.
+/// with [`ready`](Self::ready), or, for a part that states its limits,
+/// [`ExecutorLimits::ready_for`], given what arrives at it.
 ///
 /// What it accepts and provides must not change once it is joined: the
 /// fit is made once, from them, and each batch sent to it is checked
@@ -81,43 +92,21 @@ pub trait Executor {
     /// part it is in.
     fn accepts(&self) -> &Self::Accepts;
 
-    /// Its fixed limits on what arrives from above, such as its most shots
-    /// in a run, whether a run may fix its seed, or what its set's
-    /// capabilities say it holds: what arrives must fit them, as
-    /// [`Capabilities`] says.
-    ///
-    /// By default its set's
-    /// [`unconstrained`](InstructionSet::unconstrained): it states nothing.
-    /// Stating its real limits is the writer's job: an executor that does
-    /// not lets `on` accept a chain it cannot run, which then fails as it
-    /// runs.
-    fn provides(&self) -> &Capabilities<Self::Accepts> {
-        Self::Accepts::unconstrained()
-    }
-
-    /// Gets this part ready for a run, before anything of the run runs, for
-    /// `above`, what arrives from the part above: its
-    /// [`Resources`](crate::Resources), such as the most shots of a run, its
-    /// [`Features`](crate::Features), such as whether a shot is run again
-    /// alone, and its set's capabilities. It takes what it needs to run, such
-    /// as a device; or, when it
-    /// cannot take a run now, such as when its device is busy or its resources
-    /// are not available, answers [`NotReady`], which refuses the run
+    /// Gets this part ready for a run, before anything of the run runs. It
+    /// takes what it needs to run, such as a device; or, when it cannot
+    /// take a run now, such as when its device is busy, answers
+    /// [`NotReady`], which refuses the run
     /// ([`RunRefusal::PartNotReady`](crate::RunRefusal::PartNotReady)). By
-    /// default `Ok`. `above` follows from the run's shots and whether its
-    /// seed is fixed, so work that depends only on it may be done once and
-    /// kept for the runs that give the same.
+    /// default `Ok`. A part that gets ready for what arrives from the part
+    /// above, such as the most shots of a run, does so in
+    /// [`ExecutorLimits::ready_for`] instead.
     ///
     /// The runner asks the parts in turn, each at most once per run, the
     /// part below first, before the driver starts, and stops at the first
     /// that refuses: no part above it is asked, nor any part when the run
     /// is refused for what it requires, nor a part the run has not
     /// reached when its future is dropped, or is never polled.
-    fn ready(
-        &mut self,
-        above: &Capabilities<Self::Accepts>,
-    ) -> impl Future<Output = Result<(), NotReady>> {
-        let _ = above;
+    fn ready(&mut self) -> impl Future<Output = Result<(), NotReady>> {
         async { Ok(()) }
     }
 
@@ -208,7 +197,20 @@ pub trait Executor {
         let _ = shots;
     }
 
-    // Protocol hooks: sealed and hidden, as `Driver`'s are.
+    // Protocol hooks: sealed and hidden, as `Driver`'s are. Through them the
+    // protocol reads the limits of a part that states them
+    // (`ExecutorLimits`, on a `Limited` part), and of the parts it joins.
+
+    /// What it provides ([`ExecutorReadings::provided`]): by default
+    /// nothing stated, its set's
+    /// [`unconstrained`](InstructionSet::unconstrained). Only the crate
+    /// overrides it, to answer a [`Limited`](crate::Limited) part's
+    /// [`ExecutorLimits::provides`], or a part it joins.
+    #[doc(hidden)]
+    fn provision(&self, sealed: Sealed) -> &Capabilities<Self::Accepts> {
+        let _ = sealed;
+        Self::Accepts::unconstrained()
+    }
 
     /// Adds this part to `parts`, given `above`, what arrives at it. Only
     /// the crate overrides it, to add each part it holds, top to bottom.
@@ -217,20 +219,23 @@ pub trait Executor {
     #[doc(hidden)]
     fn declare<'a>(&'a self, above: &Capabilities<Self::Accepts>, parts: &mut DeclaredParts<'a>) {
         parts.push(Executor::name(self));
-        parts.receive(self.accepts(), self.provides(), above);
+        parts.receive(self.accepts(), self.provision(Sealed(())), above);
     }
 
-    /// [`ready`](Self::ready), for this part at `at` in its chain. Only
-    /// the crate overrides it, to name a refusal of a part it holds by
-    /// that part's position.
+    /// Gets this part ready for `above`, what arrives at it
+    /// ([`ExecutorReadings::ready_given`]), at `at` in its chain: by
+    /// default [`ready`](Self::ready). Only the crate overrides it, to
+    /// answer a [`Limited`](crate::Limited) part's
+    /// [`ExecutorLimits::ready_for`], or to name a refusal of a part it
+    /// holds by that part's position.
     #[doc(hidden)]
     fn ready_at(
         &mut self,
         above: &Capabilities<Self::Accepts>,
         at: ChainPosition<'_>,
     ) -> impl Future<Output = Result<(), NotReady>> {
-        let _ = at;
-        self.ready(above)
+        let _ = (above, at);
+        self.ready()
     }
 }
 
@@ -248,15 +253,8 @@ impl<E: Executor + ?Sized> Executor for &mut E {
         (**self).accepts()
     }
 
-    fn provides(&self) -> &Capabilities<E::Accepts> {
-        (**self).provides()
-    }
-
-    fn ready(
-        &mut self,
-        above: &Capabilities<E::Accepts>,
-    ) -> impl Future<Output = Result<(), NotReady>> {
-        (**self).ready(above)
+    fn ready(&mut self) -> impl Future<Output = Result<(), NotReady>> {
+        (**self).ready()
     }
 
     fn execute(
@@ -270,6 +268,10 @@ impl<E: Executor + ?Sized> Executor for &mut E {
 
     fn end_shots(&mut self, shots: &ShotSet) {
         (**self).end_shots(shots);
+    }
+
+    fn provision(&self, sealed: Sealed) -> &Capabilities<E::Accepts> {
+        (**self).provision(sealed)
     }
 
     fn declare<'a>(&'a self, above: &Capabilities<E::Accepts>, parts: &mut DeclaredParts<'a>) {

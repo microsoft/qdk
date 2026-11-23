@@ -55,6 +55,7 @@ use super::BoundaryMismatch;
 use super::part_panics::end_both;
 use crate::PartId;
 use crate::part_id::ChainPosition;
+use crate::roles::Sealed;
 use crate::{
     Batch, BatchReadouts, Binding, Boundary, BoundaryCompatible, Capabilities, ExecuteError,
     Executor, InstructionSet, NotReady, Seed, ShotSet, TranslatingAdapter,
@@ -183,7 +184,8 @@ impl<A: TranslatingAdapter, B: Executor<Accepts = A::Sends>> Executor for ChainB
 
     /// The adapter's. Not asked at run time: the boundary crossing the
     /// part above calls answers what is provided across it.
-    fn provides(&self) -> &Capabilities<A::Accepts> {
+    fn provision(&self, sealed: Sealed) -> &Capabilities<A::Accepts> {
+        let _ = sealed;
         self.adapter.provides()
     }
 

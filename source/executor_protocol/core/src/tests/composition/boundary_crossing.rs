@@ -33,7 +33,7 @@ use crate::tests::fake_parts::{
 };
 use crate::{
     Batch, BatchFault, BatchReadouts, Capabilities, CompositionFaults, DriveError, ExecuteError,
-    ExecuteRefusal, Failure, NotReady, PartId, Readouts, Runner, Seed, ShotId, ShotSet,
+    ExecuteRefusal, Failure, Limited, NotReady, PartId, Readouts, Runner, Seed, ShotId, ShotSet,
 };
 
 use BitReadout::{One, Zero};
@@ -88,7 +88,7 @@ fn failed_run<D: Driver<Output: std::fmt::Debug>, E: Executor<Accepts = D::Sends
 
 /// Measures qubit 0 after flipping it: one checked batch of two
 /// instructions, needing one qubit.
-fn flip_and_measure() -> Program {
+fn flip_and_measure() -> Limited<Program> {
     Program::new(&[("x", 0), ("mz", 0)]).with_checked_batches()
 }
 
@@ -363,13 +363,6 @@ impl Adapter for Stage {
         }
     }
 
-    fn requires(&self, above: &Capabilities<Measuring>) -> Capabilities<Measuring> {
-        match self {
-            Self::Counts(profiler) => Adapter::requires(profiler, above),
-            Self::Faulty(faulty) => Adapter::requires(faulty, above),
-        }
-    }
-
     fn bind(&mut self, below: Vec<u32>) {
         match self {
             Self::Counts(profiler) => profiler.bind(below),
@@ -414,7 +407,7 @@ impl Parts {
         }
     }
 
-    fn d(&self) -> Program {
+    fn d(&self) -> Limited<Program> {
         let program = if self.faulty == 0 {
             Program::new(&[("mz", 0)]).ending_beyond_its_set(0)
         } else {
@@ -436,7 +429,7 @@ impl Parts {
         }
     }
 
-    fn e(&self) -> Bits {
+    fn e(&self) -> Limited<Bits> {
         Bits::new(&self.log)
     }
 
@@ -871,7 +864,19 @@ fn read_stating<D: Driver, E: Executor<Accepts = D::Sends>>(
 /// An executor that records the readouts it is passed, as it finds them,
 /// then lets [`Bits`] fill them, or, if it has none, leaves them as they
 /// are.
-struct RecordsWhatItFinds(Option<Bits>, Rc<RefCell<Vec<BatchReadouts<Measuring>>>>);
+struct RecordsWhatItFinds(
+    Option<Limited<Bits>>,
+    Rc<RefCell<Vec<BatchReadouts<Measuring>>>>,
+);
+
+impl ExecutorLimits for RecordsWhatItFinds {
+    async fn ready_for(&mut self, above: &Capabilities<Measuring>) -> Result<(), NotReady> {
+        match &mut self.0 {
+            Some(bits) => bits.ready_given(above).await,
+            None => Ok(()),
+        }
+    }
+}
 
 impl Executor for RecordsWhatItFinds {
     type Accepts = Measuring;
@@ -880,9 +885,9 @@ impl Executor for RecordsWhatItFinds {
         coin_gates()
     }
 
-    async fn ready(&mut self, above: &Capabilities<Measuring>) -> Result<(), NotReady> {
+    async fn ready(&mut self) -> Result<(), NotReady> {
         match &mut self.0 {
-            Some(bits) => bits.ready(above).await,
+            Some(bits) => bits.ready().await,
             None => Ok(()),
         }
     }
@@ -925,7 +930,7 @@ fn each_batchs_readouts_come_shaped_as_the_batch_prefilled() {
     let found: [Rc<RefCell<Vec<BatchReadouts<Measuring>>>>; 6] = Default::default();
     let executor = |row: usize, writes: bool| {
         let bits = writes.then(|| Bits::new(&log));
-        RecordsWhatItFinds(bits, Rc::clone(&found[row]))
+        RecordsWhatItFinds(bits, Rc::clone(&found[row])).limited()
     };
     let profiler = || Profiler::new(&counted, &log);
     for (chain, read, found, shaped, expected) in [
@@ -979,7 +984,17 @@ fn each_batchs_readouts_come_shaped_as_the_batch_prefilled() {
 
 /// [`Bits`] that, at its first `execute`, fills the readouts, then rejects
 /// every shot and fails.
-struct FailsFirst(Bits, bool);
+struct FailsFirst(Limited<Bits>, bool);
+
+impl ExecutorLimits for FailsFirst {
+    fn provides(&self) -> &Capabilities<Measuring> {
+        self.0.provided()
+    }
+
+    async fn ready_for(&mut self, above: &Capabilities<Measuring>) -> Result<(), NotReady> {
+        self.0.ready_given(above).await
+    }
+}
 
 impl Executor for FailsFirst {
     type Accepts = Measuring;
@@ -988,12 +1003,8 @@ impl Executor for FailsFirst {
         Executor::accepts(&self.0)
     }
 
-    fn provides(&self) -> &Capabilities<Measuring> {
-        Executor::provides(&self.0)
-    }
-
-    async fn ready(&mut self, above: &Capabilities<Measuring>) -> Result<(), NotReady> {
-        self.0.ready(above).await
+    async fn ready(&mut self) -> Result<(), NotReady> {
+        self.0.ready().await
     }
 
     async fn execute(
@@ -1037,14 +1048,6 @@ impl Adapter for RetriesAfterAFailure {
         self.0.sends()
     }
 
-    fn provides(&self) -> &Capabilities<Measuring> {
-        Adapter::provides(&self.0)
-    }
-
-    fn requires(&self, above: &Capabilities<Measuring>) -> Capabilities<Measuring> {
-        Adapter::requires(&self.0, above)
-    }
-
     fn bind(&mut self, below: Vec<u32>) {
         self.0.bind(below);
     }
@@ -1074,7 +1077,7 @@ fn an_execute_sent_again_after_a_failure_gets_its_readouts_shaped_again() {
     let read = read_on(|driver| {
         driver
             .through(RetriesAfterAFailure(Profiler::new(&counted, &log)))
-            .on(FailsFirst(Bits::new(&log), true))
+            .on(FailsFirst(Bits::new(&log), true).limited())
     });
     let mut expected = vec![BatchReadouts::new(2, 2), BatchReadouts::new(1, 0)];
     for position in 0..2 {
@@ -1096,14 +1099,6 @@ impl Adapter for PassesTooFewReadouts {
 
     fn sends(&self) -> &Measuring {
         self.0.sends()
-    }
-
-    fn provides(&self) -> &Capabilities<Measuring> {
-        Adapter::provides(&self.0)
-    }
-
-    fn requires(&self, above: &Capabilities<Measuring>) -> Capabilities<Measuring> {
-        Adapter::requires(&self.0, above)
     }
 
     fn bind(&mut self, below: Vec<u32>) {

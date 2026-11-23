@@ -28,7 +28,7 @@ use crate::tests::fake_parts::{
     Renamed, Splitter, Spread, Stating, Trap, Values, batches_of, coin_gate, in_each_bracketing,
 };
 use crate::{
-    CompositionFaults, Features, Lowered, Resources, RunRequirement, Runner, ShotSet,
+    CompositionFaults, Features, Limited, Lowered, Resources, RunRequirement, Runner, ShotSet,
     TranslatingAdapter,
 };
 
@@ -96,7 +96,7 @@ fn one_driver_runs_on_every_chain_it_fits() {
     let expected = plain(&shots);
     let driver = CoinCopy::new;
     assert_eq!(
-        records(driver().on(Later(Bits::new(&log))), &shots),
+        records(driver().on(Later(Bits::new(&log)).limited()), &shots),
         expected,
         "answering later"
     );
@@ -192,11 +192,11 @@ where
 fn a_joined_part_runs_the_same_held_by_a_part_forwarding_its_role() {
     struct Parts {
         log: Log,
-        d: CoinCopy,
-        a: Spread,
+        d: Limited<CoinCopy>,
+        a: Limited<Spread>,
         b: Trap,
-        c: Spread,
-        e: Bits,
+        c: Limited<Spread>,
+        e: Limited<Bits>,
     }
     let parts = || {
         let log = Log::default();
@@ -217,17 +217,14 @@ fn a_joined_part_runs_the_same_held_by_a_part_forwarding_its_role() {
     let provision_rows = [
         ("a driver through a splitter", {
             let [log, unwrapped_log] = [Log::default(), Log::default()];
-            let held = Renamed::new(
-                CoinCopy::new().through(Splitter::default()),
-                "user's driver",
-            );
+            let held = Renamed::new(CoinCopy::new().through(Splitter::new()), "user's driver");
             let bits = Bits::new(&log).with_resources(one_instruction());
             let unwrapped_bits = Bits::new(&unwrapped_log).with_resources(one_instruction());
             (
                 two_runs(held.through(Spread::new(1, &log)).on(bits), &log),
                 two_runs(
                     CoinCopy::new()
-                        .through(Splitter::default())
+                        .through(Splitter::new())
                         .through(Spread::new(1, &unwrapped_log))
                         .on(unwrapped_bits),
                     &unwrapped_log,
@@ -237,7 +234,7 @@ fn a_joined_part_runs_the_same_held_by_a_part_forwarding_its_role() {
         ("an adapter through a splitter", {
             let [log, unwrapped_log] = [Log::default(), Log::default()];
             let held = Renamed::new(
-                Spread::new(1, &log).through(Splitter::default()),
+                Spread::new(1, &log).through(Splitter::new()),
                 "user's adapter",
             );
             let bits = Bits::new(&log).with_resources(one_instruction());
@@ -247,7 +244,7 @@ fn a_joined_part_runs_the_same_held_by_a_part_forwarding_its_role() {
                 two_runs(
                     CoinCopy::new()
                         .through(Spread::new(1, &unwrapped_log))
-                        .through(Splitter::default())
+                        .through(Splitter::new())
                         .on(unwrapped_bits),
                     &unwrapped_log,
                 ),

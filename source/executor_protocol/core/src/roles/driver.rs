@@ -2,11 +2,20 @@
 // Licensed under the MIT License.
 
 //! The driver's role, [`Driver`], and what a `drive` returns when it gives
-//! no outputs: [`DriveError`].
+//! no outputs: [`DriveError`]. Beside it, what a driver may state of its
+//! own of what it requires below, [`DriverLimits`], and what the protocol
+//! reads of any driver, [`DriverReadings`].
+
+mod limits;
+mod readings;
 
 use std::error::Error;
 use std::fmt;
 
+pub use limits::DriverLimits;
+pub use readings::DriverReadings;
+
+use super::Sealed;
 use crate::composition::DeclaredParts;
 use crate::part_id::ChainPosition;
 use crate::{
@@ -30,8 +39,9 @@ use crate::{
 /// # Declarations
 ///
 /// The joins ([`DriverJoins`](crate::DriverJoins)) read them before any
-/// run: [`name`](Self::name), [`sends`](Self::sends) and
-/// [`requires`](Self::requires). The join to the part below hands back
+/// run: [`name`](Self::name), [`sends`](Self::sends) and what it
+/// requires ([`DriverReadings::required`]), which it states, if it states
+/// anything of its own, in [`DriverLimits`]. The join to the part below hands back
 /// what it made of them: [`bind`](Self::bind) gets the fit's binding.
 /// A join only decides, from what the parts declare; what prepares a part
 /// to run belongs to each run.
@@ -63,34 +73,6 @@ pub trait Driver {
     /// The instructions it sends: the part below must accept them.
     fn sends(&self) -> &Self::Sends;
 
-    /// What it requires of the parts below on a run that requires `run`:
-    /// the run's shots, and seeded runs when its seed is fixed, which the
-    /// runner states, with what its shots use of its set. The part below
-    /// must provide it, and it passes down the chain, each part below
-    /// requiring of the next what it requires given what arrives, as
-    /// [`Capabilities`] says.
-    ///
-    /// By default `run`, with nothing of its set
-    /// ([`Capabilities::from_run`]): the driver passes the run below and
-    /// states nothing of its own. Stating what its shots use, in its set's
-    /// capabilities ([`Capabilities::set_capabilities`]), is the writer's job:
-    /// a driver that does not lets `on` accept a chain whose executor
-    /// cannot hold its shots, which then fails as it runs. A driver that
-    /// handles part of a run itself, such as one that splits each run into
-    /// runs of the shots the parts below take, states what it passes below
-    /// instead.
-    ///
-    /// It is deterministic, and monotone: given a `run` that requires no
-    /// more than another, as [`RunRequirement`] defines it, it requires no
-    /// more than given the other. The protocol does not check either, and
-    /// relies on both: `on` checks a chain with nothing arriving at its
-    /// top, so a part short then is short on every run; and a joined part
-    /// calls `requires` again at `ready`, for what its run's start checked
-    /// (`docs/capabilities.md`, The rule).
-    fn requires(&self, run: &RunRequirement) -> Capabilities<Self::Sends> {
-        Capabilities::from_run(run)
-    }
-
     /// Receives, once, the fit's binding: what its set's
     /// [`fits`](crate::BoundaryCompatible::fits) gave against the part
     /// below's, such as the receiver's encoding of each instruction it
@@ -100,10 +82,9 @@ pub trait Driver {
     /// to encode each one it sends.
     fn bind(&mut self, below: Binding<Self::Sends>);
 
-    /// As [`Executor::ready`], asked last, for `run`, what the run
-    /// requires, as [`requires`](Self::requires) gets it.
-    fn ready(&mut self, run: &RunRequirement) -> impl Future<Output = Result<(), NotReady>> {
-        let _ = run;
+    /// As [`Executor::ready`], asked last; for what the run requires, as
+    /// [`DriverLimits::ready_for`].
+    fn ready(&mut self) -> impl Future<Output = Result<(), NotReady>> {
         async { Ok(()) }
     }
 
@@ -159,6 +140,20 @@ pub trait Driver {
     // inner parts itself at `ready` (its halves' saved fit, and what arrives
     // at its lower half), and gives the same outputs; a fault is then its
     // refusal at `ready`, for the first boundary inside it found not to fit.
+    // Through them, too, the protocol reads the limits of a part that states
+    // them (`DriverLimits`, on a `Limited` part); a hook no parameter type
+    // seals takes a `Sealed`, which no other crate can make.
+
+    /// What it requires of the part below on a run that requires `run`
+    /// ([`DriverReadings::required`]): by default
+    /// [`Capabilities::from_run`]. Only the crate overrides it, to answer a
+    /// [`Limited`](crate::Limited) part's [`DriverLimits::requires`], or a
+    /// part it joins.
+    #[doc(hidden)]
+    fn requirement(&self, run: &RunRequirement, sealed: Sealed) -> Capabilities<Self::Sends> {
+        let _ = sealed;
+        Capabilities::from_run(run)
+    }
 
     /// Adds this part to `parts`, for a run that requires `run`, and gives
     /// what it requires of the part below. Only the crate overrides it, to
@@ -172,7 +167,7 @@ pub trait Driver {
         parts: &mut DeclaredParts<'a>,
     ) -> Capabilities<Self::Sends> {
         parts.push(Driver::name(self));
-        let required = self.requires(run);
+        let required = self.requirement(run, Sealed(()));
         parts.send(self.sends(), &required);
         required
     }
@@ -186,17 +181,19 @@ pub trait Driver {
         parts.push(Driver::name(self));
     }
 
-    /// [`ready`](Self::ready), for this part at `at` in its chain. Only
-    /// the crate overrides it, to name a refusal of a part it holds by
-    /// that part's position.
+    /// Gets this part ready for `run`, what the run requires
+    /// ([`DriverReadings::ready_given`]), at `at` in its chain: by default
+    /// [`ready`](Self::ready). Only the crate overrides it, to answer a
+    /// [`Limited`](crate::Limited) part's [`DriverLimits::ready_for`], or
+    /// to name a refusal of a part it holds by that part's position.
     #[doc(hidden)]
     fn ready_at(
         &mut self,
         run: &RunRequirement,
         at: ChainPosition<'_>,
     ) -> impl Future<Output = Result<(), NotReady>> {
-        let _ = at;
-        self.ready(run)
+        let _ = (run, at);
+        self.ready()
     }
 }
 

@@ -15,8 +15,8 @@ use crate::prelude::*;
 use crate::tests::example_sets::Measuring;
 use crate::tests::example_sets::{BitReadout, ShotFlags};
 use crate::{
-    Batch, BatchReadouts, Capabilities, ExecuteError, Features, NotReady, Resources, Seed, ShotId,
-    ShotSet,
+    Batch, BatchReadouts, Capabilities, ExecuteError, Features, Limited, NotReady, Resources, Seed,
+    ShotId, ShotSet,
 };
 
 /// A toy executor on classical bits, as many as its instructions name:
@@ -40,12 +40,12 @@ pub(crate) struct Bits {
 impl Bits {
     /// Bits accepting [`coin_gates`], providing batches of 64
     /// instructions, logging to `log`.
-    pub(crate) fn new(log: &Log) -> Self {
+    pub(crate) fn new(log: &Log) -> Limited<Self> {
         Self::accepting(*coin_gates(), log)
     }
 
     /// Bits accepting `set`, which may lack some of `h`, `x` and `mz`.
-    pub(crate) fn accepting(set: Measuring, log: &Log) -> Self {
+    pub(crate) fn accepting(set: Measuring, log: &Log) -> Limited<Self> {
         Self {
             runs: set,
             accepts: set,
@@ -57,23 +57,26 @@ impl Bits {
             set_once_ready: None,
             log: log.clone(),
         }
+        .limited()
     }
+}
 
+impl Limited<Bits> {
     /// These bits, providing `resources` in place of their batches of 64.
     pub(crate) fn with_resources(mut self, resources: Resources) -> Self {
-        self.provides = self.provides.map_resources(|_| resources);
+        self.part.provides = self.part.provides.map_resources(|_| resources);
         self
     }
 
     /// These bits, providing `features` in place of their own.
     pub(crate) fn with_features(mut self, features: Features) -> Self {
-        self.provides = self.provides.map_features(|_| features);
+        self.part.provides = self.part.provides.map_features(|_| features);
         self
     }
 
     /// These bits, refusing every run in `ready`, for `why`.
     pub(crate) fn busy(mut self, why: &'static str) -> Self {
-        self.busy = Some(why);
+        self.part.busy = Some(why);
         self
     }
 
@@ -81,37 +84,31 @@ impl Bits {
     /// own `h`, `x` and `mz`: a part that breaks the rule that what it
     /// accepts does not change once composed.
     pub(crate) fn accepting_once_ready(mut self, set: Measuring) -> Self {
-        self.set_once_ready = Some(set);
+        self.part.set_once_ready = Some(set);
         self
     }
 
     /// These bits, losing every value they read, and finding every shot
     /// suspect.
     pub(crate) fn losing(mut self) -> Self {
-        self.loses = true;
+        self.part.loses = true;
         self
     }
 
     /// These bits, panicking in every `end_shots`, once they have ended
     /// the shots and logged it.
     pub(crate) fn panicking_ending(mut self) -> Self {
-        self.panics_ending = true;
+        self.part.panics_ending = true;
         self
     }
 }
 
-impl Executor for Bits {
-    type Accepts = Measuring;
-
-    fn accepts(&self) -> &Measuring {
-        &self.accepts
-    }
-
+impl ExecutorLimits for Bits {
     fn provides(&self) -> &Capabilities<Measuring> {
         &self.provides
     }
 
-    async fn ready(&mut self, above: &Capabilities<Measuring>) -> Result<(), NotReady> {
+    async fn ready_for(&mut self, above: &Capabilities<Measuring>) -> Result<(), NotReady> {
         self.log.push(ready_for("Bits", above));
         if let Some(set) = self.set_once_ready.take() {
             self.accepts = set;
@@ -120,6 +117,14 @@ impl Executor for Bits {
             Some(why) => Err(NotReady::new(why)),
             None => Ok(()),
         }
+    }
+}
+
+impl Executor for Bits {
+    type Accepts = Measuring;
+
+    fn accepts(&self) -> &Measuring {
+        &self.accepts
     }
 
     async fn execute(
@@ -179,6 +184,16 @@ impl Executor for Bits {
 /// once, as a device's that answers later.
 pub(crate) struct Later<E>(pub(crate) E);
 
+impl<E: Executor> ExecutorLimits for Later<E> {
+    fn provides(&self) -> &Capabilities<E::Accepts> {
+        self.0.provided()
+    }
+
+    async fn ready_for(&mut self, above: &Capabilities<E::Accepts>) -> Result<(), NotReady> {
+        self.0.ready_given(above).await
+    }
+}
+
 impl<E: Executor> Executor for Later<E> {
     type Accepts = E::Accepts;
 
@@ -186,12 +201,8 @@ impl<E: Executor> Executor for Later<E> {
         self.0.accepts()
     }
 
-    fn provides(&self) -> &Capabilities<E::Accepts> {
-        self.0.provides()
-    }
-
-    async fn ready(&mut self, above: &Capabilities<E::Accepts>) -> Result<(), NotReady> {
-        self.0.ready(above).await
+    async fn ready(&mut self) -> Result<(), NotReady> {
+        self.0.ready().await
     }
 
     async fn execute(
@@ -213,6 +224,12 @@ impl<E: Executor> Executor for Later<E> {
 /// `provides`: it states nothing.
 pub(crate) struct StatesNoLimits<E>(pub(crate) E);
 
+impl<E: Executor> ExecutorLimits for StatesNoLimits<E> {
+    async fn ready_for(&mut self, above: &Capabilities<E::Accepts>) -> Result<(), NotReady> {
+        self.0.ready_given(above).await
+    }
+}
+
 impl<E: Executor> Executor for StatesNoLimits<E> {
     type Accepts = E::Accepts;
 
@@ -220,8 +237,8 @@ impl<E: Executor> Executor for StatesNoLimits<E> {
         self.0.accepts()
     }
 
-    async fn ready(&mut self, above: &Capabilities<E::Accepts>) -> Result<(), NotReady> {
-        self.0.ready(above).await
+    async fn ready(&mut self) -> Result<(), NotReady> {
+        self.0.ready().await
     }
 
     async fn execute(
@@ -248,17 +265,23 @@ pub(crate) struct FromThread<E> {
 }
 
 impl<E> FromThread<E> {
-    pub(crate) fn new(inner: E, delay: Duration) -> Self {
-        Self {
-            inner,
-            delay,
-            gate: None,
+    /// `inner`, answering from a thread after `delay`, stating the limits
+    /// `inner` states.
+    pub(crate) fn new(inner: E, delay: Duration) -> Limited<Self> {
+        Limited {
+            part: Self {
+                inner,
+                delay,
+                gate: None,
+            },
         }
     }
+}
 
+impl<E> Limited<FromThread<E>> {
     /// This executor, whose first answer waits for `gate`.
     pub(crate) fn gated(mut self, gate: mpsc::Receiver<()>) -> Self {
-        self.gate = Some(gate);
+        self.part.gate = Some(gate);
         self
     }
 }
@@ -270,6 +293,16 @@ struct Handover {
     waker: Option<Waker>,
 }
 
+impl<E: Executor> ExecutorLimits for FromThread<E> {
+    fn provides(&self) -> &Capabilities<E::Accepts> {
+        self.inner.provided()
+    }
+
+    async fn ready_for(&mut self, above: &Capabilities<E::Accepts>) -> Result<(), NotReady> {
+        self.inner.ready_given(above).await
+    }
+}
+
 impl<E: Executor> Executor for FromThread<E> {
     type Accepts = E::Accepts;
 
@@ -277,12 +310,8 @@ impl<E: Executor> Executor for FromThread<E> {
         self.inner.accepts()
     }
 
-    fn provides(&self) -> &Capabilities<E::Accepts> {
-        self.inner.provides()
-    }
-
-    async fn ready(&mut self, above: &Capabilities<E::Accepts>) -> Result<(), NotReady> {
-        self.inner.ready(above).await
+    async fn ready(&mut self) -> Result<(), NotReady> {
+        self.inner.ready().await
     }
 
     async fn execute(

@@ -11,7 +11,7 @@ use crate::{Features, Resources};
 /// runs when its seed is fixed
 /// ([`Features::seeded_runs`]). It names no instruction set, since a run
 /// states nothing of a set's capabilities: the driver at the top gets it
-/// ([`Driver::requires`](crate::Driver::requires)) and states what its
+/// ([`DriverLimits::requires`](crate::DriverLimits::requires)) and states what its
 /// shots use in the set it sends.
 ///
 /// One run requirement *requires no more than* another as

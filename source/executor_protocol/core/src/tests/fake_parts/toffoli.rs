@@ -15,7 +15,7 @@ use crate::tests::example_sets::{
     CliffordT, Qubits, ToffoliGate, WithToffoli, WithoutToffoli, on_qubits,
 };
 use crate::{
-    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, NotReady, Resources,
+    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, Limited, NotReady, Resources,
     RunRequirement, Seed, ShotSet,
 };
 
@@ -29,18 +29,30 @@ pub(crate) struct ToffoliProgram {
 }
 
 impl ToffoliProgram {
-    pub(crate) fn new(gates: &[ToffoliGate], qubits: u32) -> Self {
+    pub(crate) fn new(gates: &[ToffoliGate], qubits: u32) -> Limited<Self> {
         Self {
             gates: gates.to_vec(),
             qubits,
             checked: false,
         }
+        .limited()
     }
+}
 
+impl Limited<ToffoliProgram> {
     /// This program, its batch checked if `checked`.
     pub(crate) fn checked_if(mut self, checked: bool) -> Self {
-        self.checked = checked;
+        self.part.checked = checked;
         self
+    }
+}
+
+impl DriverLimits for ToffoliProgram {
+    /// The run's, on `qubits` qubits, in batches of its gates' count.
+    fn requires(&self, run: &RunRequirement) -> Capabilities<WithToffoli> {
+        let gates = u32::try_from(self.gates.len()).expect("fewer than 2^32 gates");
+        let resources = run.resources.with_instructions_per_batch(gates);
+        Capabilities::new(resources, run.features, Qubits(self.qubits))
     }
 }
 
@@ -50,13 +62,6 @@ impl Driver for ToffoliProgram {
 
     fn sends(&self) -> &WithToffoli {
         &WithToffoli
-    }
-
-    /// The run's, on `qubits` qubits, in batches of its gates' count.
-    fn requires(&self, run: &RunRequirement) -> Capabilities<WithToffoli> {
-        let gates = u32::try_from(self.gates.len()).expect("fewer than 2^32 gates");
-        let resources = run.resources.with_instructions_per_batch(gates);
-        Capabilities::new(resources, run.features, Qubits(self.qubits))
     }
 
     fn bind(&mut self, (): ()) {}
@@ -97,26 +102,39 @@ pub(crate) struct CliffordTRegister {
 
 impl CliffordTRegister {
     /// The register writing `reading` into every row.
-    pub(crate) fn new(qubits: u32, reading: &[BitReadout], log: &Log) -> Self {
+    pub(crate) fn new(qubits: u32, reading: &[BitReadout], log: &Log) -> Limited<Self> {
         Self::with_readings(qubits, &[reading], log)
     }
 
     /// The register writing `readings[b]` into every row of the `b`-th
     /// batch of each `execute`, and the last reading into the rows of the
     /// batches beyond.
-    pub(crate) fn with_readings(qubits: u32, readings: &[&[BitReadout]], log: &Log) -> Self {
+    pub(crate) fn with_readings(
+        qubits: u32,
+        readings: &[&[BitReadout]],
+        log: &Log,
+    ) -> Limited<Self> {
         Self {
             provides: on_qubits(qubits),
             readings: readings.iter().map(|reading| reading.to_vec()).collect(),
             log: log.clone(),
         }
+        .limited()
     }
+}
 
+impl Limited<CliffordTRegister> {
     /// This register, taking batches of at most `n` instructions.
     pub(crate) fn taking(mut self, n: u32) -> Self {
-        self.provides =
-            (self.provides).map_resources(|resources| resources.with_instructions_per_batch(n));
+        self.part.provides = (self.part.provides)
+            .map_resources(|resources| resources.with_instructions_per_batch(n));
         self
+    }
+}
+
+impl ExecutorLimits for CliffordTRegister {
+    fn provides(&self) -> &Capabilities<WithoutToffoli> {
+        &self.provides
     }
 }
 
@@ -125,10 +143,6 @@ impl Executor for CliffordTRegister {
 
     fn accepts(&self) -> &WithoutToffoli {
         &WithoutToffoli
-    }
-
-    fn provides(&self) -> &Capabilities<WithoutToffoli> {
-        &self.provides
     }
 
     async fn execute(

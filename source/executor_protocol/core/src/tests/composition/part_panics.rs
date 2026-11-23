@@ -18,7 +18,7 @@ use crate::tests::fake_parts::{
     BitFlip, Bits, CoinCopy, EndsBelow, Impatient, Later, Log, Misbehaving, Misbehaviour, Panics,
     PanicsEnding, PanicsInDrop, PanicsWhen, Profiler, Program, Renamed, in_each_bracketing,
 };
-use crate::{Failure, PartId, RunError, Runner, ShotId, ShotSet};
+use crate::{Failure, Limited, PartId, RunError, Runner, ShotId, ShotSet};
 
 use super::runner::{SEED, failed, runner};
 
@@ -179,14 +179,16 @@ fn a_run_dropped_by_a_panic_ends_its_shots_and_keeps_that_panic() {
         CoinCopy::new()
             .through(BitFlip::new(0.3, &ending))
             .through(PanicsEnding::new(&ending))
-            .on(Later(Bits::new(&ending))),
+            .on(Later(Bits::new(&ending)).limited()),
     );
     let executor_ending = Log::default();
     let mut executor_panics_ending =
-        runner(CoinCopy::new().on(Later(Bits::new(&executor_ending).panicking_ending())));
+        runner(CoinCopy::new().on(Later(Bits::new(&executor_ending).panicking_ending()).limited()));
     let dropping = Log::default();
-    let mut panics_in_drop =
-        runner(CoinCopy::new().on(PanicsInDrop::new(Later(Bits::new(&dropping)), true)));
+    let mut panics_in_drop = runner(CoinCopy::new().on(PanicsInDrop::new(
+        Later(Bits::new(&dropping)).limited(),
+        true,
+    )));
     for (row, panic, log, ended) in [
         (
             "a part panicking ending shots",
@@ -233,11 +235,13 @@ fn a_run_dropped_unfinished_raises_a_parts_panic_from_the_drop() {
     let mut panics_ending = runner(
         CoinCopy::new()
             .through(PanicsEnding::new(&ending))
-            .on(Later(Bits::new(&ending))),
+            .on(Later(Bits::new(&ending)).limited()),
     );
     let dropping = Log::default();
-    let mut panics_in_drop =
-        runner(CoinCopy::new().on(PanicsInDrop::new(Later(Bits::new(&dropping)), true)));
+    let mut panics_in_drop = runner(CoinCopy::new().on(PanicsInDrop::new(
+        Later(Bits::new(&dropping)).limited(),
+        true,
+    )));
     let readying = Log::default();
     let mut panics_getting_ready =
         runner(CoinCopy::new().on(PanicsInDrop::pending_in_ready(Bits::new(&readying), true)));
@@ -311,7 +315,7 @@ fn a_parts_panic_is_a_failure_naming_it_with_its_message() {
         let run = runner(program().on(Panics(when))).run(&shots, SEED);
         names_the_panic("an executor", run, &panics, message);
         let log = Log::default();
-        let run = runner(Panics(when).on(Bits::new(&log))).run(&shots, SEED);
+        let run = runner(Panics(when).limited().on(Bits::new(&log))).run(&shots, SEED);
         let driver = PartId::new(0, type_name::<Panics>());
         names_the_panic("a driver", run, &driver, message);
     }
@@ -334,7 +338,7 @@ fn a_parts_panic_is_a_failure_naming_it_with_its_message() {
         [d, a, e] from {
             let log = Log::default();
             let counted = Rc::new(Cell::new(0));
-            let d = Panics(PanicsWhen::Polled);
+            let d = Panics(PanicsWhen::Polled).limited();
             let a = Profiler::new(&counted, &log);
             let e = Bits::new(&log);
         },
@@ -418,15 +422,18 @@ fn a_panic_names_the_part_by_its_name() {
     let mut executor = runner(
         Program::new(&[("mz", 0)]).on(Renamed::new(Panics(PanicsWhen::Polled), "device runtime")),
     );
-    let mut driver =
-        runner(Renamed::new(Panics(PanicsWhen::Polled), "h2 program").on(Bits::new(&log)));
+    let mut driver = runner(
+        Renamed::new(Panics(PanicsWhen::Polled).limited(), "h2 program").on(Bits::new(&log)),
+    );
     let mut held_executor = runner(Program::new(&[("mz", 0)]).on(Renamed::new(
         Profiler::new(&counted, &log).on(Panics(PanicsWhen::Polled)),
         "user's executor",
     )));
     let mut held_driver = runner(
         Renamed::new(
-            Panics(PanicsWhen::Polled).through(Profiler::new(&counted, &log)),
+            Panics(PanicsWhen::Polled)
+                .limited()
+                .through(Profiler::new(&counted, &log)),
             "user's driver",
         )
         .on(Bits::new(&log)),
@@ -542,7 +549,7 @@ fn a_run_failed_by_a_drivers_panic_ends_its_shots() {
         in_each_bracketing!(
             [d, a, e] from {
                 let log = Log::default();
-                let d = Panics(when);
+                let d = Panics(when).limited();
                 let a = BitFlip::new(0.0, &log);
                 let e = Bits::new(&log);
             },
@@ -558,10 +565,10 @@ fn a_run_failed_by_a_drivers_panic_ends_its_shots() {
 /// A program, over a profiler, over a noise, over bits, each a part whose
 /// futures may panic once dropped.
 type DropChain = (
-    PanicsInDrop<Program>,
-    PanicsInDrop<Profiler>,
-    PanicsInDrop<BitFlip>,
-    PanicsInDrop<Bits>,
+    Limited<PanicsInDrop<Limited<Program>>>,
+    Limited<PanicsInDrop<Profiler>>,
+    Limited<PanicsInDrop<BitFlip>>,
+    Limited<PanicsInDrop<Limited<Bits>>>,
 );
 
 /// The parts of a [`DropChain`], whose part at position `armed` panics in
@@ -624,7 +631,7 @@ fn a_panic_dropping_a_future_a_part_above_stopped_waiting_for_names_that_part() 
             let log = Log::default();
             let d = Program::new(&[("mz", 0)]);
             let a = Impatient::new(&log);
-            let e = PanicsInDrop::new(Later(Bits::new(&log)), true);
+            let e = PanicsInDrop::new(Later(Bits::new(&log)).limited(), true);
         },
         |chain, brackets| {
             let error = failed(runner(chain).run(&ShotSet::ids([3, 1]), SEED));
@@ -644,11 +651,11 @@ fn a_panic_dropping_a_future_a_part_above_stopped_waiting_for_names_that_part() 
 /// A program, over a profiler, over two noises, over bits, each a part
 /// whose futures may panic when polled, and again when dropped.
 type CompoundChain = (
-    PanicsInDrop<Program>,
-    PanicsInDrop<Profiler>,
-    PanicsInDrop<BitFlip>,
-    PanicsInDrop<BitFlip>,
-    PanicsInDrop<Bits>,
+    Limited<PanicsInDrop<Limited<Program>>>,
+    Limited<PanicsInDrop<Profiler>>,
+    Limited<PanicsInDrop<BitFlip>>,
+    Limited<PanicsInDrop<BitFlip>>,
+    Limited<PanicsInDrop<Limited<Bits>>>,
 );
 
 /// The parts of a [`CompoundChain`], whose part at position `armed`

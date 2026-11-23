@@ -29,8 +29,8 @@ use std::fmt;
 
 use executor_protocol_core::prelude::*;
 use executor_protocol_core::{
-    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, Features, NotReady, ReadoutSlots,
-    Readouts, Resources, RunRequirement, Runner, Seed, ShotId, ShotSet,
+    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, Features, Limited, NotReady,
+    ReadoutSlots, Readouts, Resources, RunRequirement, Runner, Seed, ShotId, ShotSet,
 };
 
 /// The seed of the runs: the same seed gives the same values.
@@ -39,13 +39,15 @@ const SEED: u64 = 1;
 // ------------------------------------------------------------------ the run
 
 /// The three parts, joined: `coin`, under 20% bit-flip noise, on `bits`
-/// (a [`Bits`], or a borrow of one, to read what it counted after a run).
+/// (a limited [`Bits`], or a borrow of one, to read what it counted after
+/// a run). The coin and the bits state their limits, so each is joined as
+/// a [`Limited`] part; the noise states none, and is joined as it is.
 ///
 /// After each run, the protocol ends every shot of the run on every part, so
 /// the parts free its state and a rerun with the same seed starts it
 /// afresh; the driver need not end them.
 fn coin_runner<E: Executor<Accepts = CoinGates>>(
-    coin: CoinCopy,
+    coin: Limited<CoinCopy>,
     bits: E,
 ) -> Runner<impl Driver<Sends = CoinGates, Output = Vec<Option<bool>>>, E> {
     // `through` joins the driver and the adapter into one driver, and `on`
@@ -59,7 +61,7 @@ fn coin_runner<E: Executor<Accepts = CoinGates>>(
 }
 
 fn main() {
-    let mut runner = coin_runner(CoinCopy::new(), Bits::new());
+    let mut runner = coin_runner(CoinCopy::new().limited(), Bits::new().limited());
 
     let shots = ShotSet::ids(0..12);
     let values = runner.run(&shots, SEED).expect("the chain runs 12 shots");
@@ -79,7 +81,7 @@ fn main() {
 
     // While a part of the chain is developed, the driver may send every
     // batch checked: each boundary checks it before it runs, at a cost.
-    let checked = coin_runner(CoinCopy::new().checked(), Bits::new())
+    let checked = coin_runner(CoinCopy::new().checked().limited(), Bits::new().limited())
         .run(&shots, SEED)
         .expect("the chain runs 12 checked shots");
     let same = checked == values;
@@ -281,16 +283,18 @@ impl CoinCopy {
     }
 }
 
+impl DriverLimits for CoinCopy {
+    /// What the run requires, on 2 qubits.
+    fn requires(&self, run: &RunRequirement) -> Capabilities<CoinGates> {
+        Capabilities::new(run.resources, run.features, Qubits(2))
+    }
+}
+
 impl Driver for CoinCopy {
     type Sends = CoinGates;
 
     fn sends(&self) -> &CoinGates {
         &CoinGates
-    }
-
-    /// What the run requires, on 2 qubits.
-    fn requires(&self, run: &RunRequirement) -> Capabilities<CoinGates> {
-        Capabilities::new(run.resources, run.features, Qubits(2))
     }
 
     /// Every part here encodes the gates alike: nothing to rewrite.
@@ -494,21 +498,23 @@ impl Bits {
     }
 }
 
-impl Executor for Bits {
-    type Accepts = CoinGates;
-
-    fn accepts(&self) -> &CoinGates {
-        &CoinGates
-    }
-
+impl ExecutorLimits for Bits {
     fn provides(&self) -> &Capabilities<CoinGates> {
         &self.provides
     }
 
     /// Holds the qubits the parts above require.
-    async fn ready(&mut self, above: &Capabilities<CoinGates>) -> Result<(), NotReady> {
+    async fn ready_for(&mut self, above: &Capabilities<CoinGates>) -> Result<(), NotReady> {
         self.qubits = above.set_capabilities().0 as usize;
         Ok(())
+    }
+}
+
+impl Executor for Bits {
+    type Accepts = CoinGates;
+
+    fn accepts(&self) -> &CoinGates {
+        &CoinGates
     }
 
     async fn execute(
@@ -584,7 +590,7 @@ mod tests {
     /// draws included.
     #[test]
     fn a_shot_run_again_alone_with_the_seed_gets_its_values() {
-        let mut runner = coin_runner(CoinCopy::new(), Bits::new());
+        let mut runner = coin_runner(CoinCopy::new().limited(), Bits::new().limited());
         let values = runner
             .run(&ShotSet::ids(0..12), SEED)
             .expect("the chain runs 12 shots");
@@ -602,7 +608,8 @@ mod tests {
     /// run is refused, naming both counts.
     #[test]
     fn a_run_of_more_shots_than_the_executor_runs_is_refused() {
-        let refused = coin_runner(CoinCopy::new(), Bits::new()).run(&ShotSet::ids(0..2000), SEED);
+        let refused = coin_runner(CoinCopy::new().limited(), Bits::new().limited())
+            .run(&ShotSet::ids(0..2000), SEED);
         let Err(RunError::Refused(RunRefusal::NotProvided(faults))) = refused else {
             panic!("a refused run, not {refused:?}");
         };
@@ -626,16 +633,20 @@ mod tests {
     fn checked_batches_reach_the_executor_checked_and_change_no_value() {
         let shots = ShotSet::ids(0..12);
         let run = |coin| {
-            let mut bits = Bits::new();
+            let mut bits = Bits::new().limited();
             let values = coin_runner(coin, &mut bits)
                 .run(&shots, SEED)
                 .expect("the chain runs 12 shots");
-            (values, bits.checked_batches, bits.unchecked_batches)
+            (
+                values,
+                bits.part.checked_batches,
+                bits.part.unchecked_batches,
+            )
         };
-        let (unchecked, checked_got, unchecked_got) = run(CoinCopy::new());
+        let (unchecked, checked_got, unchecked_got) = run(CoinCopy::new().limited());
         assert_eq!(checked_got, 0, "an unchecked run sends no checked batch");
         assert!(unchecked_got > 0, "the executor received the batches");
-        let (checked, checked_got, unchecked_got) = run(CoinCopy::new().checked());
+        let (checked, checked_got, unchecked_got) = run(CoinCopy::new().checked().limited());
         assert_eq!(
             unchecked_got, 0,
             "the noise forwards the check to each batch it sends"

@@ -14,7 +14,8 @@ use crate::tests::fake_parts::{
     coin_gates,
 };
 use crate::{
-    Batch, BatchReadouts, ExecuteError, ExecuteRefusal, Failure, Features, Seed, ShotId, ShotSet,
+    Batch, BatchReadouts, ExecuteError, ExecuteRefusal, Failure, Features, Limited, Seed, ShotId,
+    ShotSet,
 };
 
 use super::{SEED, failed, runner};
@@ -78,7 +79,7 @@ fn a_refused_shot_ends_the_run_naming_it() {
 }
 
 /// The program measuring qubit 0 in one batch.
-fn measure() -> Program {
+fn measure() -> Limited<Program> {
     Program::new(&[("mz", 0)])
 }
 

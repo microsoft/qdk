@@ -28,8 +28,8 @@ use crate::tests::fake_parts::{
 };
 use crate::{
     BoundaryCompatible, BoundaryMismatch, CapabilitiesMismatch, CompositionFault, DriveError,
-    Failure, FeatureMismatch, Features, Lowered, ResourceMismatch, RunError, RunRefusal, Runner,
-    ShotSet,
+    Failure, FeatureMismatch, Features, Limited, Lowered, ResourceMismatch, RunError, RunRefusal,
+    Runner, ShotSet,
 };
 
 pub(super) const SEED: u64 = 7;
@@ -48,7 +48,7 @@ pub(super) fn runner<D: Driver, E: Executor<Accepts = D::Sends>>(
 }
 
 /// [`CoinCopy`] on bits alone.
-fn coin_copy(log: &Log) -> Runner<CoinCopy, Bits> {
+fn coin_copy(log: &Log) -> Runner<Limited<CoinCopy>, Limited<Bits>> {
     runner(CoinCopy::new().on(Bits::new(log)))
 }
 
@@ -120,7 +120,7 @@ fn every_part_gets_the_runs_seed_unchanged() {
             let log = Log::default();
             let d = SeesSeeds::new(CoinCopy::new(), "driver", &log);
             let a = SeesSeeds::new(BitFlip::new(0.3, &log), "noise", &log);
-            let b = SeesSeeds::new(Splitter::default(), "splitter", &log);
+            let b = SeesSeeds::new(Splitter::new(), "splitter", &log);
             let e = SeesSeeds::new(Bits::new(&log), "bits", &log);
         },
         |chain, brackets| {
@@ -188,7 +188,7 @@ fn an_adapter_that_changes_no_instructions_effect_changes_no_record() {
             ),
             (
                 "a splitter",
-                runner(driver().through(Splitter::default()).on(bits())).run(&shots, SEED),
+                runner(driver().through(Splitter::new()).on(bits())).run(&shots, SEED),
             ),
             (
                 "a noise of 0",
@@ -530,14 +530,18 @@ fn a_rerun_after_an_unfinished_run_gives_a_new_chains_records() {
     .expect("the run succeeds");
     let mut reruns = Vec::new();
     let log = Log::default();
-    let mut left = runner(coin_copy().through(noise(&log)).on(Later(Bits::new(&log))));
+    let mut left = runner(
+        coin_copy()
+            .through(noise(&log))
+            .on(Later(Bits::new(&log)).limited()),
+    );
     drop_unfinished(&mut left, &shots, &log);
     reruns.push((
         "dropped, the noise with the driver".to_owned(),
         left.run(&shots, SEED),
     ));
     let log = Log::default();
-    let mut right = runner(coin_copy().on(noise(&log).on(Later(Bits::new(&log)))));
+    let mut right = runner(coin_copy().on(noise(&log).on(Later(Bits::new(&log)).limited())));
     drop_unfinished(&mut right, &shots, &log);
     reruns.push((
         "dropped, the noise with the bits".to_owned(),
@@ -592,8 +596,8 @@ fn is_send<T: Send>(_: &T) {}
 #[test]
 fn a_runs_future_is_send_when_every_part_and_its_future_are() {
     let shots = ShotSet::ids(0..2);
-    let driver = || Panics(PanicsWhen::Polled);
-    let splitter = || Splitter::default();
+    let driver = || Panics(PanicsWhen::Polled).limited();
+    let splitter = || Splitter::new();
     let executor = || Panics(PanicsWhen::Polled);
     let mut joined = runner(driver().on(executor()));
     is_send(&joined.run_async(&shots, SEED));

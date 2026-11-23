@@ -17,8 +17,8 @@ use super::{
 use crate::prelude::*;
 use crate::tests::example_sets::{BitReadout, Gate, Measuring, ShotFlags};
 use crate::{
-    Batch, BatchReadouts, Capabilities, ExecuteError, Failure, Features, NotReady, Readouts,
-    Resources, Seed, ShotId, ShotSet,
+    Batch, BatchReadouts, Capabilities, ExecuteError, Failure, Features, Limited, NotReady,
+    Readouts, Resources, Seed, ShotId, ShotSet,
 };
 
 /// A toy bit-flip noise: after each `x`, another `x` with probability
@@ -170,7 +170,7 @@ impl Adapter for Profiler {
         self.below = Some(below);
     }
 
-    async fn ready(&mut self, _above: &Capabilities<Measuring>) -> Result<(), NotReady> {
+    async fn ready(&mut self) -> Result<(), NotReady> {
         self.log.push("Profiler ready");
         match self.busy {
             Some(why) => Err(NotReady::new(why)),
@@ -240,7 +240,7 @@ impl Adapter for NamesBelow {
         self.log.push(format!("below: {}", below.name()));
         self.log
             .push(format!("below accepts: {:?}", below.accepts()));
-        let most = below.provides().resources().instructions_per_batch;
+        let most = below.provided().resources().instructions_per_batch;
         self.log.push(format!("below takes {most:?} a batch"));
         let map = bound(self.below.as_ref());
         forward(batches, seed, below, readouts, |batch| {
@@ -254,9 +254,21 @@ impl Adapter for NamesBelow {
 /// own, one `execute` each, as a stepping debugger does, and joins their
 /// readouts into those of the batch it got; so it requires batches of one
 /// instruction below, whatever count arrives.
-#[derive(Default)]
 pub(crate) struct Splitter {
     below: Option<Vec<u32>>,
+}
+
+impl Splitter {
+    pub(crate) fn new() -> Limited<Self> {
+        Self { below: None }.limited()
+    }
+}
+
+impl AdapterLimits for Splitter {
+    /// What arrives, in batches of one instruction.
+    fn requires(&self, above: &Capabilities<Measuring>) -> Capabilities<Measuring> {
+        (above.clone()).map_resources(|resources| resources.with_instructions_per_batch(1))
+    }
 }
 
 impl Adapter for Splitter {
@@ -268,11 +280,6 @@ impl Adapter for Splitter {
 
     fn sends(&self) -> &Measuring {
         coin_gates()
-    }
-
-    /// What arrives, in batches of one instruction.
-    fn requires(&self, above: &Capabilities<Measuring>) -> Capabilities<Measuring> {
-        (above.clone()).map_resources(|resources| resources.with_instructions_per_batch(1))
     }
 
     fn bind(&mut self, below: Vec<u32>) {
@@ -333,7 +340,7 @@ pub(crate) struct Spread {
 }
 
 impl Spread {
-    pub(crate) fn new(k: u32, log: &Log) -> Self {
+    pub(crate) fn new(k: u32, log: &Log) -> Limited<Self> {
         Self {
             k,
             provides: unconstrained(),
@@ -341,31 +348,22 @@ impl Spread {
             below: None,
             log: log.clone(),
         }
-    }
-
-    /// This encoding, built for batches of `n` instructions above: it
-    /// takes at most `n`, and requires `k` instructions below for each
-    /// that arrives.
-    pub(crate) fn built_for(self, n: u32) -> Self {
-        Self {
-            provides: capabilities(batches_of(n), Features::unconstrained()),
-            built: true,
-            ..self
-        }
+        .limited()
     }
 }
 
-impl Adapter for Spread {
-    type Set = Measuring;
-
-    fn accepts(&self) -> &Measuring {
-        coin_gates()
+impl Limited<Spread> {
+    /// This encoding, built for batches of `n` instructions above: it
+    /// takes at most `n`, and requires `k` instructions below for each
+    /// that arrives.
+    pub(crate) fn built_for(mut self, n: u32) -> Self {
+        self.part.provides = capabilities(batches_of(n), Features::unconstrained());
+        self.part.built = true;
+        self
     }
+}
 
-    fn sends(&self) -> &Measuring {
-        coin_gates()
-    }
-
+impl AdapterLimits for Spread {
     fn provides(&self) -> &Capabilities<Measuring> {
         &self.provides
     }
@@ -380,13 +378,25 @@ impl Adapter for Spread {
         }
     }
 
-    fn bind(&mut self, below: Vec<u32>) {
-        self.below = Some(below);
-    }
-
-    async fn ready(&mut self, above: &Capabilities<Measuring>) -> Result<(), NotReady> {
+    async fn ready_for(&mut self, above: &Capabilities<Measuring>) -> Result<(), NotReady> {
         self.log.push(ready_for("Spread", above));
         Ok(())
+    }
+}
+
+impl Adapter for Spread {
+    type Set = Measuring;
+
+    fn accepts(&self) -> &Measuring {
+        coin_gates()
+    }
+
+    fn sends(&self) -> &Measuring {
+        coin_gates()
+    }
+
+    fn bind(&mut self, below: Vec<u32>) {
+        self.below = Some(below);
     }
 
     async fn adapt(
@@ -412,11 +422,12 @@ impl Adapter for Spread {
 type Requiring = Box<dyn Fn(&Capabilities<Measuring>) -> Capabilities<Measuring>>;
 
 /// An adapter that states capabilities of its own, one toy per
-/// constructor: the limits it takes ([`Adapter::provides`]), and what it
-/// requires below given what arrives ([`Adapter::requires`]). At run time
-/// it passes instructions through, as a [`Spread`] of 1.
+/// constructor: the limits it takes ([`AdapterLimits::provides`]), and
+/// what it requires below given what arrives
+/// ([`AdapterLimits::requires`]). At run time it passes instructions
+/// through, as a [`Spread`] of 1.
 pub(crate) struct Stating {
-    spread: Spread,
+    spread: Limited<Spread>,
     provides: Capabilities<Measuring>,
     requires: Requiring,
 }
@@ -428,24 +439,25 @@ impl Stating {
         log: &Log,
         provides: Capabilities<Measuring>,
         requires: impl Fn(&Capabilities<Measuring>) -> Capabilities<Measuring> + 'static,
-    ) -> Self {
+    ) -> Limited<Self> {
         Self {
             spread: Spread::new(1, log),
             provides,
             requires: Box::new(requires),
         }
+        .limited()
     }
 
     /// A toy taking `resources` and `features`, and passing what arrives
     /// below.
-    fn providing(log: &Log, resources: Resources, features: Features) -> Self {
+    fn providing(log: &Log, resources: Resources, features: Features) -> Limited<Self> {
         Self::new(log, capabilities(resources, features), Clone::clone)
     }
 
     /// A toy interleaver, sending batches of `least` instructions at
     /// least: it requires the instructions a batch that arrive, or
     /// `least` if fewer arrive.
-    pub(crate) fn interleaving(least: u32, log: &Log) -> Self {
+    pub(crate) fn interleaving(least: u32, log: &Log) -> Limited<Self> {
         Self::new(log, unconstrained(), move |above| {
             in_batches_of(above, instructions_of(above).max(least))
         })
@@ -453,7 +465,7 @@ impl Stating {
 
     /// A toy part adding `k` ancilla resets to each batch: it requires `k`
     /// instructions a batch more than arrive.
-    pub(crate) fn reserving_ancillas(k: u32, log: &Log) -> Self {
+    pub(crate) fn reserving_ancillas(k: u32, log: &Log) -> Limited<Self> {
         Self::new(log, unconstrained(), move |above| {
             in_batches_of(above, instructions_of(above) + k)
         })
@@ -462,7 +474,7 @@ impl Stating {
     /// A toy job splitter, which splits each run into runs of `shots`: it
     /// requires runs of `shots` below, whatever arrives. A declaration
     /// fake: it passes each run below whole, splitting none.
-    pub(crate) fn splitting_runs(shots: u32, log: &Log) -> Self {
+    pub(crate) fn splitting_runs(shots: u32, log: &Log) -> Limited<Self> {
         Self::new(log, unconstrained(), move |above| {
             (above.clone()).map_resources(|resources| resources.with_shots(shots))
         })
@@ -472,7 +484,7 @@ impl Stating {
     /// requires `times` as many shots below as arrive, and does not state
     /// shots if none arrive. A declaration fake: it passes each run below
     /// as it is.
-    pub(crate) fn repeating_shots(times: u32, log: &Log) -> Self {
+    pub(crate) fn repeating_shots(times: u32, log: &Log) -> Limited<Self> {
         Self::new(log, unconstrained(), move |above| {
             match above.resources().shots {
                 Some(shots) => (above.clone())
@@ -483,7 +495,7 @@ impl Stating {
     }
 
     /// A toy job queue that takes at most `most` shots a run.
-    pub(crate) fn queue(most: u32, log: &Log) -> Self {
+    pub(crate) fn queue(most: u32, log: &Log) -> Limited<Self> {
         Self::providing(
             log,
             Resources::unconstrained().with_shots(most),
@@ -493,13 +505,13 @@ impl Stating {
 
     /// A toy cap that takes batches of at most `n` instructions, as a
     /// decoder built for that many does.
-    pub(crate) fn capping(n: u32, log: &Log) -> Self {
+    pub(crate) fn capping(n: u32, log: &Log) -> Limited<Self> {
         Self::providing(log, batches_of(n), Features::unconstrained())
     }
 
     /// A toy replayer that keeps each shot's readouts and gives them back
     /// on replay: it requires no replay below, and passes seeded runs.
-    pub(crate) fn replaying(log: &Log) -> Self {
+    pub(crate) fn replaying(log: &Log) -> Limited<Self> {
         Self::new(log, unconstrained(), |above| {
             (above.clone()).map_features(|features| features.with_replay(false))
         })
@@ -508,7 +520,7 @@ impl Stating {
     /// A toy sampler that draws its shots' readouts together, from counts
     /// it takes below with its run's seed: it takes no replay, and
     /// requires no seeded runs below.
-    pub(crate) fn seeding_itself(log: &Log) -> Self {
+    pub(crate) fn seeding_itself(log: &Log) -> Limited<Self> {
         Self::new(
             log,
             capabilities(
@@ -517,6 +529,20 @@ impl Stating {
             ),
             |above| (above.clone()).map_features(|features| features.with_seeded_runs(false)),
         )
+    }
+}
+
+impl AdapterLimits for Stating {
+    fn provides(&self) -> &Capabilities<Measuring> {
+        &self.provides
+    }
+
+    fn requires(&self, above: &Capabilities<Measuring>) -> Capabilities<Measuring> {
+        (self.requires)(above)
+    }
+
+    async fn ready_for(&mut self, above: &Capabilities<Measuring>) -> Result<(), NotReady> {
+        self.spread.part.ready_for(above).await
     }
 }
 
@@ -531,20 +557,8 @@ impl Adapter for Stating {
         coin_gates()
     }
 
-    fn provides(&self) -> &Capabilities<Measuring> {
-        &self.provides
-    }
-
-    fn requires(&self, above: &Capabilities<Measuring>) -> Capabilities<Measuring> {
-        (self.requires)(above)
-    }
-
     fn bind(&mut self, below: Vec<u32>) {
         self.spread.bind(below);
-    }
-
-    async fn ready(&mut self, above: &Capabilities<Measuring>) -> Result<(), NotReady> {
-        self.spread.ready(above).await
     }
 
     async fn adapt(
@@ -562,7 +576,7 @@ impl Adapter for Stating {
 /// drops that future unfinished, then asks below again, into the same
 /// readouts, and waits. At run time it passes instructions through, as a
 /// [`Spread`] of 1.
-pub(crate) struct Impatient(Spread);
+pub(crate) struct Impatient(Limited<Spread>);
 
 impl Impatient {
     pub(crate) fn new(log: &Log) -> Self {
@@ -817,7 +831,7 @@ pub(crate) struct PanicsEnding {
     /// Whether it panics in its first `end_shots` only.
     once: bool,
     panicked: bool,
-    pass_through: Spread,
+    pass_through: Limited<Spread>,
 }
 
 impl PanicsEnding {
@@ -885,7 +899,7 @@ impl Adapter for PanicsEnding {
 /// once their answer is in, as an adapter freeing state below early
 /// would. At run time it passes instructions through, as a [`Spread`] of
 /// 1.
-pub(crate) struct EndsBelow(Spread);
+pub(crate) struct EndsBelow(Limited<Spread>);
 
 impl EndsBelow {
     pub(crate) fn new(log: &Log) -> Self {

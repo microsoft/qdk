@@ -8,7 +8,7 @@ use crate::prelude::*;
 use crate::tests::example_sets::{BitReadout, ShotFlags};
 use crate::tests::example_sets::{Gate, Measuring};
 use crate::{
-    Batch, Binding, Capabilities, DriveError, Features, NotReady, Readouts, Resources,
+    Batch, Binding, Capabilities, DriveError, Features, Limited, NotReady, Readouts, Resources,
     RunRequirement, Seed, ShotSet,
 };
 
@@ -26,7 +26,7 @@ pub(crate) struct CoinCopy {
 }
 
 impl CoinCopy {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new() -> Limited<Self> {
         let sequences = [
             vec![coin_gate("h", 0), coin_gate("mz", 0)],
             vec![coin_gate("x", 1), coin_gate("mz", 1)],
@@ -41,27 +41,44 @@ impl CoinCopy {
             log: None,
             busy: None,
         }
-    }
-
-    /// This driver, logging to `log` when it gets ready, as
-    /// [`ready_for`](Self::ready_for) the run it gets.
-    pub(crate) fn logging(self, log: &Log) -> Self {
-        Self {
-            log: Some(log.clone()),
-            ..self
-        }
+        .limited()
     }
 
     /// What it logs when it gets ready for a run that requires `run`.
     pub(crate) fn ready_for(run: &RunRequirement) -> String {
         format!("CoinCopy ready for {run:?}")
     }
+}
+
+impl Limited<CoinCopy> {
+    /// This driver, logging to `log` when it gets ready, as
+    /// [`CoinCopy::ready_for`] the run it gets.
+    pub(crate) fn logging(mut self, log: &Log) -> Self {
+        self.part.log = Some(log.clone());
+        self
+    }
 
     /// This driver, refusing every run in `ready`, for `why`.
-    pub(crate) fn busy(self, why: &'static str) -> Self {
-        Self {
-            busy: Some(why),
-            ..self
+    pub(crate) fn busy(mut self, why: &'static str) -> Self {
+        self.part.busy = Some(why);
+        self
+    }
+}
+
+impl DriverLimits for CoinCopy {
+    /// The run's, in batches of 2 instructions, its longest.
+    fn requires(&self, run: &RunRequirement) -> Capabilities<Measuring> {
+        Capabilities::from_run(run)
+            .map_resources(|resources| resources.with_instructions_per_batch(2))
+    }
+
+    async fn ready_for(&mut self, run: &RunRequirement) -> Result<(), NotReady> {
+        if let Some(log) = &self.log {
+            log.push(CoinCopy::ready_for(run));
+        }
+        match self.busy {
+            Some(why) => Err(NotReady::new(why)),
+            None => Ok(()),
         }
     }
 }
@@ -73,12 +90,6 @@ impl Driver for CoinCopy {
         coin_gates()
     }
 
-    /// The run's, in batches of 2 instructions, its longest.
-    fn requires(&self, run: &RunRequirement) -> Capabilities<Measuring> {
-        Capabilities::from_run(run)
-            .map_resources(|resources| resources.with_instructions_per_batch(2))
-    }
-
     fn bind(&mut self, below: Vec<u32>) {
         for gate in self.sequences.iter_mut().flatten() {
             *gate = Measuring::bound(&below, *gate);
@@ -86,16 +97,6 @@ impl Driver for CoinCopy {
     }
 
     type Output = Values;
-
-    async fn ready(&mut self, run: &RunRequirement) -> Result<(), NotReady> {
-        if let Some(log) = &self.log {
-            log.push(Self::ready_for(run));
-        }
-        match self.busy {
-            Some(why) => Err(NotReady::new(why)),
-            None => Ok(()),
-        }
-    }
 
     async fn drive(
         &mut self,
@@ -150,6 +151,12 @@ impl Driver for CoinCopy {
 /// arrives, stating nothing of its own; it does as `D` does otherwise.
 pub(crate) struct PassesTheRun<D>(pub(crate) D);
 
+impl<D: Driver> DriverLimits for PassesTheRun<D> {
+    fn ready_for(&mut self, run: &RunRequirement) -> impl Future<Output = Result<(), NotReady>> {
+        self.0.ready_given(run)
+    }
+}
+
 impl<D: Driver> Driver for PassesTheRun<D> {
     type Sends = D::Sends;
 
@@ -163,8 +170,8 @@ impl<D: Driver> Driver for PassesTheRun<D> {
 
     type Output = D::Output;
 
-    fn ready(&mut self, run: &RunRequirement) -> impl Future<Output = Result<(), NotReady>> {
-        self.0.ready(run)
+    fn ready(&mut self) -> impl Future<Output = Result<(), NotReady>> {
+        self.0.ready()
     }
 
     fn drive(
@@ -201,14 +208,14 @@ pub(crate) struct Program {
 impl Program {
     /// The instructions `text`, each a gate of [`coin_gates`] and its
     /// qubit, requiring batches of as many instructions.
-    pub(crate) fn new(text: &[(&str, u32)]) -> Self {
-        Self::of(&[text])
+    pub(crate) fn new(text: &[(&str, u32)]) -> Limited<Self> {
+        Self::of(&[text]).limited()
     }
 
     /// `first` on the first half of the shots, rounded down, and `second`
     /// on the others, as two batches of one `execute`.
-    pub(crate) fn halves(first: &[(&str, u32)], second: &[(&str, u32)]) -> Self {
-        Self::of(&[first, second])
+    pub(crate) fn halves(first: &[(&str, u32)], second: &[(&str, u32)]) -> Limited<Self> {
+        Self::of(&[first, second]).limited()
     }
 
     fn of(texts: &[&[(&str, u32)]]) -> Self {
@@ -231,56 +238,55 @@ impl Program {
             checked: vec![false; texts.len()],
         }
     }
+}
 
+impl Limited<Program> {
     /// This program, requiring `resources` in place of its own.
     pub(crate) fn with_resources(mut self, resources: Resources) -> Self {
-        self.resources = resources;
+        self.part.resources = resources;
         self
     }
 
     /// This program, requiring `features` in place of its own.
     pub(crate) fn with_features(mut self, features: Features) -> Self {
-        self.features = features;
+        self.part.features = features;
         self
     }
 
     /// This program, its batches checked.
     pub(crate) fn with_checked_batches(mut self) -> Self {
-        self.checked.fill(true);
+        self.part.checked.fill(true);
         self
     }
 
-    /// This program of [`halves`](Self::halves), its first half's batch
+    /// This program of [`Program::halves`], its first half's batch
     /// checked if `first`, its second's if `second`.
     pub(crate) fn with_checked_halves(mut self, first: bool, second: bool) -> Self {
-        assert_eq!(self.checked.len(), 2, "a program of halves");
-        self.checked = vec![first, second];
+        assert_eq!(self.part.checked.len(), 2, "a program of halves");
+        self.part.checked = vec![first, second];
         self
     }
 
     /// This program, its sequence `sequence` (0 for the first half)
     /// ending with [`BEYOND_THE_SET`], as a faulty driver's would.
     pub(crate) fn ending_beyond_its_set(mut self, sequence: usize) -> Self {
-        assert!(sequence < self.sequences.len(), "a sequence of the program");
-        self.beyond_its_set = Some(sequence);
+        assert!(
+            sequence < self.part.sequences.len(),
+            "a sequence of the program"
+        );
+        self.part.beyond_its_set = Some(sequence);
         self
     }
 
     /// This program, never ending its shots below, which it leaves to the
     /// runner.
     pub(crate) fn not_ending(mut self) -> Self {
-        self.ends_its_shots = false;
+        self.part.ends_its_shots = false;
         self
     }
 }
 
-impl Driver for Program {
-    type Sends = Measuring;
-
-    fn sends(&self) -> &Measuring {
-        &self.sends
-    }
-
+impl DriverLimits for Program {
     /// Its own resources and features, with the run's shots, and seeded
     /// runs if the run's seed is fixed.
     fn requires(&self, run: &RunRequirement) -> Capabilities<Measuring> {
@@ -293,6 +299,14 @@ impl Driver for Program {
             features = features.with_seeded_runs(true);
         }
         capabilities(resources, features)
+    }
+}
+
+impl Driver for Program {
+    type Sends = Measuring;
+
+    fn sends(&self) -> &Measuring {
+        &self.sends
     }
 
     fn bind(&mut self, below: Vec<u32>) {

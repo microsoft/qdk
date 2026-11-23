@@ -35,10 +35,18 @@ mod failure;
 mod not_ready;
 mod translating_adapter;
 
-pub use adapter::Adapter;
-pub use driver::{DriveError, Driver};
-pub use executor::{ExecuteError, ExecuteRefusal, Executor};
+pub use adapter::{Adapter, AdapterLimits};
+pub use driver::{DriveError, Driver, DriverLimits, DriverReadings};
+pub use executor::{ExecuteError, ExecuteRefusal, Executor, ExecutorLimits, ExecutorReadings};
 pub use failure::Failure;
 pub use not_ready::NotReady;
 pub use translating_adapter::TranslatingAdapter;
 pub(crate) use translating_adapter::lent_translating_adapter;
+
+/// What the roles' hidden hooks that no other parameter seals take, so
+/// that only the crate calls or overrides them: the hooks through which
+/// the protocol reads a part's limits.
+///
+/// It is public, because the hooks name it, but no public path reaches
+/// it, and only the crate makes one.
+pub struct Sealed(pub(crate) ());

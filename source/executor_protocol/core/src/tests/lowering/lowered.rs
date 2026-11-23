@@ -25,8 +25,8 @@ use crate::tests::fake_parts::{
 };
 use crate::{
     Batch, BatchFault, BatchReadouts, Capabilities, CompositionFaults, DriveError, ExecuteError,
-    ExecuteRefusal, Failure, Lowered, PartId, Readouts, ResourceMismatch, RunError, RunRefusal,
-    RunRequirement, Runner, Seed, ShotId, ShotSet,
+    ExecuteRefusal, Failure, Limited, Lowered, PartId, Readouts, ResourceMismatch, RunError,
+    RunRefusal, RunRequirement, Runner, Seed, ShotId, ShotSet,
 };
 
 use BitReadout::{One, Zero};
@@ -36,7 +36,7 @@ use ToffoliGate::{Ccz, H, Mz};
 /// `lowering`, over a register of 3 qubits writing `reading` into each
 /// row; and the register's log.
 fn run<L: Lowering<From = WithToffoli, To = WithoutToffoli> + 'static>(
-    program: ToffoliProgram,
+    program: Limited<ToffoliProgram>,
     lowering: L,
     reading: &[BitReadout],
     shots: &ShotSet,
@@ -148,6 +148,7 @@ fn a_lowering_reads_each_instructions_readouts() {
     let second_round = [(vec![Mz(2)], vec![0, 1, 2, 3])];
     let log = Log::default();
     let Ok(mut runner) = ToffoliBatches(vec![first_round.to_vec(), second_round.to_vec()])
+        .limited()
         .through(Lowered::new(ReadThrice))
         .on(CliffordTRegister::with_readings(
             3,
@@ -199,16 +200,18 @@ fn a_lowering_reads_each_instructions_readouts() {
 /// run's. Each shot's output is its readouts and conditions in each round.
 struct ToffoliBatches(Vec<Vec<(Vec<ToffoliGate>, Vec<usize>)>>);
 
+impl DriverLimits for ToffoliBatches {
+    fn requires(&self, run: &RunRequirement) -> Capabilities<WithToffoli> {
+        Capabilities::new(run.resources, run.features, Qubits(3))
+    }
+}
+
 impl Driver for ToffoliBatches {
     type Sends = WithToffoli;
     type Output = Vec<(Vec<BitReadout>, ShotFlags)>;
 
     fn sends(&self) -> &WithToffoli {
         &WithToffoli
-    }
-
-    fn requires(&self, run: &RunRequirement) -> Capabilities<WithToffoli> {
-        Capabilities::new(run.resources, run.features, Qubits(3))
     }
 
     fn bind(&mut self, (): ()) {}

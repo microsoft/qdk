@@ -35,16 +35,18 @@ struct Literal<S: InstructionSet> {
     mark: Mark<S>,
 }
 
+impl<S: InstructionSet> DriverLimits for Literal<S> {
+    fn requires(&self, _run: &RunRequirement) -> Capabilities<S> {
+        self.requires.clone()
+    }
+}
+
 impl<S: InstructionSet> Driver for Literal<S> {
     type Sends = S;
     type Output = u32;
 
     fn sends(&self) -> &S {
         &self.sends
-    }
-
-    fn requires(&self, _run: &RunRequirement) -> Capabilities<S> {
-        self.requires.clone()
     }
 
     /// Sends in its receiver's own set, which it binds to itself.
@@ -77,15 +79,17 @@ struct Zeros<S: InstructionSet> {
     provides: Capabilities<S>,
 }
 
+impl<S: InstructionSet<Readout = BitReadout>> ExecutorLimits for Zeros<S> {
+    fn provides(&self) -> &Capabilities<S> {
+        &self.provides
+    }
+}
+
 impl<S: InstructionSet<Readout = BitReadout>> Executor for Zeros<S> {
     type Accepts = S;
 
     fn accepts(&self) -> &S {
         &self.accepts
-    }
-
-    fn provides(&self) -> &Capabilities<S> {
-        &self.provides
     }
 
     async fn execute(
@@ -114,7 +118,7 @@ fn run<S: InstructionSet<Readout = BitReadout>>(
         accepts: driver.sends.clone(),
         provides: provided,
     };
-    let Ok(mut runner) = driver.on(executor) else {
+    let Ok(mut runner) = driver.limited().on(executor.limited()) else {
         panic!("the chain composes");
     };
     match runner.run(&ShotSet::ids(0..2), 7) {
