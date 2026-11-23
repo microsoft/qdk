@@ -1,0 +1,130 @@
+__DOCSTRING__
+
+from collections import Counter
+import contextlib
+import hashlib
+import importlib.util
+import io
+import json
+import math
+import os
+from pathlib import Path
+import re
+import resource
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+import traceback
+
+CASES = __CASES__
+FILES = __FILES__
+EXPECTED = __EXPECTED__
+AFFECTED = __AFFECTED__
+SUFFIXES = __SUFFIXES__
+PROFILES = __PROFILES__
+SHOTS = __SHOTS__
+SEED = __SEED__
+LIMITS = __LIMITS__
+INCOMPLETE = set()
+WRONG_TYPED = set()
+KIT = Path(__file__).parent
+
+
+class ReviewError(Exception):
+    pass
+
+
+# Generated from the same functions used by the review harness.
+__RUNTIME__
+
+
+def outputs():
+    import qdk
+    import qdk._native
+
+    build = {
+        "sha": "selected", "mode": "selected",
+        "overlay": str(Path(qdk.__file__).resolve().parents[1]),
+        "native_path": qdk._native.__file__,
+        "native_digest": file_digest(qdk._native.__file__),
+        "worktree": os.environ.get("QDK_LIB_OVERRIDE_MICROSOFT_QDK"),
+    }
+    config = {
+        "venv": str(Path(sys.executable).parent.parent), "limits": LIMITS,
+        "_worker_command": [sys.executable, str(Path(__file__).resolve()), "--review-stage"],
+    }
+    rows = {}
+
+    def observe(name, record, expected=None):
+        for field in ("stderr", "runner_stderr", "messages"):
+            if record.get(field):
+                print(record[field], end="", file=sys.stderr)
+        if record["status"] == "ok":
+            rows[name] = {format_value(value) for value in record["values"]} if "values" in record else {"compiled"}
+            if expected is not None and "values" in record:
+                for value in record["values"]:
+                    if value != expected:
+                        WRONG_TYPED.add(name)
+                        print(f"{name}: expected {expected!r}, observed {value!r}", file=sys.stderr)
+            return
+        if record["status"] in ("timeout", "infrastructure_error", "parser_error", "unsupported_profile",
+                                "resource_exhausted", "interrupted"):
+            INCOMPLETE.add(name)
+        kind = {"panic": "panics", "diagnostic": "does not compile"}.get(record["status"], record["status"])
+        message = record.get("message") or record.get("runner_stderr") or record.get("stderr") or kind
+        rows[name] = {f"{kind}: {message.strip().splitlines()[0]}"}
+
+    with tempfile.TemporaryDirectory(prefix="review-repro-") as directory:
+        root = Path(directory)
+        for name, contents in FILES.items():
+            path = root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(contents)
+        for case, suffix in zip(CASES, SUFFIXES):
+            case = dict(case, profiles=PROFILES, shots=SHOTS, seed=SEED)
+            for field in ("adapter", "project_root"):
+                if field in case:
+                    case[field] = str(root / case[field])
+            result = run_case(config, build, case, root / "outputs" / case["id"])
+            expected = case["oracle"].get("expected")
+            if "simulator" in result:
+                observe("simulator" + suffix, result["simulator"], expected)
+            for profile, stages in result["profiles"].items():
+                compiled = stages["compile"]
+                observe(profile + suffix, stages.get("runner", compiled), expected)
+    return rows
+
+
+def main():
+    INCOMPLETE.clear()
+    WRONG_TYPED.clear()
+    rows = outputs()
+    width = max(map(len, rows)) + 2
+    for name, values in rows.items():
+        print(f"{name:<{width}}{' | '.join(sorted(values))}")
+    print(f"{'expected':<{width}}{EXPECTED}")
+    print("JSON: " + json.dumps({name: sorted(values) for name, values in rows.items()}))
+    if EXPECTED is None:
+        print("INCONCLUSIVE: no independent expected value")
+        return 2
+    wrong = [name for name in AFFECTED if name in rows and name not in INCOMPLETE
+             and (rows[name] != {EXPECTED} or name in WRONG_TYPED)]
+    if wrong:
+        print(f"REPRODUCED: {', '.join(wrong)} differ from {EXPECTED}")
+        return 1
+    missing = [name for name in AFFECTED if name not in rows] + sorted(INCOMPLETE)
+    if missing:
+        print(f"INCONCLUSIVE: affected rows not run: {', '.join(missing)}")
+        return 2
+    print("NOT REPRODUCED")
+    return 0
+
+
+if __name__ == "__main__":
+    def interrupted(signum, frame):
+        raise SystemExit(128 + signum)
+
+    signal.signal(signal.SIGTERM, interrupted)
+    sys.exit(stage_main() if sys.argv[1:] == ["--review-stage"] else main())
