@@ -67,7 +67,7 @@ Today the crate holds:
   `MpsShapeError` says why a shape was not built.
 - **The observables.** [`PauliSum`](src/pauli_sum.rs) is the observable an
   engine reads, on sites: an identity coefficient and `PauliTerm`s, each a
-  coefficient times `Pauli` factors on distinct sites. `PauliError` says
+  coefficient times `Pauli` factors on distinct sites. `PauliSumError` says
   why a term or a sum was not built.
 
 A Bell pair on the reference, read three ways (the crate's doctest in
@@ -220,6 +220,6 @@ Schmidt ranks a singular value decomposition gives on random circuits.
 | `src/engine/sampling/splitmix64.rs` | `SplitMix64`, the generator the shared sampler draws its uniforms from (internal)                                                         |
 | `src/refusal.rs`                    | `Refusal`, why a call was refused                                                                                                         |
 | `src/shape.rs`                      | `MpsShape`, the shape of a chain, and `MpsShapeError`                                                                                     |
-| `src/pauli_sum.rs`                  | `PauliSum`, `PauliTerm`, `Pauli` and `PauliError`: the observables of `expectation`                                                       |
+| `src/pauli_sum.rs`                  | `PauliSum`, `PauliTerm`, `Pauli` and `PauliSumError`: the observables of `expectation`                                                    |
 | `src/tests/`                        | the crate's tests, one file per module with run-time behaviour, in the same folders                                                       |
 | `design.md`                         | why a chain is described by its extents, refusals versus failures, what libraries offer, the reference's arithmetic, and what is left out |

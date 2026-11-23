@@ -26,7 +26,7 @@
 //!   the chain an engine holds, which is what the run pays for), and
 //!   [`MpsShapeError`];
 //! - the observables: [`PauliSum`], of [`PauliTerm`]s of [`Pauli`] factors,
-//!   on sites, and [`PauliError`].
+//!   on sites, and [`PauliSumError`].
 //!
 //! A Bell pair on the reference (feature `conformance`), read three ways:
 //!
@@ -80,7 +80,7 @@ pub use engine::checks;
 pub use engine::reference;
 pub use engine::sampling;
 pub use engine::{MpsEngine, MpsEngineError};
-pub use pauli_sum::{Pauli, PauliError, PauliSum, PauliTerm};
+pub use pauli_sum::{Pauli, PauliSum, PauliSumError, PauliTerm};
 pub use refusal::Refusal;
 pub use shape::{MpsShape, MpsShapeError};
 

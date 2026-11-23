@@ -3,7 +3,7 @@
 
 use super::c;
 use crate::reference::ExactReference;
-use crate::{MpsEngine, MpsShape, Pauli, PauliError, PauliSum, PauliTerm};
+use crate::{MpsEngine, MpsShape, Pauli, PauliSum, PauliSumError, PauliTerm};
 
 /// `pauli` applied to |0⟩ by the reference, which reads its matrix as
 /// `M[out][in]`: the amplitudes of |0⟩ and |1⟩.
@@ -54,7 +54,7 @@ fn the_z_matrix_keeps_zero_and_negates_one() {
 fn a_term_needs_a_factor() {
     assert_eq!(
         PauliTerm::new(c(1.0, 0.0), Vec::new()),
-        Err(PauliError::NoFactors)
+        Err(PauliSumError::NoFactors)
     );
 }
 
@@ -65,7 +65,7 @@ fn a_term_refuses_the_first_site_named_a_second_time() {
             c(1.0, 0.0),
             vec![(1, Pauli::X), (2, Pauli::Y), (2, Pauli::Z), (1, Pauli::Z)]
         ),
-        Err(PauliError::RepeatedSite { site: 2 })
+        Err(PauliSumError::RepeatedSite { site: 2 })
     );
 }
 
@@ -78,7 +78,7 @@ fn a_term_refuses_a_site_named_again_after_another() {
             c(1.0, 0.0),
             vec![(1, Pauli::X), (2, Pauli::Y), (1, Pauli::Z)]
         ),
-        Err(PauliError::RepeatedSite { site: 1 })
+        Err(PauliSumError::RepeatedSite { site: 1 })
     );
 }
 
@@ -88,7 +88,7 @@ fn a_term_refuses_a_coefficient_that_is_not_finite() {
         assert!(
             matches!(
                 PauliTerm::new(coefficient, vec![(0, Pauli::X)]),
-                Err(PauliError::NonFinite(_))
+                Err(PauliSumError::NonFinite(_))
             ),
             "{coefficient}"
         );
@@ -106,7 +106,7 @@ fn a_term_keeps_its_factors_in_the_order_given() {
 fn a_sum_refuses_an_identity_coefficient_that_is_not_finite() {
     assert!(matches!(
         PauliSum::new(c(f64::NEG_INFINITY, 0.0), Vec::new()),
-        Err(PauliError::NonFinite(_))
+        Err(PauliSumError::NonFinite(_))
     ));
 }
 

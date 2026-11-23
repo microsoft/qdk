@@ -3,7 +3,7 @@
 
 //! [`PauliSum`]: the observable an [`MpsEngine`](crate::MpsEngine) takes an
 //! expectation of, `O = c_I·I + Σₖ cₖ·Pₖ`, on sites; with its parts, the
-//! terms ([`PauliTerm`]) and their factors ([`Pauli`]), and [`PauliError`],
+//! terms ([`PauliTerm`]) and their factors ([`Pauli`]), and [`PauliSumError`],
 //! why a term or a sum was not built.
 //!
 //! The crate owns this type because the engine sits below every simulator:
@@ -31,11 +31,14 @@ impl PauliSum {
     ///
     /// # Errors
     ///
-    /// [`PauliError::NonFinite`] for an identity coefficient that is not
+    /// [`PauliSumError::NonFinite`] for an identity coefficient that is not
     /// finite (each term's was checked when it was built).
-    pub fn new(identity_coefficient: Complex64, terms: Vec<PauliTerm>) -> Result<Self, PauliError> {
+    pub fn new(
+        identity_coefficient: Complex64,
+        terms: Vec<PauliTerm>,
+    ) -> Result<Self, PauliSumError> {
         if !identity_coefficient.is_finite() {
-            return Err(PauliError::NonFinite(identity_coefficient));
+            return Err(PauliSumError::NonFinite(identity_coefficient));
         }
         Ok(Self {
             identity_coefficient,
@@ -70,20 +73,23 @@ impl PauliTerm {
     ///
     /// # Errors
     ///
-    /// [`PauliError::NonFinite`] for a coefficient that is not finite;
-    /// [`PauliError::NoFactors`] for no factor; and
-    /// [`PauliError::RepeatedSite`] for the first site named a second time.
+    /// [`PauliSumError::NonFinite`] for a coefficient that is not finite;
+    /// [`PauliSumError::NoFactors`] for no factor; and
+    /// [`PauliSumError::RepeatedSite`] for the first site named a second time.
     /// Which error a term with several faults gets is unspecified.
-    pub fn new(coefficient: Complex64, factors: Vec<(usize, Pauli)>) -> Result<Self, PauliError> {
+    pub fn new(
+        coefficient: Complex64,
+        factors: Vec<(usize, Pauli)>,
+    ) -> Result<Self, PauliSumError> {
         if !coefficient.is_finite() {
-            return Err(PauliError::NonFinite(coefficient));
+            return Err(PauliSumError::NonFinite(coefficient));
         }
         if factors.is_empty() {
-            return Err(PauliError::NoFactors);
+            return Err(PauliSumError::NoFactors);
         }
         for (at, &(site, _)) in factors.iter().enumerate() {
             if factors[..at].iter().any(|&(earlier, _)| earlier == site) {
-                return Err(PauliError::RepeatedSite { site });
+                return Err(PauliSumError::RepeatedSite { site });
             }
         }
         Ok(Self {
@@ -136,7 +142,7 @@ impl Pauli {
 
 /// Why a term or a sum was not built.
 #[derive(Clone, Debug, PartialEq, thiserror::Error)]
-pub enum PauliError {
+pub enum PauliSumError {
     /// A term with no factor. An identity term is the sum's identity
     /// coefficient instead, so that no engine needs an identity operator.
     #[error("the Pauli term has no factor")]
