@@ -164,15 +164,19 @@ fn a_gate_split_writes_only_live_buffers_of_its_descriptors_sizes() {
 
 /// A gate split contracts A, B and the gate along the labels they share,
 /// and keeps each other label on its side: A's in U, B's in V, the gate's
-/// on either. The case of A's and B's bond labelled as U's and V's shared
-/// mode runs on the fake alone: cuTensorNet 2.13 on an A100 splits such a
-/// gate, but its documentation partitions the inputs' uncontracted modes
-/// onto U and V, which share one mode of their own, so the fake holds the
-/// algebra to a new label for it.
+/// on either. Three cases run on the fake alone, since cuTensorNet 2.13 on
+/// an A100 splits the gates they refuse. Its documentation partitions the
+/// inputs' uncontracted modes onto U and V, which share one mode of their
+/// own, so the fake holds the algebra to a new label for that mode, not
+/// A's and B's bond; and it expects U's uncontracted modes "consistent
+/// with" A and the gate, V's with B and the gate, so the fake holds the
+/// algebra to A's own labels in U and B's in V.
 #[test]
 fn a_gate_split_takes_only_its_topologys_labels() {
     a_gate_split_takes_only_its_topologys_labels_on(&fake);
     a_gate_split_refuses_its_shared_mode_on_an_input();
+    a_gate_split_keeps_a_label_of_a_alone_in_u();
+    a_gate_split_keeps_a_label_of_b_alone_in_v();
 }
 
 /// The cases of [`a_gate_split_takes_only_its_topologys_labels`] that run
@@ -180,11 +184,9 @@ fn a_gate_split_takes_only_its_topologys_labels() {
 fn a_gate_split_takes_only_its_topologys_labels_on<C: TestedCalls>(new: &dyn Fn() -> Device<C>) {
     a_gate_split_refuses_a_label_outside_its_topology(new);
     a_gate_split_needs_a_b_and_the_gate_pairwise_connected(new);
-    a_gate_split_refuses_a_label_on_all_three_inputs(new);
+    a_gate_split_sums_a_label_on_all_three_inputs(new);
     a_gate_split_refuses_a_contracted_label_kept_in_an_output(new);
     a_gate_split_refuses_its_shared_mode_on_a_single_input(new);
-    a_gate_split_keeps_a_label_of_a_alone_in_u(new);
-    a_gate_split_keeps_a_label_of_b_alone_in_v(new);
     a_gate_split_keeps_a_label_of_the_gate_alone_on_either_side(new);
     a_gate_split_takes_modes_of_extent_one(new);
 }
@@ -479,14 +481,13 @@ fn a_gate_split_needs_a_b_and_the_gate_pairwise_connected<C: TestedCalls>(
     assert!(refused_for::<C>(&refused, not_connected), "{refused}");
 }
 
-/// A gate split contracts each label two inputs share: a caller whose A, B
-/// and gate all carry one label, which the split could neither contract
-/// pairwise nor keep, is refused.
-fn a_gate_split_refuses_a_label_on_all_three_inputs<C: TestedCalls>(new: &dyn Fn() -> Device<C>) {
+/// A gate split sums each label its inputs share, as a network sums every
+/// label its tensors share, however many carry it: a caller whose A, B and
+/// gate all carry one label (a hyperedge), kept in neither output, gets its
+/// split.
+fn a_gate_split_sums_a_label_on_all_three_inputs<C: TestedCalls>(new: &dyn Fn() -> Device<C>) {
     let hyperedge = OUTER + 1;
-    split_with_labels(new, &[P, BOND], &[BOND, Q], &GATE, &[P_OUT, S], &[S, Q_OUT])
-        .expect("each label is on one or two inputs");
-    let refused = split_with_labels(
+    split_with_labels(
         new,
         &[P, BOND, hyperedge],
         &[BOND, Q, hyperedge],
@@ -494,11 +495,7 @@ fn a_gate_split_refuses_a_label_on_all_three_inputs<C: TestedCalls>(new: &dyn Fn
         &[P_OUT, S],
         &[S, Q_OUT],
     )
-    .expect_err("a label is on all three inputs");
-    assert!(
-        refused_for::<C>(&refused, FakeRule::LabelOutsideGateSplitTopology),
-        "{refused}"
-    );
+    .expect("a label on all three inputs is summed");
 }
 
 /// A gate split contracts the labels two inputs share: a caller that also
@@ -542,29 +539,29 @@ fn a_gate_split_refuses_its_shared_mode_on_a_single_input<C: TestedCalls>(
 }
 
 /// A gate split keeps A's site in U: a caller that puts a label of A alone
-/// (its outer bond) in V is refused.
-fn a_gate_split_keeps_a_label_of_a_alone_in_u<C: TestedCalls>(new: &dyn Fn() -> Device<C>) {
+/// (its outer bond) in V is caught on the fake.
+fn a_gate_split_keeps_a_label_of_a_alone_in_u() {
     let (a, b) = ([OUTER, P, BOND], [BOND, Q]);
-    split_with_labels(new, &a, &b, &GATE, &[OUTER, P_OUT, S], &[S, Q_OUT])
+    split_with_labels(&fake, &a, &b, &GATE, &[OUTER, P_OUT, S], &[S, Q_OUT])
         .expect("A's outer bond is in U");
-    let refused = split_with_labels(new, &a, &b, &GATE, &[P_OUT, S], &[S, Q_OUT, OUTER])
+    let refused = split_with_labels(&fake, &a, &b, &GATE, &[P_OUT, S], &[S, Q_OUT, OUTER])
         .expect_err("A's outer bond is in V");
     assert!(
-        refused_for::<C>(&refused, FakeRule::LabelOutsideGateSplitTopology),
+        refused_for::<FakeLibraries>(&refused, FakeRule::LabelOutsideGateSplitTopology),
         "{refused}"
     );
 }
 
 /// A gate split keeps B's site in V: a caller that puts a label of B alone
-/// (its outer bond) in U is refused.
-fn a_gate_split_keeps_a_label_of_b_alone_in_v<C: TestedCalls>(new: &dyn Fn() -> Device<C>) {
+/// (its outer bond) in U is caught on the fake.
+fn a_gate_split_keeps_a_label_of_b_alone_in_v() {
     let (a, b) = ([P, BOND], [BOND, Q, OUTER]);
-    split_with_labels(new, &a, &b, &GATE, &[P_OUT, S], &[S, Q_OUT, OUTER])
+    split_with_labels(&fake, &a, &b, &GATE, &[P_OUT, S], &[S, Q_OUT, OUTER])
         .expect("B's outer bond is in V");
-    let refused = split_with_labels(new, &a, &b, &GATE, &[OUTER, P_OUT, S], &[S, Q_OUT])
+    let refused = split_with_labels(&fake, &a, &b, &GATE, &[OUTER, P_OUT, S], &[S, Q_OUT])
         .expect_err("B's outer bond is in U");
     assert!(
-        refused_for::<C>(&refused, FakeRule::LabelOutsideGateSplitTopology),
+        refused_for::<FakeLibraries>(&refused, FakeRule::LabelOutsideGateSplitTopology),
         "{refused}"
     );
 }

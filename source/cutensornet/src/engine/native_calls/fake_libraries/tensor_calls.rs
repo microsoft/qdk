@@ -8,12 +8,13 @@
 //!
 //! It is as strict as cuTensorNet's documentation about what a call needs,
 //! whether or not cuTensorNet itself refuses the misuse (the tests of the
-//! fake say which cases a GPU run refuses):
+//! fake say which cases a GPU run refuses), and, where the documentation
+//! gives no bound, as cuTensorNet 2.13 was seen to be on an A100:
 //!
 //! - a tensor descriptor has one extent per mode, and every extent at
 //!   least 1;
-//! - a discarded-weight cutoff is in [0, 1), as cuTensorNet 2.13 refuses
-//!   a cutoff of 1;
+//! - a discarded-weight cutoff is in [0, 1): the documentation gives it no
+//!   range, and cuTensorNet 2.13 on an A100 refuses a cutoff of 1;
 //! - every object (a descriptor, an SVD config or info, a network, an
 //!   optimizer info) belongs to the handle it was created with;
 //! - a gate split, a QR or a contraction runs only in a workspace last
@@ -33,10 +34,12 @@
 //! - a QR's input carries exactly Q's and R's other modes;
 //! - a gate split takes A·B·G's topology, as cuTensorNet's gate split
 //!   states it: A, B and the gate are pairwise connected (each pair shares
-//!   a label); each input label is shared by two inputs and in neither
-//!   output, or is in one input and one of U's or V's other modes, so no
-//!   label is summed alone; and a label of A alone is kept in U, one of B
-//!   alone in V, one of the gate alone in either;
+//!   a label); each input label is shared by two or three inputs and in
+//!   neither output, or is in one input and one of U's or V's other modes,
+//!   so no label is summed alone; and a label of A alone is kept in U, one
+//!   of B alone in V, one of the gate alone in either (cuTensorNet 2.13 on
+//!   an A100 also splits a label of A alone kept in V, or one of B alone
+//!   kept in U, which its documentation does not provide for);
 //! - U's and V's buffers hold their descriptors' extents before
 //!   truncation, as cuTensorNet asks, since the reduced extent is known
 //!   only once the split has run;
@@ -759,10 +762,11 @@ impl Sides {
     /// Fails unless a gate split's `inputs` (A, B and the gate, in that
     /// order) form the graph cuTensorNet's gate split expects: each pair of
     /// them shares a label (a fully connected graph); every label is either
-    /// shared by two of them and in neither output, or in one of them and
-    /// one output's other modes (no label is summed alone, and none is both
-    /// contracted and kept); and a label of A alone is kept in U (the left
-    /// output), one of B alone in V, one of the gate alone in either.
+    /// shared by two or all three of them and in neither output, or in one
+    /// of them and one output's other modes (no label is summed alone, and
+    /// none is both contracted and kept); and a label of A alone is kept in
+    /// U (the left output), one of B alone in V, one of the gate alone in
+    /// either.
     fn check_gate_split_labels(
         &self,
         inputs: &[&DenseTensor; 3],
@@ -789,7 +793,7 @@ impl Sides {
                     (1, 0) => on_left(mode),
                     (1, 1) => on_right(mode),
                     (1, _) => on_left(mode) || on_right(mode),
-                    (2, _) => !on_left(mode) && !on_right(mode) && *mode != self.shared,
+                    (2 | 3, _) => !on_left(mode) && !on_right(mode) && *mode != self.shared,
                     _ => false,
                 };
                 if !fits {
