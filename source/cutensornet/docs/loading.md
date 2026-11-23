@@ -33,7 +33,8 @@ flowchart TD
   holds the functions the CUDA algebra calls: its handle's and its
   workspaces', and those of its tensor API (tensor descriptors, SVD
   settings and reports, `GateSplit`, `TensorQR` and contraction networks);
-  each is required.
+  each is required but `cutensornetGetLastError`, which only adds detail to
+  an error message.
 - [`CheckLibrary`](../src/libraries.rs) is a trait so that what discovery
   concludes from the checks is tested without library files.
 - [`LoadedLibraries`](../src/libraries.rs) is the one list of the libraries a
@@ -131,9 +132,10 @@ hand, and the crate is checked against them:
   one signature swapped or repeated.
 
 To bind another function of a bound release, add its row (its field, named
-for its symbol, and its function-pointer type) to its library's module: the
-bindings already declare it. To bind another library, follow the top of
-[`src/libraries.rs`](../src/libraries.rs); to bind a new release, the top of
+for its symbol, and its function-pointer type, declared in the file of its
+family) to its library's module: the bindings already declare it. To bind
+another library, follow the top of [`src/libraries.rs`](../src/libraries.rs);
+to bind a new release, the top of
 [`scripts/generate_bindings.py`](../scripts/generate_bindings.py), which says
 how to run it and audit the release.
 
