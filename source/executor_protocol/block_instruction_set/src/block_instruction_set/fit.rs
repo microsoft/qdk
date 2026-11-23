@@ -226,7 +226,8 @@ impl BlockInstructionSet {
     }
 }
 
-/// Why one sent instruction does not fit the receiver: what
+/// Why a sent instruction does not fit the receiver, or, for
+/// [`OtherSet`](Self::OtherSet), several: what
 /// [`BlockInstructionSet`]'s [`fits`](BoundaryCompatible::fits) finds.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -312,7 +313,8 @@ impl fmt::Display for InstructionMismatch {
     }
 }
 
-/// How a sent instruction was matched.
+/// How a sent instruction was matched: by meaning, or by mnemonic,
+/// whatever the sets' names.
 enum Match {
     ByMeaning(Opcode),
     ByMnemonic(Opcode),
