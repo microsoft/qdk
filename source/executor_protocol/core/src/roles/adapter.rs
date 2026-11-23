@@ -34,12 +34,11 @@ use crate::{
 ///
 /// The joins ([`DriverJoins`](crate::DriverJoins) and
 /// [`AdapterJoins`](crate::AdapterJoins)) read them before any run:
-/// [`name`](Self::name), [`accepts`](Self::accepts),
-/// [`sends`](Self::sends), and what it provides and requires, which it
-/// states, if it has limits, in [`AdapterLimits`]. The join to the part below hands back
-/// what it made of them: [`bind`](Self::bind) gets the fit's binding.
-/// A join only decides, from what the parts declare; what prepares a part
-/// to run belongs to each run.
+/// [`name`](Self::name), [`accepts`](Self::accepts), [`sends`](Self::sends),
+/// and what it provides and requires, which it states, if it has limits, in
+/// [`AdapterLimits`]. The join to the part below hands back what it made of
+/// them: [`bind`](Self::bind) gets the fit's binding. A join only decides, from
+/// what the parts declare; what prepares a part to run belongs to each run.
 ///
 /// What it accepts, sends and provides must not change once it is joined:
 /// the fits and `bind`'s binding are made once, from them, and each batch
@@ -166,8 +165,9 @@ pub trait Adapter {
 
     /// Gets it ready for `above`, what arrives at it, as a
     /// [`TranslatingAdapter`](crate::TranslatingAdapter), at `at` in its
-    /// chain: by default [`ready`](Self::ready). Only the crate overrides it, to answer a
-    /// [`Limited`](crate::Limited) part's [`AdapterLimits::ready_for`].
+    /// chain: by default [`ready`](Self::ready). Only the crate overrides
+    /// it, to answer a [`Limited`](crate::Limited) part's
+    /// [`AdapterLimits::ready_for`].
     #[doc(hidden)]
     fn ready_at(
         &mut self,

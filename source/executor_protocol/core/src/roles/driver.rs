@@ -38,13 +38,13 @@ use crate::{
 ///
 /// # Declarations
 ///
-/// The joins ([`DriverJoins`](crate::DriverJoins)) read them before any
-/// run: [`name`](Self::name), [`sends`](Self::sends) and what it
-/// requires ([`DriverReadings::required`]), which it states, if it states
-/// anything of its own, in [`DriverLimits`]. The join to the part below hands back
-/// what it made of them: [`bind`](Self::bind) gets the fit's binding.
-/// A join only decides, from what the parts declare; what prepares a part
-/// to run belongs to each run.
+/// The joins ([`DriverJoins`](crate::DriverJoins)) read them before any run:
+/// [`name`](Self::name), [`sends`](Self::sends) and what it requires
+/// ([`DriverReadings::required`]), which it states, if it states anything of
+/// its own, in [`DriverLimits`]. The join to the part below hands back what it
+/// made of them: [`bind`](Self::bind) gets the fit's binding. A join only
+/// decides, from what the parts declare; what prepares a part to run belongs to
+/// each run.
 ///
 /// What it sends must not change once it is joined: the fit and `bind`'s
 /// binding are made once, from it. What it requires is asked again at each

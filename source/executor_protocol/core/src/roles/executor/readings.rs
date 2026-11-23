@@ -11,7 +11,8 @@ use crate::{Capabilities, Executor, NotReady};
 /// limits: what it provides, and getting it ready for what arrives.
 ///
 /// An adapter reads them of the part below it, and a part that wraps an
-/// executor forwards them, as its own [`ExecutorLimits`](crate::ExecutorLimits).
+/// executor forwards them, as its own
+/// [`ExecutorLimits`](crate::ExecutorLimits).
 /// An executor that states no limits answers its set's
 /// [`unconstrained`](crate::InstructionSet::unconstrained) and its
 /// [`ready`](Executor::ready); a [`Limited`](crate::Limited) one, its
