@@ -5,7 +5,7 @@
 //! cannot.
 //!
 //! No NVIDIA library is opened: the libraries are files that are not shared
-//! objects, or paths and names that do not exist.
+//! objects, or paths and names with no file the process can see.
 
 use crate::tests::{not_a_shared_object, unique_temp_path};
 use crate::{
@@ -46,18 +46,34 @@ fn a_library_the_system_loader_refuses_is_a_load_failure() {
     ));
 }
 
-/// A default path that does not exist on this host is skipped for the next
-/// one, and the next one's failure is reported.
+/// A default path with no file the process can see on this host (none
+/// there, a symlink loop, or a file in a directory it cannot search) is
+/// skipped for the next one, and the next one's failure is reported.
 #[test]
-fn a_default_path_that_does_not_exist_is_skipped() {
+fn a_default_path_whose_metadata_cannot_be_read_is_skipped() {
     let (path, _remove) = not_a_shared_object("second-default");
-    let fault = load_library(vec![unique_temp_path("absent-default"), path.clone()])
-        .err()
-        .expect("the second default is not a shared object");
-    assert!(matches!(
-        fault,
-        LibraryFault::LoadFailed { path: found, .. } if found == path
-    ));
+    let (looping, locked_dir, _remove_unreadable) = super::unreadable_paths();
+    let mut unseen = vec![
+        ("no file", unique_temp_path("absent-default")),
+        ("a symlink loop", looping),
+    ];
+    // Root reads a directory whatever its mode, so the row runs only where
+    // the mode applies.
+    if std::fs::read_dir(&locked_dir).is_err() {
+        unseen.push((
+            "a file in a directory the process cannot search",
+            locked_dir.join("libcudart.so.12"),
+        ));
+    }
+    for (case, default) in unseen {
+        let fault = load_library(vec![default, path.clone()])
+            .err()
+            .expect("the second default is not a shared object");
+        assert!(
+            matches!(&fault, LibraryFault::LoadFailed { path: found, .. } if *found == path),
+            "{case}: {fault:?}"
+        );
+    }
 }
 
 /// A default file name the system loader does not find on its search path

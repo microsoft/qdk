@@ -124,7 +124,8 @@ and how the bindings are made and checked.
 An override must be an absolute path to a file, or to a symlink to one, and
 is then the only path tried, so a wrong setting fails instead of loading
 another installation. A default path is skipped when there is no file
-there; a bare file name is searched for on the system loader's usual path,
+there, or none the process can see (a symlink loop, or a directory it cannot
+search); a bare file name is searched for on the system loader's usual path,
 and skipped when the loader reports no file of that name (glibc reports so
 too when its search found only files of that name it could not use, such as
 another machine's). A library that is found but fails to load, for instance

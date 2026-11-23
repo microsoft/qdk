@@ -129,7 +129,7 @@ fn an_invalid_override_is_refused_with_why() {
             file.join("libcudart.so.12"),
             "does not exist",
         ));
-        let (looping, locked_dir, guard) = unreadable_overrides();
+        let (looping, locked_dir, guard) = unreadable_paths();
         rows.push(("a symlink loop", looping, "cannot be read"));
         // Root reads a directory whatever its mode, so the row runs only
         // where the mode applies.
@@ -160,7 +160,7 @@ fn each_kind_of_invalid_override_has_its_own_reason() {
     ];
     #[cfg(unix)]
     let _remove = {
-        let (looping, _, guard) = unreadable_overrides();
+        let (looping, _, guard) = unreadable_paths();
         reasons.push(refusal_reason(looping));
         guard
     };
@@ -176,7 +176,7 @@ fn each_kind_of_invalid_override_has_its_own_reason() {
 /// removed (the directory's permissions restored first) when the guard is
 /// dropped.
 #[cfg(unix)]
-fn unreadable_overrides() -> (PathBuf, PathBuf, RemoveUnreadable) {
+fn unreadable_paths() -> (PathBuf, PathBuf, RemoveUnreadable) {
     use std::os::unix::fs::PermissionsExt;
     let (first, second) = (unique_temp_path("loop-a"), unique_temp_path("loop-b"));
     std::os::unix::fs::symlink(&second, &first).expect("the temporary directory is writable");

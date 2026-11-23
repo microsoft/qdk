@@ -73,9 +73,11 @@ pub enum LibraryFault {
         reason: &'static str,
     },
 
-    /// No candidate path named a file of the library: an absolute path
-    /// does not exist, and for a bare file name the system loader reported
-    /// no file of that name (README, "Where the libraries are looked for").
+    /// No candidate path named a file of the library: the metadata of an
+    /// absolute path could not be read (no file there, a symlink loop, or a
+    /// directory the process cannot search), and for a bare file name the
+    /// system loader reported no file of that name (README, "Where the
+    /// libraries are looked for").
     #[error("not found; attempted {attempted:?}")]
     NotFound { attempted: Vec<PathBuf> },
 

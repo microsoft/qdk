@@ -21,12 +21,16 @@ mod stand_ins;
 #[cfg(unix)]
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 
-/// A path under the system's temporary directory that this test process
-/// alone uses.
+/// A path under the system's temporary directory that this call alone uses,
+/// so that tests running in parallel, or one fixture built twice, never
+/// share a file.
 fn unique_temp_path(label: &str) -> PathBuf {
+    static CALLS: AtomicU64 = AtomicU64::new(0);
+    let call = CALLS.fetch_add(1, Ordering::Relaxed);
     std::env::temp_dir().join(format!(
-        "qdk-cutensornet-test-{label}-{}",
+        "qdk-cutensornet-test-{label}-{}-{call}",
         std::process::id()
     ))
 }

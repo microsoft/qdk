@@ -39,10 +39,11 @@ impl SymbolResolver for OpenLibraryFile {
 
 /// Opens the first of `paths`, a library's candidates in order, that exists.
 ///
-/// An absolute path that does not exist is skipped. A bare file name is
-/// searched for by the system loader, and skipped when the loader reports
-/// no file of that name ([`no_file_of_that_name`]). Any other failure is
-/// the library's.
+/// An absolute path is skipped when its metadata cannot be read: there is
+/// no file there, or a symlink loop or a directory the process cannot
+/// search hides it. A bare file name is searched for by the system loader,
+/// and skipped when the loader reports no file of that name
+/// ([`no_file_of_that_name`]). Any other failure is the library's.
 pub(crate) fn load_library(paths: Vec<PathBuf>) -> Result<OpenLibraryFile, LibraryFault> {
     for path in &paths {
         if path.is_absolute() && !path.exists() {
