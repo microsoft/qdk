@@ -1,21 +1,21 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! cuTensorNet's functions for the scratch memory cuTensorNet asks for.
+//! cuTensorNet's workspace: the descriptor of the scratch memory its other
+//! calls ask for, the size they need, and the memory given to them. Each
+//! `XFn` is the type of `cutensornetX`.
 
 use super::v2_13;
+use std::ffi::c_void;
 
-/// Function pointer for `cutensornetCreateWorkspaceDescriptor`.
-pub(crate) type CreateWorkspaceFn = unsafe extern "C" fn(
+pub(crate) type CreateWorkspaceDescriptorFn = unsafe extern "C" fn(
     v2_13::cutensornetHandle_t,
     *mut v2_13::cutensornetWorkspaceDescriptor_t,
 ) -> v2_13::cutensornetStatus_t;
 
-/// Function pointer for `cutensornetDestroyWorkspaceDescriptor`.
-pub(crate) type DestroyWorkspaceFn =
+pub(crate) type DestroyWorkspaceDescriptorFn =
     unsafe extern "C" fn(v2_13::cutensornetWorkspaceDescriptor_t) -> v2_13::cutensornetStatus_t;
 
-/// Function pointer for `cutensornetWorkspaceGetMemorySize`.
 pub(crate) type WorkspaceGetMemorySizeFn = unsafe extern "C" fn(
     v2_13::cutensornetHandle_t,
     v2_13::cutensornetWorkspaceDescriptor_t,
@@ -25,12 +25,11 @@ pub(crate) type WorkspaceGetMemorySizeFn = unsafe extern "C" fn(
     *mut i64,
 ) -> v2_13::cutensornetStatus_t;
 
-/// Function pointer for `cutensornetWorkspaceSetMemory`.
 pub(crate) type WorkspaceSetMemoryFn = unsafe extern "C" fn(
     v2_13::cutensornetHandle_t,
     v2_13::cutensornetWorkspaceDescriptor_t,
     v2_13::cutensornetMemspace_t,
     v2_13::cutensornetWorkspaceKind_t,
-    *mut ::std::os::raw::c_void,
+    *mut c_void,
     i64,
 ) -> v2_13::cutensornetStatus_t;

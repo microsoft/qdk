@@ -8,7 +8,7 @@ use super::function_table::assert_each_field_is_named_for_its_symbol;
 use crate::tests::stand_ins::{StandInResolver, cutensornet_version};
 use crate::{
     LibraryFault,
-    libraries::function_table::FunctionTable,
+    libraries::function_table::{FunctionTable, SymbolResolver},
     libraries::{
         NativeLibrary,
         cutensornet::{CuTensorNet, CuTensorNetFunctions, CuTensorNetVersionFunctions},
@@ -28,15 +28,35 @@ fn the_cutensornet_tables_look_each_field_up_by_its_symbol() {
     }
 }
 
-/// `cutensornetGetLastError` only adds detail to native error messages, so a
-/// library without it is still used.
+/// cuTensorNet's table holds only the functions the crate calls, and its
+/// optional ones only add detail (`cutensornetGetLastError` words native
+/// errors): a cuTensorNet exporting just the required ones, without the rest
+/// of its API (for instance its state API, which the crate does not use),
+/// is used.
 #[test]
-fn a_missing_optional_function_is_absent_from_the_table() {
-    let functions = CuTensorNetFunctions::resolve(
-        &StandInResolver::audited().without("cutensornetGetLastError"),
-    )
-    .expect("an optional function is not required");
+fn only_the_required_functions_must_be_exported() {
+    let required = CuTensorNetFunctions::ROWS
+        .iter()
+        .filter(|row| row.2)
+        .map(|row| row.1)
+        .collect();
+    let functions = CuTensorNetFunctions::resolve(&ExportsOnly(required))
+        .expect("every required function is exported");
     assert!(functions.get_last_error.is_none());
+}
+
+/// A cuTensorNet that exports only the given functions, each as
+/// `StandInResolver::audited` resolves it.
+struct ExportsOnly(Vec<&'static str>);
+
+impl SymbolResolver for ExportsOnly {
+    unsafe fn resolve<T: Copy>(&self, symbol: &'static str) -> Option<T> {
+        if !self.0.contains(&symbol) {
+            return None;
+        }
+        // SAFETY: the caller's contract is passed on unchanged.
+        unsafe { StandInResolver::audited().resolve(symbol) }
+    }
 }
 
 /// The faults found in the versions of a cuTensorNet whose version

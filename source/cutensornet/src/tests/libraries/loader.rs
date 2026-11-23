@@ -88,10 +88,8 @@ fn a_library_found_nowhere_reports_every_path_tried() {
 }
 
 /// The system loader names the file it could not open: a file name is
-/// skipped only when the loader reports no file of that name, not when the
-/// file was found but one of its dependencies was not, or the file was
-/// refused with a reason. glibc's own search skips a file it cannot use and
-/// reports no such file, as when there is none: so does discovery.
+/// skipped only when no file of that name was found, not when the file was
+/// found but one of its dependencies was not, or the file was refused.
 #[test]
 fn only_a_file_name_not_found_is_skipped() {
     let name = Path::new("libcutensornet.so.2");
@@ -107,17 +105,22 @@ fn only_a_file_name_not_found_is_skipped() {
         name,
         "libcutensornet.so.2: wrong ELF class: ELFCLASS32"
     ));
-    #[cfg(all(target_os = "linux", target_env = "gnu"))]
-    {
-        let (path, _remove) = another_machines_library("another-machine");
-        let Err(LibraryFault::LoadFailed { message, .. }) = load_library(vec![path.clone()]) else {
-            panic!("precondition: glibc refuses another machine's library at its path");
-        };
-        assert!(
-            no_file_of_that_name(&path, &message),
-            "glibc's message for a file it could not use: {message}"
-        );
-    }
+}
+
+/// glibc's search skips a file of the name it cannot use (here, another
+/// machine's library) and then reports no such file, as when there is none:
+/// discovery reads it so too, and tries the next candidate.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+#[test]
+fn a_file_glibc_cannot_use_reads_as_not_found() {
+    let (path, _remove) = another_machines_library("another-machine");
+    let Err(LibraryFault::LoadFailed { message, .. }) = load_library(vec![path.clone()]) else {
+        panic!("precondition: glibc refuses another machine's library at its path");
+    };
+    assert!(
+        no_file_of_that_name(&path, &message),
+        "glibc's message for a file it could not use: {message}"
+    );
 }
 
 /// A 64-bit ELF shared object for a machine no test runs on (SPARC), its

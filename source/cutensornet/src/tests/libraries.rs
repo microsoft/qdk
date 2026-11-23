@@ -1,11 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! What every library shares: how its paths are chosen (the override
-//! variable, checked before anything is loaded, or else the library's
-//! defaults), and how an open library is checked and reported. Each
-//! library's own rules (its table, probes and versions) are tested in its
-//! module's file.
+//! The rules every library shares, shown on cuTensorNet and the CUDA
+//! Runtime: how its paths are chosen (the override variable, checked before
+//! anything is loaded, or else the library's defaults), and how an open
+//! library is checked and reported. Each library's own rules (its table,
+//! probes and versions) are tested in its module's file.
 
 #[cfg(unix)]
 mod cuda_runtime;
@@ -17,13 +17,13 @@ mod function_table;
 mod loader;
 mod report;
 
-#[cfg(unix)]
-use super::not_a_shared_object;
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 use super::stand_ins::ALWAYS_PRESENT_LIBRARY;
 #[cfg(unix)]
 use super::stand_ins::{StandInResolver, cuda_version, cutensornet_version};
 use super::unique_temp_path;
+#[cfg(unix)]
+use super::{RemoveFile, not_a_shared_object};
 use crate::{LibraryFault, libraries::validate_override_path};
 #[cfg(unix)]
 use crate::{
@@ -38,7 +38,6 @@ use crate::{
     libraries::{ProbedVersions, open},
 };
 use std::ffi::OsString;
-#[cfg(unix)]
 use std::path::PathBuf;
 
 /// An empty report of `L`, as discovery starts it once `L` is open.
@@ -97,24 +96,33 @@ fn an_absolute_path_to_a_file_is_the_override() {
     );
 }
 
-/// `QDK_CUDART_LIBRARY=libcudart.so.12` would let the system loader pick any
-/// copy on its search path.
+/// A user who sets the variable wrong is refused, and the reason says which
+/// mistake to fix: a relative path (`libcudart.so.12` would let the system
+/// loader pick any copy on its search path), a mistyped path, a folder, a
+/// link left behind by an uninstalled library, or a path that exists but
+/// cannot be read.
 #[test]
-fn a_relative_override_is_refused() {
-    let reason = refusal_reason("libcudart.so.12");
-    assert!(reason.contains("absolute"), "{reason}");
-}
-
-/// A mistyped path is reported with the variable that holds it, and the
-/// reason says whether the path does not exist or exists but cannot be
-/// read.
-#[test]
-fn an_override_that_cannot_be_read_is_refused_with_why() {
-    let missing = unique_temp_path("missing-override");
+fn an_invalid_override_is_refused_with_why() {
     #[cfg_attr(not(unix), expect(unused_mut, reason = "only Unix adds rows"))]
-    let mut rows = vec![("a mistyped path", missing, "does not exist")];
+    let mut rows = vec![
+        (
+            "a relative path",
+            PathBuf::from("libcudart.so.12"),
+            "absolute",
+        ),
+        (
+            "a mistyped path",
+            unique_temp_path("missing-override"),
+            "does not exist",
+        ),
+        ("a folder", std::env::temp_dir(), "file"),
+    ];
     #[cfg(unix)]
     let _remove = {
+        let dangling = unique_temp_path("dangling-link");
+        std::os::unix::fs::symlink(unique_temp_path("removed-target"), &dangling)
+            .expect("the temporary directory is writable");
+        rows.push(("a dangling link", dangling.clone(), "does not exist"));
         let (looping, locked_dir, guard) = unreadable_overrides();
         rows.push(("a symlink loop", looping, "cannot be read"));
         // Root reads a directory whatever its mode, so the row runs only
@@ -126,7 +134,7 @@ fn an_override_that_cannot_be_read_is_refused_with_why() {
                 "permission denied",
             ));
         }
-        guard
+        (RemoveFile(dangling), guard)
     };
     for (case, path, expected) in rows {
         let reason = refusal_reason(path);
@@ -196,13 +204,6 @@ impl Drop for RemoveUnreadable {
     }
 }
 
-/// The variable names the library's folder instead of the library.
-#[test]
-fn an_override_naming_a_directory_is_refused() {
-    let reason = refusal_reason(std::env::temp_dir());
-    assert!(reason.contains("file"), "{reason}");
-}
-
 /// Installations name a library by a link to its versioned file:
 /// `libcudart.so.12` is a link.
 #[cfg(unix)]
@@ -216,18 +217,6 @@ fn an_override_naming_a_link_to_a_file_is_followed() {
     std::fs::remove_file(&link).expect("the test created the link");
     std::fs::remove_file(&file).expect("the test created the file");
     assert_eq!(found.expect("the link names a file"), Some(link));
-}
-
-/// A link left behind by an uninstalled library names nothing to load.
-#[cfg(unix)]
-#[test]
-fn an_override_naming_a_dangling_link_is_refused() {
-    let link = unique_temp_path("dangling-link");
-    std::os::unix::fs::symlink(unique_temp_path("removed-target"), &link)
-        .expect("the temporary directory is writable");
-    let reason = refusal_reason(link.clone());
-    std::fs::remove_file(&link).expect("the test created the link");
-    assert!(reason.contains("does not exist"), "{reason}");
 }
 
 /// A user who sets `QDK_CUDART_LIBRARY` changes where the CUDA Runtime is
@@ -271,60 +260,28 @@ fn without_an_override_the_default_paths_are_tried() {
     );
 }
 
-/// cuTensorNet's state API (the state, its network operators and their
-/// expectations), which the crate does not use: an installation without it
-/// is not at fault.
-#[cfg(unix)]
-const STATE_API: &[&str] = &[
-    "cutensornetCreateState",
-    "cutensornetDestroyState",
-    "cutensornetStateApplyTensorOperator",
-    "cutensornetStateCaptureMPS",
-    "cutensornetStateCompute",
-    "cutensornetStateConfigure",
-    "cutensornetStateFinalizeMPS",
-    "cutensornetStateInitializeMPS",
-    "cutensornetStatePrepare",
-    "cutensornetCreateNetworkOperator",
-    "cutensornetDestroyNetworkOperator",
-    "cutensornetNetworkOperatorAppendProduct",
-    "cutensornetCreateExpectation",
-    "cutensornetDestroyExpectation",
-    "cutensornetExpectationCompute",
-    "cutensornetExpectationConfigure",
-    "cutensornetExpectationPrepare",
-];
-
 /// A library with no fault is bound to its table, and its versions are
-/// reported; a cuTensorNet without the state API, which the crate does not
-/// use, has no fault.
+/// reported.
 #[cfg(unix)]
 #[test]
 fn a_library_without_a_fault_is_bound_to_its_table() {
-    let without_state_api = STATE_API
-        .iter()
-        .fold(StandInResolver::audited(), |resolver, &symbol| {
-            resolver.without(symbol)
-        });
-    for resolver in [StandInResolver::audited(), without_state_api] {
-        let mut report = opened::<CuTensorNet>();
-        let functions = inspect::<CuTensorNet, _>(&resolver, &mut report);
-        assert!(functions.is_some(), "the library has no fault");
-        assert_eq!(report.faults, []);
-        assert_eq!(
-            report.versions,
-            [
-                Version {
-                    component: "cuTensorNet",
-                    value: 21_300
-                },
-                Version {
-                    component: "cuTensorNet's CUDA Runtime",
-                    value: 12_090
-                },
-            ]
-        );
-    }
+    let mut report = opened::<CuTensorNet>();
+    let functions = inspect::<CuTensorNet, _>(&StandInResolver::audited(), &mut report);
+    assert!(functions.is_some(), "the library has no fault");
+    assert_eq!(report.faults, []);
+    assert_eq!(
+        report.versions,
+        [
+            Version {
+                component: "cuTensorNet",
+                value: 21_300
+            },
+            Version {
+                component: "cuTensorNet's CUDA Runtime",
+                value: 12_090
+            },
+        ]
+    );
 }
 
 /// A user who installed cuTensorNet 2.14, which lacks functions the crate
@@ -398,83 +355,100 @@ fn inspected<L: NativeLibrary>(resolver: &StandInResolver) -> LibraryReport {
 #[cfg(unix)]
 #[test]
 fn a_missing_version_function_hides_only_its_own_version() {
+    /// A library checked with some of its functions withheld or replaced,
+    /// the faults it must report, a version it must leave unread, and one
+    /// it must still read.
+    struct Case {
+        inspected: Inspect,
+        resolver: StandInResolver,
+        faults: Vec<LibraryFault>,
+        unread: Option<&'static str>,
+        read: &'static str,
+    }
     let missing = |symbol| LibraryFault::MissingRequiredSymbol { symbol };
     let unsupported = |component, found, supported| LibraryFault::UnsupportedVersion {
         component,
         found,
         supported,
     };
-    let cases: [(Inspect, _, _, _, _); 6] = [
-        (
-            inspected::<CuTensorNet>,
-            StandInResolver::audited().without("cutensornetGetVersion"),
-            vec![missing("cutensornetGetVersion")],
-            Some("cuTensorNet"),
-            "cuTensorNet's CUDA Runtime",
-        ),
-        (
-            inspected::<CuTensorNet>,
-            StandInResolver::audited()
+    let cases = [
+        Case {
+            inspected: inspected::<CuTensorNet>,
+            resolver: StandInResolver::audited().without("cutensornetGetVersion"),
+            faults: vec![missing("cutensornetGetVersion")],
+            unread: Some("cuTensorNet"),
+            read: "cuTensorNet's CUDA Runtime",
+        },
+        Case {
+            inspected: inspected::<CuTensorNet>,
+            resolver: StandInResolver::audited()
                 .without("cutensornetGetVersion")
                 .with(
                     "cutensornetGetCudartVersion",
                     cutensornet_version::<12_080> as *const (),
                 ),
-            vec![
+            faults: vec![
                 missing("cutensornetGetVersion"),
                 unsupported("cuTensorNet's CUDA Runtime", 12_080, 12_090),
             ],
-            Some("cuTensorNet"),
-            "cuTensorNet's CUDA Runtime",
-        ),
-        (
-            inspected::<CuTensorNet>,
-            StandInResolver::audited()
+            unread: Some("cuTensorNet"),
+            read: "cuTensorNet's CUDA Runtime",
+        },
+        Case {
+            inspected: inspected::<CuTensorNet>,
+            resolver: StandInResolver::audited()
                 .without("cutensornetGetCudartVersion")
                 .with(
                     "cutensornetGetVersion",
                     cutensornet_version::<21_400> as *const (),
                 ),
-            vec![
+            faults: vec![
                 missing("cutensornetGetCudartVersion"),
                 unsupported("cuTensorNet", 21_400, 21_300),
             ],
-            Some("cuTensorNet's CUDA Runtime"),
-            "cuTensorNet",
-        ),
-        (
-            inspected::<CudaRuntime>,
-            StandInResolver::audited().without("cudaRuntimeGetVersion"),
-            vec![missing("cudaRuntimeGetVersion")],
-            Some("CUDA Runtime"),
-            "CUDA driver",
-        ),
-        (
-            inspected::<CudaRuntime>,
-            StandInResolver::audited()
+            unread: Some("cuTensorNet's CUDA Runtime"),
+            read: "cuTensorNet",
+        },
+        Case {
+            inspected: inspected::<CudaRuntime>,
+            resolver: StandInResolver::audited().without("cudaRuntimeGetVersion"),
+            faults: vec![missing("cudaRuntimeGetVersion")],
+            unread: Some("CUDA Runtime"),
+            read: "CUDA driver",
+        },
+        Case {
+            inspected: inspected::<CudaRuntime>,
+            resolver: StandInResolver::audited()
                 .without("cudaDriverGetVersion")
                 .with("cudaRuntimeGetVersion", cuda_version::<13_000> as *const ()),
-            vec![
+            faults: vec![
                 missing("cudaDriverGetVersion"),
                 unsupported("CUDA Runtime", 13_000, 12_090),
             ],
-            Some("CUDA driver"),
-            "CUDA Runtime",
-        ),
-        (
-            inspected::<CudaRuntime>,
-            StandInResolver::audited()
+            unread: Some("CUDA driver"),
+            read: "CUDA Runtime",
+        },
+        Case {
+            inspected: inspected::<CudaRuntime>,
+            resolver: StandInResolver::audited()
                 .without("cudaGetErrorString")
                 .with("cudaRuntimeGetVersion", cuda_version::<13_000> as *const ()),
-            vec![
+            faults: vec![
                 missing("cudaGetErrorString"),
                 unsupported("CUDA Runtime", 13_000, 12_090),
             ],
-            None,
-            "CUDA driver",
-        ),
+            unread: None,
+            read: "CUDA driver",
+        },
     ];
-    for (inspected, resolver, faults, unread, read) in cases {
+    for Case {
+        inspected,
+        resolver,
+        faults,
+        unread,
+        read,
+    } in cases
+    {
         let report = inspected(&resolver);
         assert_eq!(report.faults, faults);
         if let Some(unread) = unread {

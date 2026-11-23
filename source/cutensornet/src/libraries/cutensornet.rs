@@ -9,9 +9,11 @@
 //! 2.13.0, and `cuTensorNet's CUDA Runtime`, the CUDA Runtime it was built
 //! against, which must be 12.9. cuTensorNet encodes its version as
 //! `10000·major + 100·minor + patch` (`21300` is 2.13.0), and a CUDA Runtime
-//! version as CUDA does, `1000·major + 10·minor` (`12090` is 12.9). The
-//! families' files (`context`, `tensor`, `workspace`) declare the
-//! function-pointer types of the table's rows.
+//! version as CUDA does, `1000·major + 10·minor` (`12090` is 12.9). One file
+//! per family of the table's functions declares their function-pointer
+//! types: `handle`, `versions`, `error_strings`, `tensor` (descriptors),
+//! `decomposition` (SVD, gate split, QR), `network` (contraction) and
+//! `workspace`.
 //!
 //! `v2_13`, in `generated/`, declares cuTensorNet 2.13's API, the functions,
 //! types and constants of its header: a function pointer is only as right as
@@ -29,9 +31,17 @@
 //! function's declaration in `v2_13`.
 
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-pub(crate) mod context;
+pub(crate) mod decomposition;
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+pub(crate) mod error_strings;
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+pub(crate) mod handle;
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+pub(crate) mod network;
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 pub(crate) mod tensor;
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+pub(crate) mod versions;
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 pub(crate) mod workspace;
 
@@ -123,63 +133,63 @@ super::function_table::function_table! {
         reason = "discovery only looks the functions up; the MPS engine, added later, calls them"
     )]
     struct CuTensorNetFunctions, declared in v2_13 {
-        required create: context::CreateFn = cutensornetCreate,
-        required destroy: context::DestroyFn = cutensornetDestroy,
-        required get_cudart_version: context::GetCudartVersionFn = cutensornetGetCudartVersion,
-        required get_error_string: context::GetErrorStringFn = cutensornetGetErrorString,
+        required create: handle::CreateFn = cutensornetCreate,
+        required destroy: handle::DestroyFn = cutensornetDestroy,
+        required get_cudart_version: versions::GetCudartVersionFn = cutensornetGetCudartVersion,
+        required get_error_string: error_strings::GetErrorStringFn = cutensornetGetErrorString,
         // Adds detail to native error messages only; discovery does not
         // need it.
-        optional get_last_error: context::GetLastErrorFn = cutensornetGetLastError,
-        required get_version: context::GetVersionFn = cutensornetGetVersion,
+        optional get_last_error: error_strings::GetLastErrorFn = cutensornetGetLastError,
+        required get_version: versions::GetVersionFn = cutensornetGetVersion,
         required create_tensor_descriptor: tensor::CreateTensorDescriptorFn =
             cutensornetCreateTensorDescriptor,
         required destroy_tensor_descriptor: tensor::DestroyTensorDescriptorFn =
             cutensornetDestroyTensorDescriptor,
-        required create_svd_config: tensor::CreateTensorSvdConfigFn =
+        required create_svd_config: decomposition::CreateTensorSvdConfigFn =
             cutensornetCreateTensorSVDConfig,
-        required destroy_svd_config: tensor::DestroyTensorSvdConfigFn =
+        required destroy_svd_config: decomposition::DestroyTensorSvdConfigFn =
             cutensornetDestroyTensorSVDConfig,
-        required svd_config_set_attribute: tensor::TensorSvdConfigSetAttributeFn =
+        required svd_config_set_attribute: decomposition::TensorSvdConfigSetAttributeFn =
             cutensornetTensorSVDConfigSetAttribute,
-        required create_svd_info: tensor::CreateTensorSvdInfoFn = cutensornetCreateTensorSVDInfo,
-        required destroy_svd_info: tensor::DestroyTensorSvdInfoFn =
+        required create_svd_info: decomposition::CreateTensorSvdInfoFn = cutensornetCreateTensorSVDInfo,
+        required destroy_svd_info: decomposition::DestroyTensorSvdInfoFn =
             cutensornetDestroyTensorSVDInfo,
-        required svd_info_get_attribute: tensor::TensorSvdInfoGetAttributeFn =
+        required svd_info_get_attribute: decomposition::TensorSvdInfoGetAttributeFn =
             cutensornetTensorSVDInfoGetAttribute,
-        required gate_split_sizes: tensor::WorkspaceComputeGateSplitSizesFn =
+        required gate_split_sizes: decomposition::WorkspaceComputeGateSplitSizesFn =
             cutensornetWorkspaceComputeGateSplitSizes,
-        required gate_split: tensor::GateSplitFn = cutensornetGateSplit,
-        required qr_sizes: tensor::WorkspaceComputeQrSizesFn = cutensornetWorkspaceComputeQRSizes,
-        required tensor_qr: tensor::TensorQrFn = cutensornetTensorQR,
-        required create_network: tensor::CreateNetworkFn = cutensornetCreateNetwork,
-        required destroy_network: tensor::DestroyNetworkFn = cutensornetDestroyNetwork,
-        required network_append_tensor: tensor::NetworkAppendTensorFn =
+        required gate_split: decomposition::GateSplitFn = cutensornetGateSplit,
+        required qr_sizes: decomposition::WorkspaceComputeQrSizesFn = cutensornetWorkspaceComputeQRSizes,
+        required tensor_qr: decomposition::TensorQrFn = cutensornetTensorQR,
+        required create_network: network::CreateNetworkFn = cutensornetCreateNetwork,
+        required destroy_network: network::DestroyNetworkFn = cutensornetDestroyNetwork,
+        required network_append_tensor: network::NetworkAppendTensorFn =
             cutensornetNetworkAppendTensor,
-        required network_set_output_tensor: tensor::NetworkSetOutputTensorFn =
+        required network_set_output_tensor: network::NetworkSetOutputTensorFn =
             cutensornetNetworkSetOutputTensor,
-        required create_optimizer_config: tensor::CreateContractionOptimizerConfigFn =
+        required create_optimizer_config: network::CreateContractionOptimizerConfigFn =
             cutensornetCreateContractionOptimizerConfig,
-        required destroy_optimizer_config: tensor::DestroyContractionOptimizerConfigFn =
+        required destroy_optimizer_config: network::DestroyContractionOptimizerConfigFn =
             cutensornetDestroyContractionOptimizerConfig,
-        required optimizer_config_set_attribute: tensor::ContractionOptimizerConfigSetAttributeFn =
+        required optimizer_config_set_attribute: network::ContractionOptimizerConfigSetAttributeFn =
             cutensornetContractionOptimizerConfigSetAttribute,
-        required create_optimizer_info: tensor::CreateContractionOptimizerInfoFn =
+        required create_optimizer_info: network::CreateContractionOptimizerInfoFn =
             cutensornetCreateContractionOptimizerInfo,
-        required destroy_optimizer_info: tensor::DestroyContractionOptimizerInfoFn =
+        required destroy_optimizer_info: network::DestroyContractionOptimizerInfoFn =
             cutensornetDestroyContractionOptimizerInfo,
-        required optimize: tensor::ContractionOptimizeFn = cutensornetContractionOptimize,
-        required contraction_sizes: tensor::WorkspaceComputeContractionSizesFn =
+        required optimize: network::ContractionOptimizeFn = cutensornetContractionOptimize,
+        required contraction_sizes: network::WorkspaceComputeContractionSizesFn =
             cutensornetWorkspaceComputeContractionSizes,
-        required network_prepare_contraction: tensor::NetworkPrepareContractionFn =
+        required network_prepare_contraction: network::NetworkPrepareContractionFn =
             cutensornetNetworkPrepareContraction,
-        required network_set_input_tensor_memory: tensor::NetworkSetInputTensorMemoryFn =
+        required network_set_input_tensor_memory: network::NetworkSetInputTensorMemoryFn =
             cutensornetNetworkSetInputTensorMemory,
-        required network_set_output_tensor_memory: tensor::NetworkSetOutputTensorMemoryFn =
+        required network_set_output_tensor_memory: network::NetworkSetOutputTensorMemoryFn =
             cutensornetNetworkSetOutputTensorMemory,
-        required network_contract: tensor::NetworkContractFn = cutensornetNetworkContract,
-        required create_workspace: workspace::CreateWorkspaceFn =
+        required network_contract: network::NetworkContractFn = cutensornetNetworkContract,
+        required create_workspace: workspace::CreateWorkspaceDescriptorFn =
             cutensornetCreateWorkspaceDescriptor,
-        required destroy_workspace: workspace::DestroyWorkspaceFn =
+        required destroy_workspace: workspace::DestroyWorkspaceDescriptorFn =
             cutensornetDestroyWorkspaceDescriptor,
         required workspace_get_memory_size: workspace::WorkspaceGetMemorySizeFn =
             cutensornetWorkspaceGetMemorySize,
@@ -194,7 +204,7 @@ super::function_table::function_table! {
     /// each optional, so that each version is read even when other
     /// functions are missing; the main table reports those missing.
     struct CuTensorNetVersionFunctions, declared in v2_13 {
-        optional get_version: context::GetVersionFn = cutensornetGetVersion,
-        optional get_cudart_version: context::GetCudartVersionFn = cutensornetGetCudartVersion,
+        optional get_version: versions::GetVersionFn = cutensornetGetVersion,
+        optional get_cudart_version: versions::GetCudartVersionFn = cutensornetGetCudartVersion,
     }
 }

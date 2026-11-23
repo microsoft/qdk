@@ -7,8 +7,10 @@
 //! `NativeLibrary`: where it is looked for, the functions looked up in it
 //! (`CudaFunctions`), and its versions: `CUDA Runtime`, which must be 12.9,
 //! and `CUDA driver`, reported only. CUDA encodes a version as
-//! `1000·major + 10·minor` (`12090` is 12.9). This module also declares the
-//! function-pointer types of the table's rows.
+//! `1000·major + 10·minor` (`12090` is 12.9). One file per family of the
+//! table's functions declares their function-pointer types, mirroring
+//! cuTensorNet's: `versions`, `error_strings`, `device`, `memory` and
+//! `stream`.
 //!
 //! `cudart_12`, in `generated/`, declares the CUDA Runtime 12's API, the
 //! functions, types and constants of its header: a function pointer is only
@@ -19,8 +21,20 @@
 //! one: the crate does not compile otherwise. The table is the list of the
 //! functions the crate uses; the bindings declare the whole API, so binding
 //! another function is its row here, with a field named for its symbol (the
-//! tests check it), and its type below, which the crate checks, when it
-//! compiles, against the function's declaration in `cudart_12`.
+//! tests check it), and its type in its family's file, which the crate
+//! checks, when it compiles, against the function's declaration in
+//! `cudart_12`.
+
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+pub(crate) mod device;
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+pub(crate) mod error_strings;
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+pub(crate) mod memory;
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+pub(crate) mod stream;
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+pub(crate) mod versions;
 
 /// The output of `scripts/generate_bindings.py`.
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
@@ -121,21 +135,21 @@ super::function_table::function_table! {
         reason = "discovery only looks the functions up; the MPS engine and the setup check, added later, call them"
     )]
     struct CudaFunctions, declared in cudart_12 {
-        required runtime_get_version: RuntimeGetVersionFn = cudaRuntimeGetVersion,
-        required driver_get_version: DriverGetVersionFn = cudaDriverGetVersion,
-        required get_device_count: GetDeviceCountFn = cudaGetDeviceCount,
-        required set_device: SetDeviceFn = cudaSetDevice,
-        required device_get_attribute: DeviceGetAttributeFn =
+        required runtime_get_version: versions::RuntimeGetVersionFn = cudaRuntimeGetVersion,
+        required driver_get_version: versions::DriverGetVersionFn = cudaDriverGetVersion,
+        required get_device_count: device::GetDeviceCountFn = cudaGetDeviceCount,
+        required set_device: device::SetDeviceFn = cudaSetDevice,
+        required device_get_attribute: device::DeviceGetAttributeFn =
             cudaDeviceGetAttribute,
-        required get_error_string: GetErrorStringFn = cudaGetErrorString,
-        required mem_get_info: MemGetInfoFn = cudaMemGetInfo,
-        required malloc: MallocFn = cudaMalloc,
-        required free: FreeFn = cudaFree,
-        required memcpy: MemcpyFn = cudaMemcpy,
-        required stream_create_with_flags: StreamCreateWithFlagsFn =
+        required get_error_string: error_strings::GetErrorStringFn = cudaGetErrorString,
+        required mem_get_info: memory::MemGetInfoFn = cudaMemGetInfo,
+        required malloc: memory::MallocFn = cudaMalloc,
+        required free: memory::FreeFn = cudaFree,
+        required memcpy: memory::MemcpyFn = cudaMemcpy,
+        required stream_create_with_flags: stream::StreamCreateWithFlagsFn =
             cudaStreamCreateWithFlags,
-        required stream_synchronize: StreamSynchronizeFn = cudaStreamSynchronize,
-        required stream_destroy: StreamDestroyFn = cudaStreamDestroy,
+        required stream_synchronize: stream::StreamSynchronizeFn = cudaStreamSynchronize,
+        required stream_destroy: stream::StreamDestroyFn = cudaStreamDestroy,
     }
 }
 
@@ -145,84 +159,11 @@ super::function_table::function_table! {
     /// each optional, so that each version is read even when other
     /// functions are missing; the main table reports those missing.
     struct CudaVersionFunctions, declared in cudart_12 {
-        optional runtime_get_version: RuntimeGetVersionFn = cudaRuntimeGetVersion,
-        optional driver_get_version: DriverGetVersionFn = cudaDriverGetVersion,
-        optional get_error_string: GetErrorStringFn = cudaGetErrorString,
+        optional runtime_get_version: versions::RuntimeGetVersionFn = cudaRuntimeGetVersion,
+        optional driver_get_version: versions::DriverGetVersionFn = cudaDriverGetVersion,
+        optional get_error_string: error_strings::GetErrorStringFn = cudaGetErrorString,
     }
 }
-
-/// Function pointer for `cudaRuntimeGetVersion`.
-#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-pub(crate) type RuntimeGetVersionFn =
-    unsafe extern "C" fn(*mut ::std::os::raw::c_int) -> cudart_12::cudaError_t;
-
-/// Function pointer for `cudaDriverGetVersion`.
-#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-pub(crate) type DriverGetVersionFn =
-    unsafe extern "C" fn(*mut ::std::os::raw::c_int) -> cudart_12::cudaError_t;
-
-/// Function pointer for `cudaGetDeviceCount`.
-#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-pub(crate) type GetDeviceCountFn =
-    unsafe extern "C" fn(*mut ::std::os::raw::c_int) -> cudart_12::cudaError_t;
-
-/// Function pointer for `cudaSetDevice`.
-#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-pub(crate) type SetDeviceFn = unsafe extern "C" fn(::std::os::raw::c_int) -> cudart_12::cudaError_t;
-
-/// Function pointer for `cudaDeviceGetAttribute`.
-#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-pub(crate) type DeviceGetAttributeFn = unsafe extern "C" fn(
-    *mut ::std::os::raw::c_int,
-    cudart_12::cudaDeviceAttr,
-    ::std::os::raw::c_int,
-) -> cudart_12::cudaError_t;
-
-/// Function pointer for `cudaGetErrorString`.
-#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-pub(crate) type GetErrorStringFn =
-    unsafe extern "C" fn(cudart_12::cudaError_t) -> *const ::std::os::raw::c_char;
-
-/// Function pointer for `cudaMemGetInfo`.
-#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-pub(crate) type MemGetInfoFn =
-    unsafe extern "C" fn(*mut usize, *mut usize) -> cudart_12::cudaError_t;
-
-/// Function pointer for `cudaMalloc`.
-#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-pub(crate) type MallocFn =
-    unsafe extern "C" fn(*mut *mut ::std::os::raw::c_void, usize) -> cudart_12::cudaError_t;
-
-/// Function pointer for `cudaFree`.
-#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-pub(crate) type FreeFn =
-    unsafe extern "C" fn(*mut ::std::os::raw::c_void) -> cudart_12::cudaError_t;
-
-/// Function pointer for `cudaMemcpy`.
-#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-pub(crate) type MemcpyFn = unsafe extern "C" fn(
-    *mut ::std::os::raw::c_void,
-    *const ::std::os::raw::c_void,
-    usize,
-    cudart_12::cudaMemcpyKind,
-) -> cudart_12::cudaError_t;
-
-/// Function pointer for `cudaStreamCreateWithFlags`.
-#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-pub(crate) type StreamCreateWithFlagsFn = unsafe extern "C" fn(
-    *mut cudart_12::cudaStream_t,
-    ::std::os::raw::c_uint,
-) -> cudart_12::cudaError_t;
-
-/// Function pointer for `cudaStreamSynchronize`.
-#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-pub(crate) type StreamSynchronizeFn =
-    unsafe extern "C" fn(cudart_12::cudaStream_t) -> cudart_12::cudaError_t;
-
-/// Function pointer for `cudaStreamDestroy`.
-#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-pub(crate) type StreamDestroyFn =
-    unsafe extern "C" fn(cudart_12::cudaStream_t) -> cudart_12::cudaError_t;
 
 /// Calls a CUDA version function, `cudaRuntimeGetVersion` or
 /// `cudaDriverGetVersion`, and returns the version it writes, or its failure
@@ -231,7 +172,7 @@ pub(crate) type StreamDestroyFn =
 fn probe_version(
     component: &'static str,
     probe: unsafe extern "C" fn(*mut i32) -> cudart_12::cudaError_t,
-    get_error_string: Option<GetErrorStringFn>,
+    get_error_string: Option<error_strings::GetErrorStringFn>,
 ) -> Result<i32, LibraryFault> {
     let mut version = 0;
     // SAFETY: `version` is a valid writable `int` and both pointers were

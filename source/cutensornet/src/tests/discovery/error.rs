@@ -6,39 +6,46 @@
 use crate::{AvailabilityError, AvailabilityReport, LibraryFault, LibraryReport};
 use std::path::PathBuf;
 
-/// A user whose CUDA Runtime lacks two functions reads both, each after the
-/// library and the path it was opened from; a library with no fault is
-/// named neither by its file nor by its name. The faults are on the CUDA
-/// Runtime, whose name the message's lead ("cuTensorNet acceleration…")
-/// does not hold, so each fault must name it; when only cuTensorNet is at
-/// fault, the healthy CUDA Runtime's name is absent.
-#[test]
-fn the_message_names_every_fault_with_its_library() {
-    let cuda_path = "/opt/cuda/libcudart.so.12";
+const CUDA_PATH: &str = "/opt/cuda/libcudart.so.12";
+const CUTENSORNET_PATH: &str = "/opt/cutensornet/libcutensornet.so.2";
+
+/// The message of an installation whose two libraries were opened, with
+/// the given faults.
+fn message_of(cuda_faults: Vec<LibraryFault>, cutensornet_faults: Vec<LibraryFault>) -> String {
     let report = AvailabilityReport {
         libraries: vec![
             LibraryReport {
                 library: "CUDA Runtime",
-                path: Some(PathBuf::from(cuda_path)),
+                path: Some(PathBuf::from(CUDA_PATH)),
                 versions: Vec::new(),
-                faults: vec![
-                    LibraryFault::MissingRequiredSymbol {
-                        symbol: "cudaMalloc",
-                    },
-                    LibraryFault::MissingRequiredSymbol {
-                        symbol: "cudaStreamCreateWithFlags",
-                    },
-                ],
+                faults: cuda_faults,
             },
             LibraryReport {
                 library: "cuTensorNet",
-                path: Some(PathBuf::from("/opt/cutensornet/libcutensornet.so.2")),
+                path: Some(PathBuf::from(CUTENSORNET_PATH)),
                 versions: Vec::new(),
-                faults: Vec::new(),
+                faults: cutensornet_faults,
             },
         ],
     };
-    let message = AvailabilityError::Unusable(report).to_string();
+    AvailabilityError::Unusable(report).to_string()
+}
+
+/// The fault of a library that lacks `symbol`.
+fn missing(symbol: &'static str) -> LibraryFault {
+    LibraryFault::MissingRequiredSymbol { symbol }
+}
+
+/// A user whose CUDA Runtime lacks two functions reads both, each after the
+/// library and the path it was opened from. The message's lead
+/// ("cuTensorNet acceleration…") does not hold the CUDA Runtime's name, so
+/// each fault must name it.
+#[test]
+fn each_fault_follows_its_library_and_path() {
+    let message = message_of(
+        vec![missing("cudaMalloc"), missing("cudaStreamCreateWithFlags")],
+        Vec::new(),
+    );
     for symbol in ["cudaMalloc", "cudaStreamCreateWithFlags"] {
         assert_eq!(
             message.matches(symbol).count(),
@@ -46,7 +53,7 @@ fn the_message_names_every_fault_with_its_library() {
             "{symbol} once: {message}"
         );
     }
-    for (part, what) in [("CUDA Runtime", "the library"), (cuda_path, "its path")] {
+    for (part, what) in [("CUDA Runtime", "the library"), (CUDA_PATH, "its path")] {
         assert_eq!(
             message.matches(part).count(),
             2,
@@ -55,44 +62,33 @@ fn the_message_names_every_fault_with_its_library() {
     }
     let at = |part| message.find(part).expect("the part is in the message");
     assert!(
-        at("CUDA Runtime") < at(cuda_path) && at(cuda_path) < at("cudaMalloc"),
+        at("CUDA Runtime") < at(CUDA_PATH) && at(CUDA_PATH) < at("cudaMalloc"),
         "the library, then its path, then the fault: {message}"
-    );
-    assert!(
-        !message.contains("libcutensornet"),
-        "the library with no fault is not named: {message}"
     );
     assert!(
         !message.contains("Some("),
         "the path is shown, not Rust's value around it: {message}"
     );
-    let only_cutensornet_at_fault = AvailabilityReport {
-        libraries: vec![
-            LibraryReport {
-                library: "CUDA Runtime",
-                path: Some(PathBuf::from(cuda_path)),
-                versions: Vec::new(),
-                faults: Vec::new(),
-            },
-            LibraryReport {
-                library: "cuTensorNet",
-                path: Some(PathBuf::from("/opt/cutensornet/libcutensornet.so.2")),
-                versions: Vec::new(),
-                faults: vec![LibraryFault::MissingRequiredSymbol {
-                    symbol: "cutensornetCreate",
-                }],
-            },
-        ],
-    };
-    let message = AvailabilityError::Unusable(only_cutensornet_at_fault).to_string();
+}
+
+/// A library with no fault is named neither by its file nor by its name, so
+/// the user looks only at the library to fix, whichever it is.
+#[test]
+fn a_library_without_a_fault_is_not_named() {
+    let only_cuda_at_fault = message_of(vec![missing("cudaMalloc")], Vec::new());
     assert!(
-        message.contains("cutensornetCreate"),
-        "the fault is named: {message}"
+        !only_cuda_at_fault.contains("libcutensornet"),
+        "the healthy cuTensorNet is not named: {only_cuda_at_fault}"
+    );
+    let only_cutensornet_at_fault = message_of(Vec::new(), vec![missing("cutensornetCreate")]);
+    assert!(
+        only_cutensornet_at_fault.contains("cutensornetCreate"),
+        "the fault is named: {only_cutensornet_at_fault}"
     );
     for part in ["CUDA Runtime", "libcudart"] {
         assert!(
-            !message.contains(part),
-            "the library with no fault is not named ({part}): {message}"
+            !only_cutensornet_at_fault.contains(part),
+            "the healthy CUDA Runtime is not named ({part}): {only_cutensornet_at_fault}"
         );
     }
 }
