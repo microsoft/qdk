@@ -95,12 +95,12 @@ pub struct Composed<U, L, S: InstructionSet> {
     /// this part's position the lower half's is.
     upper_parts: usize,
     /// Whether the last `ready` polled on this part got both halves
-    /// ready: cleared by `start_run`, set by `finish_run`.
+    /// ready: cleared by `start_ready`, set by `finish_ready`.
     readied: bool,
 }
 
-/// What [`Composed::start_run`] gives: the lower half, what arrives at it,
-/// its position, and the part a refusal from it names.
+/// What [`Composed::start_ready`] gives: the lower half, what arrives at
+/// it, its position, and the part a refusal from it names.
 type LowerHalfRun<'c, 'p, L, S> = (
     &'c mut L,
     &'c Capabilities<S>,
@@ -125,15 +125,15 @@ impl<U, L, S: InstructionSet> Composed<U, L, S> {
         }
     }
 
-    /// Starts a run, at `ready`, of this part at `at`: marks it not ready
-    /// until both halves are, then refuses the run if the
-    /// halves' sets do not fit, or if what arrives at the lower
-    /// half on this run, `required` of the upper half, does not fit what
-    /// the lower half provides, with every mismatch at their boundary.
+    /// Starts a `ready` of this part at `at`: marks it not ready until both
+    /// halves are, then refuses the run if the halves' sets do not fit, or
+    /// if what arrives at the lower half on this run, `required` of the
+    /// upper half, does not fit what the lower half provides, with every
+    /// mismatch at their boundary.
     /// Gives the lower half, what arrives at it, its position, and the
     /// part a refusal from it names, the lower half as `on` named it, if
     /// that position is known.
-    fn start_run<'p>(
+    fn start_ready<'p>(
         &mut self,
         required: impl FnOnce(&U) -> Capabilities<S>,
         at: ChainPosition<'p>,
@@ -162,28 +162,33 @@ impl<U, L, S: InstructionSet> Composed<U, L, S> {
         Ok((lower, &boundary.required, below, boundary.part.as_ref()))
     }
 
-    /// Ends a run's `ready` with `upper`, the answer of the upper half, the
-    /// last one asked: marks this part ready if it is `Ok`, and returns it.
-    fn finish_run(&mut self, upper: Result<(), NotReady>) -> Result<(), NotReady> {
+    /// Ends a `ready` with `upper`, the answer of the upper half, the last
+    /// one asked: marks this part ready if it is `Ok`, and returns it.
+    fn finish_ready(&mut self, upper: Result<(), NotReady>) -> Result<(), NotReady> {
         self.readied = upper.is_ok();
         upper
     }
 
     /// The halves, and their boundary on this run: what each call of its
-    /// role, `drive`, `adapt` or `execute`, starts with.
+    /// role, `drive`, `adapt` or `execute`, starts with; `call` is that
+    /// call's name, and `name` gives this part's name from its upper half,
+    /// as its role's `name` does.
     ///
     /// # Panics
     ///
     /// Unless the last `ready` polled on this part answered `Ok`, before
-    /// either half is called: a part is called only once a run got it
-    /// ready, as its role says. So it panics before any `ready`, after one
-    /// that a half or the boundary refused or that was dropped before it
-    /// answered, and always where the halves do not fit, which every
-    /// `ready` refuses.
-    fn halves(&mut self) -> (&mut U, &mut L, &Boundary<S>) {
+    /// either half is called, naming this part and `call`: a part is called
+    /// only once a run got it ready, as its role says. So it panics before
+    /// any `ready`, after one that a half or the boundary refused or that
+    /// was dropped before it answered, and always where the halves do not
+    /// fit, which every `ready` refuses.
+    fn halves(&mut self, call: &str, name: fn(&U) -> &str) -> (&mut U, &mut L, &Boundary<S>) {
         match &self.fit {
             Ok(boundary) if self.readied => (&mut self.upper, &mut self.lower, boundary),
-            _ => panic!("{READY_FIRST}"),
+            _ => panic!(
+                "`{}`'s `{call}` was called before a run got it ready: {READY_FIRST}",
+                name(&self.upper)
+            ),
         }
     }
 }

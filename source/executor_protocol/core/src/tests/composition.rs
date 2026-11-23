@@ -586,9 +586,10 @@ fn a_joined_part_is_named_for_its_top_part() {
 /// half or the boundary between them refused, or that was dropped before
 /// it answered. Once polled, its `execute`, `drive` or `adapt` panics
 /// before either half is called, so that neither half does any work,
-/// saying that each run gets a part ready before calling it; whether its
-/// halves fit or not, and whether its upper half would send anything below
-/// or answer by itself, as a trap does.
+/// naming the part and the call, and saying that each run gets a part
+/// ready before calling it; whether its halves fit or not, and whether its
+/// upper half would send anything below or answer by itself, as a trap
+/// does.
 #[test]
 #[expect(
     clippy::too_many_lines,
@@ -604,25 +605,31 @@ fn a_joined_part_called_before_a_run_got_it_ready_panics() {
     let instructions = [coin_gate("h", 0)];
     let batches = [Batch::new(&shots, &instructions, 0)];
     let batches_up_to = |n| capabilities(batches_of(n), Features::nothing_stated());
-    let rows: [(&str, Call<'_>); 11] = [
+    let profiler_executes = (type_name::<Profiler>(), "execute");
+    let rows: [(&str, (&str, &str), Call<'_>); 11] = [
         (
             "a profiler on an executor, before any ready",
+            profiler_executes,
             Box::new(|| executed_after(profiler().on(fit()), &[], &batches)),
         ),
         (
             "a trap on an executor, answering by itself, before any ready",
+            (type_name::<Trap>(), "execute"),
             Box::new(|| executed_after(Trap::on(0).on(fit()), &[], &batches)),
         ),
         (
             "unfit halves, before any ready",
+            profiler_executes,
             Box::new(|| executed_after(profiler().on(unfit()), &[], &batches)),
         ),
         (
             "unfit halves, after a refused ready",
+            profiler_executes,
             Box::new(|| executed_after(profiler().on(unfit()), &[REFUSED], &batches)),
         ),
         (
             "fit halves, after a ready its upper half refused",
+            profiler_executes,
             Box::new(|| {
                 let joined = profiler().busy("calibrating").on(fit());
                 executed_after(joined, &[REFUSED], &batches);
@@ -630,6 +637,7 @@ fn a_joined_part_called_before_a_run_got_it_ready_panics() {
         ),
         (
             "fit halves, readied, then refused",
+            profiler_executes,
             Box::new(|| {
                 let joined = profiler().busy_once_ready("taken").on(fit());
                 executed_after(joined, &[READY, REFUSED], &batches);
@@ -637,6 +645,7 @@ fn a_joined_part_called_before_a_run_got_it_ready_panics() {
         ),
         (
             "fit halves, readied, then refused by its lower half",
+            profiler_executes,
             Box::new(|| {
                 let lower = profiler().busy_once_ready("taken").on(fit());
                 executed_after(profiler().on(lower), &[READY, REFUSED], &batches);
@@ -644,6 +653,7 @@ fn a_joined_part_called_before_a_run_got_it_ready_panics() {
         ),
         (
             "fit halves, readied, then refused at their boundary",
+            profiler_executes,
             Box::new(|| {
                 let lower =
                     Zeros::providing(Measuring::new(&["h", "x", "mz"]), Some(batches_up_to(2)));
@@ -655,6 +665,7 @@ fn a_joined_part_called_before_a_run_got_it_ready_panics() {
         ),
         (
             "fit halves, readied, then a ready dropped while its lower half gets ready",
+            profiler_executes,
             Box::new(|| {
                 let mut joined = profiler().on(ReadiesLater(fit()));
                 assert_eq!(answer(Executor::ready(&mut joined)), READY);
@@ -665,6 +676,7 @@ fn a_joined_part_called_before_a_run_got_it_ready_panics() {
         ),
         (
             "a driver through a profiler, after a ready its driver refused",
+            (type_name::<CoinCopy>(), "drive"),
             Box::new(|| {
                 let coin_copy = CoinCopy::new().logging(&log).busy("calibrating");
                 let mut joined = coin_copy.through(profiler());
@@ -674,6 +686,7 @@ fn a_joined_part_called_before_a_run_got_it_ready_panics() {
         ),
         (
             "a profiler through a profiler, before any ready",
+            (type_name::<Profiler>(), "adapt"),
             Box::new(|| {
                 let mut joined = profiler().through(profiler());
                 let (seed, below) = (Seed::new(SEED), &mut fit());
@@ -683,14 +696,17 @@ fn a_joined_part_called_before_a_run_got_it_ready_panics() {
             }),
         ),
     ];
-    for (row, call) in rows {
+    for (row, (part, called), call) in rows {
         let panic = catch_unwind(AssertUnwindSafe(call)).expect_err(row);
         let message = (panic.downcast_ref::<String>().map(String::as_str))
             .or_else(|| panic.downcast_ref::<&str>().copied())
             .unwrap_or_else(|| panic!("{row}: the panic has a message"));
         assert!(
-            message.contains("ready"),
-            "{row}: {message:?} says a run gets a part ready before calling it"
+            message.contains(part)
+                && message.contains(&format!("`{called}`"))
+                && message.contains("ready"),
+            "{row}: {message:?} names `{part}` and `{called}`, and says a run gets a part \
+             ready before calling it"
         );
         let driven = log.entries_containing("CoinCopy drive");
         assert!(

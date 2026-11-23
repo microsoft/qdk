@@ -83,7 +83,7 @@ impl<U: TranslatingAdapter, L: TranslatingAdapter<Accepts = U::Sends>> Translati
         below: &mut impl Executor<Accepts = L::Sends>,
         readouts: &mut [BatchReadouts<U::Accepts>],
     ) -> Result<(), ExecuteError> {
-        let (upper, lower, boundary) = self.halves();
+        let (upper, lower, boundary) = self.halves("adapt", U::name);
         let mut rest = ChainBelow {
             adapter: lower,
             below,
@@ -134,12 +134,12 @@ impl<U: TranslatingAdapter, L: TranslatingAdapter<Accepts = U::Sends>> Translati
         at: ChainPosition<'_>,
     ) -> Result<(), NotReady> {
         let (lower, below_required, below, part) =
-            self.start_run(|upper| upper.requires(above), at)?;
+            self.start_ready(|upper| upper.requires(above), at)?;
         await_part(lower.ready_at(below_required, below))
             .await
             .map_err(|not_ready| not_ready.answered_by(part))?;
         let upper = await_part(self.upper.ready_at(above, at)).await;
-        self.finish_run(upper)
+        self.finish_ready(upper)
     }
 
     /// Refuses the run as [`ready_at`](Self::ready_at) does, for what
@@ -147,13 +147,13 @@ impl<U: TranslatingAdapter, L: TranslatingAdapter<Accepts = U::Sends>> Translati
     /// known; else the lower part, then the upper one, each as a part above
     /// that states nothing readies it.
     async fn ready_alone(&mut self, sealed: Sealed) -> Result<(), NotReady> {
-        let (lower, ..) = self.start_run(
+        let (lower, ..) = self.start_ready(
             |upper| upper.requires(&Capabilities::needs_nothing()),
             ChainPosition::UNKNOWN,
         )?;
         await_part(lower.ready_alone(Sealed(()))).await?;
         let upper = await_part(self.upper.ready_alone(sealed)).await;
-        self.finish_run(upper)
+        self.finish_ready(upper)
     }
 }
 

@@ -59,13 +59,13 @@ impl<U: Driver, L: TranslatingAdapter<Accepts = U::Sends>> Driver for Composed<U
     /// among them that states limits refuses, as it does readied without
     /// what arrives.
     async fn ready(&mut self) -> Result<(), NotReady> {
-        let (lower, ..) = self.start_run(
+        let (lower, ..) = self.start_ready(
             |upper| upper.required(&RunRequirement::needs_nothing()),
             ChainPosition::UNKNOWN,
         )?;
         await_part(lower.ready_alone(Sealed(()))).await?;
         let upper = await_part(Driver::ready(&mut self.upper)).await;
-        self.finish_run(upper)
+        self.finish_ready(upper)
     }
 
     /// The driver's `drive`, on the adapter and the chain below as one
@@ -80,7 +80,7 @@ impl<U: Driver, L: TranslatingAdapter<Accepts = U::Sends>> Driver for Composed<U
         seed: Seed,
         below: &mut impl Executor<Accepts = L::Sends>,
     ) -> Result<Vec<U::Output>, DriveError> {
-        let (upper, lower, boundary) = self.halves();
+        let (upper, lower, boundary) = self.halves("drive", U::name);
         let mut unended = UnendedShots::new(
             ChainBelow {
                 adapter: lower,
@@ -131,11 +131,11 @@ impl<U: Driver, L: TranslatingAdapter<Accepts = U::Sends>> Driver for Composed<U
         run: &RunRequirement,
         at: ChainPosition<'_>,
     ) -> Result<(), NotReady> {
-        let (lower, required, below, part) = self.start_run(|upper| upper.required(run), at)?;
+        let (lower, required, below, part) = self.start_ready(|upper| upper.required(run), at)?;
         await_part(lower.ready_at(required, below))
             .await
             .map_err(|not_ready| not_ready.answered_by(part))?;
         let upper = await_part(self.upper.ready_at(run, at)).await;
-        self.finish_run(upper)
+        self.finish_ready(upper)
     }
 }

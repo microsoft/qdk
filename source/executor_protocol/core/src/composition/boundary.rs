@@ -99,4 +99,4 @@ impl<S: InstructionSet> Boundary<S> {
 /// Why a boundary is crossed only on a run.
 pub(crate) const READY_FIRST: &str = "each run gets a part ready before calling it, as its \
                                       role says, and a joined part whose halves do not fit \
-                                      refuses every run then";
+                                      refuses every run";

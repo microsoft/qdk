@@ -51,13 +51,13 @@ impl<U: TranslatingAdapter, L: Executor<Accepts = U::Sends>> Executor for Compos
     /// public `ready`, so that a part among them that states limits refuses,
     /// as it does readied without what arrives.
     async fn ready(&mut self) -> Result<(), NotReady> {
-        let (lower, ..) = self.start_run(
+        let (lower, ..) = self.start_ready(
             |upper| upper.requires(&Capabilities::needs_nothing()),
             ChainPosition::UNKNOWN,
         )?;
         await_part(Executor::ready(lower)).await?;
         let upper = await_part(self.upper.ready_alone(Sealed(()))).await;
-        self.finish_run(upper)
+        self.finish_ready(upper)
     }
 
     async fn execute(
@@ -66,7 +66,7 @@ impl<U: TranslatingAdapter, L: Executor<Accepts = U::Sends>> Executor for Compos
         seed: Seed,
         readouts: &mut [BatchReadouts<U::Accepts>],
     ) -> Result<(), ExecuteError> {
-        let (upper, lower, boundary) = self.halves();
+        let (upper, lower, boundary) = self.halves("execute", U::name);
         await_part(upper.adapt(
             batches,
             seed,
@@ -109,11 +109,11 @@ impl<U: TranslatingAdapter, L: Executor<Accepts = U::Sends>> Executor for Compos
         at: ChainPosition<'_>,
     ) -> Result<(), NotReady> {
         let (lower, below_required, below, part) =
-            self.start_run(|upper| upper.requires(above), at)?;
+            self.start_ready(|upper| upper.requires(above), at)?;
         await_part(lower.ready_at(below_required, below))
             .await
             .map_err(|not_ready| not_ready.answered_by(part))?;
         let upper = await_part(self.upper.ready_at(above, at)).await;
-        self.finish_run(upper)
+        self.finish_ready(upper)
     }
 }
