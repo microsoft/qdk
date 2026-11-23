@@ -18,11 +18,11 @@ without making NVIDIA software part of the QDK. The problem includes:
   missing, to tell the user or to run on the CPU instead.
 
 The crate solves these with `canonical_mps`'s engine on a cuTensorNet
-algebra, and with libraries opened at run time. The engine's rules are
-written once, in `canonical_mps`; this crate writes only the five tensor
-operations of its `SiteAlgebra` trait, run by cuTensorNet on one GPU,
-with the sites in the GPU's memory. cuTensorNet and the CUDA Runtime are
-never linked: they are opened at run time and checked
+algebra. The engine's rules are written once, in `canonical_mps`; this
+crate writes only the five tensor operations of its `SiteAlgebra` trait,
+run by cuTensorNet on one GPU, with the sites in the GPU's memory. The
+crate never links cuTensorNet or the CUDA Runtime: it opens them at run
+time and checks them
 ([discovery](#the-discovery-and-loading-of-the-libraries)), which returns
 the loaded libraries, on which an engine opens, or why they cannot be
 used: every fault it found, or, off Linux x86-64, that the platform is
@@ -230,13 +230,10 @@ says what the crate needs of it. Discovery sits at the crate's root, not
 under the engine, because it is the crate's entry point: a caller runs it
 before making any engine, and the engine takes its result.
 
-**The problem.** cuTensorNet and the CUDA Runtime are shared libraries
-(`libcutensornet.so.2`, `libcudart.so.12`), and linking them would make
-every QDK build, and every process that loads the QDK, fail without them.
-
-**How it is solved.** Nothing is linked. When a GPU run is asked for,
-[`discover`](src/discovery.rs) opens the libraries it needs (today the CUDA
-Runtime and cuTensorNet), looks up by name each C function the crate uses
+**How it is solved.** When a GPU run is asked for,
+[`discover`](src/discovery.rs) opens the shared libraries it needs (today
+the CUDA Runtime, `libcudart.so.12`, and cuTensorNet,
+`libcutensornet.so.2`), looks up by name each C function the crate uses
 (its _symbol_), cuTensorNet's tensor API among them, and checks the
 versions the libraries report. It returns an `Availability`, which keeps
 them loaded, or an `AvailabilityError` that says what is missing.
@@ -354,9 +351,12 @@ on a GPU; these tests are ignored unless asked for (`--ignored`), as they
 need a GPU.
 
 The [unit tests](src/tests) drive each way discovery fails without
-NVIDIA's libraries, on any Unix host: missing and refused libraries,
-missing functions, failed version probes, refused versions, and bad
-override variables, each reported with the others.
+NVIDIA's libraries: on any Unix host, refused libraries, missing
+functions, failed version probes, refused versions, and bad override
+variables, each reported with the others; on Linux with glibc, the tests
+that need a library open or glibc's messages: a library found nowhere, an
+opened library at fault reported with its path, and what discovery
+concludes from each library's faults.
 [`tests/availability.rs`](tests/availability.rs) discovers the audited
 libraries where they are installed.
 
