@@ -66,6 +66,58 @@ results = run("BellPair()", shots=1000, noise=(0.005, 0.0, 0.0))
 Histogram(results)
 ```
 
+## Passing Q# callables through Python
+
+Q# callables can be arguments to other Q# callables. Their signatures must be
+compatible, including callable kind, nominal types, and required `Adj`/`Ctl`
+support. Python's numeric value coercions do not change types inside a callable
+signature, and arbitrary Python functions cannot replace Q# callables.
+
+Concrete generic instances retain the type arguments established by Q#. Passing
+Python arguments to an uninstantiated declaration does not infer those types.
+For example, obtain a concrete instance through a typed Q# factory:
+
+```python
+from qdk import Context, qsharp
+
+ctx = Context(target_profile=qsharp.TargetProfile.Adaptive_RI)
+ctx.eval("""
+    function Identity<'T>(value : 'T) : 'T { value }
+    function IntIdentity() : Int -> Int { Identity }
+    function Save(value : Int) : Unit -> Int { () -> value }
+    operation Apply(read : Int -> Int, value : Int) : Int { read(value) }
+    operation Use(read : Unit -> Int) : Int { read() }
+""")
+
+read = ctx.code.IntIdentity()
+assert ctx.code.Apply(read, 7) == 7
+program = ctx.compile(read, 7)
+
+saved = ctx.code.Save(42)
+assert ctx.code.Use(saved) == 42
+saved_program = ctx.compile(ctx.code.Use, saved)
+```
+
+Here `ctx.code.Identity` remains an uninstantiated declaration. The returned
+`read` handle is concrete and can be a compilation target. Saved closures such
+as `saved` can be compiled as arguments to a global wrapper, not as direct QIR
+or static-circuit entry targets. Direct entry handles cannot have applied
+functors. Compilation remains subject to supported profiles, captures, and
+monomorphization limits; ordinary simulation is not monomorphized first.
+
+Callable handles belong to the context that created them and cannot be used in
+another context. When using an explicit `Context`, keep it and use its APIs for
+opaque returned handles. Reinitializing the default context creates a new owner;
+the replacement context rejects opaque handles from the previous one.
+Module-level APIs can select a context from wrapped functions in `ctx.code`,
+but use the default context for opaque returned handles.
+
+Static circuit generation supports `Base`, `Adaptive_RI`, and `Adaptive_RIF`.
+It uses codegen semantics: simulation-only intrinsic implementations are dropped
+before externally implemented intrinsics become calls, rather than executing
+their simulation bodies. Built-in and codegen no-op intrinsics retain their
+special handling.
+
 ## OpenQASM parsing and analysis
 
 The preview `qdk.openqasm.parser` and `qdk.openqasm.semantic` modules expose

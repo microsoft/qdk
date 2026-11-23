@@ -42,6 +42,7 @@ from .._adaptive_pass import (
     AdaptiveProgram,
     Bytecode,
     OP_RECORD_OUTPUT,
+    validate_qubit_arguments,
 )
 
 if TYPE_CHECKING:
@@ -98,6 +99,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
     def _on_call_instr(self, call: Call) -> None:
         callee_name = call.callee.name
         if callee_name == "__quantum__qis__ccx__body":
+            validate_qubit_arguments(call)
             self.gates.append(
                 (
                     QirInstructionId.CCX,
@@ -107,6 +109,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
                 )
             )
         elif callee_name == "__quantum__qis__cx__body":
+            validate_qubit_arguments(call)
             self.gates.append(
                 (
                     QirInstructionId.CX,
@@ -115,6 +118,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
                 )
             )
         elif callee_name == "__quantum__qis__cy__body":
+            validate_qubit_arguments(call)
             self.gates.append(
                 (
                     QirInstructionId.CY,
@@ -123,6 +127,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
                 )
             )
         elif callee_name == "__quantum__qis__cz__body":
+            validate_qubit_arguments(call)
             self.gates.append(
                 (
                     QirInstructionId.CZ,
@@ -131,6 +136,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
                 )
             )
         elif callee_name == "__quantum__qis__swap__body":
+            validate_qubit_arguments(call)
             self.gates.append(
                 (
                     QirInstructionId.SWAP,
@@ -148,6 +154,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
                 )
             )
         elif callee_name == "__quantum__qis__rxx__body":
+            validate_qubit_arguments(call)
             angle = cast(FloatConstant, call.args[0]).value
             self.gates.append(
                 (
@@ -167,6 +174,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
                 )
             )
         elif callee_name == "__quantum__qis__ryy__body":
+            validate_qubit_arguments(call)
             angle = cast(FloatConstant, call.args[0]).value
             self.gates.append(
                 (
@@ -186,6 +194,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
                 )
             )
         elif callee_name == "__quantum__qis__rzz__body":
+            validate_qubit_arguments(call)
             angle = cast(FloatConstant, call.args[0]).value
             self.gates.append(
                 (
@@ -217,6 +226,22 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
             self.gates.append(
                 (
                     QirInstructionId.M,
+                    pyqir.ptr_id(call.args[0]),
+                    pyqir.ptr_id(call.args[1]),
+                )
+            )
+        elif callee_name == "__quantum__qis__mx__body":
+            self.gates.append(
+                (
+                    QirInstructionId.MX,
+                    pyqir.ptr_id(call.args[0]),
+                    pyqir.ptr_id(call.args[1]),
+                )
+            )
+        elif callee_name == "__quantum__qis__my__body":
+            self.gates.append(
+                (
+                    QirInstructionId.MY,
                     pyqir.ptr_id(call.args[0]),
                     pyqir.ptr_id(call.args[1]),
                 )
@@ -291,10 +316,10 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
             or callee_name == "__quantum__rt__begin_parallel"
             or callee_name == "__quantum__rt__end_parallel"
             or callee_name == "__quantum__qis__barrier__body"
-            # We only hit this during noiseless simulations
-            or "qdk_noise" in cast(Function, call.callee).attributes.func
         ):
             pass
+        elif "qdk_noise" in cast(Function, call.callee).attributes.func:
+            validate_qubit_arguments(call)
         else:
             raise ValueError(f"Unsupported call instruction: {callee_name}")
 
@@ -312,6 +337,7 @@ class CorrelatedNoisePass(AggregateGatesPass):
     def _on_call_instr(self, call: Call) -> None:
         callee_name = call.callee.name
         if callee_name in self.noise_intrinsics_table:
+            validate_qubit_arguments(call)
             self.gates.append(
                 (
                     QirInstructionId.CorrelatedNoise,
@@ -343,6 +369,7 @@ class GpuCorrelatedNoisePass(AggregateGatesPass):
     def _on_call_instr(self, call: Call) -> None:
         callee_name = call.callee.name
         if callee_name in self.noise_table:
+            validate_qubit_arguments(call)
             self.gates.append(
                 (
                     QirInstructionId.CorrelatedNoise,
@@ -433,6 +460,9 @@ class OutputRecordingPass(pyqir.QirModuleVisitor):
         self, call: Call, value: Value, target: Value
     ) -> None:
         assert isinstance(value, IntConstant)
+        if value.value == 0:
+            self._record_leaf("[]")
+            return
         self._output_str += "["
         self._closers.append("]")
         # if len(self._counters) > 0:
@@ -443,6 +473,9 @@ class OutputRecordingPass(pyqir.QirModuleVisitor):
         self, call: Call, value: Value, target: Value
     ) -> None:
         assert isinstance(value, IntConstant)
+        if value.value == 0:
+            self._record_leaf("()")
+            return
         self._output_str += "("
         self._closers.append(")")
         # if len(self._counters) > 0:
@@ -511,6 +544,7 @@ class DecomposeCcxPass(pyqir.QirModuleVisitor):
         ctrl2: Value,
         target: Value,
     ) -> None:
+        validate_qubit_arguments(call)
         self.builder.insert_before(call)
         self.builder.call(self.h_func, [target])
         self.builder.call(self.tadj_func, [ctrl1])
@@ -542,9 +576,102 @@ class DecomposeCcxPass(pyqir.QirModuleVisitor):
         call.erase()
 
 
+class DecomposeMxMyPass(pyqir.QirModuleVisitor):
+    h_func: Function
+    s_func: Function
+    sadj_func: Function
+    mz_func: Function
+
+    def __init__(self) -> None:
+        super().__init__()
+
+    def _on_module(self, module: Module) -> None:
+        void = Type.void(module.context)
+        qubit_ty = PointerType(Type.void(module.context))
+
+        # Find or create all the needed functions.
+        for func in module.functions:
+            match func.name:
+                case "__quantum__qis__h__body":
+                    self.h_func = func
+                case "__quantum__qis__s__body":
+                    self.s_func = func
+                case "__quantum__qis__s__adj":
+                    self.sadj_func = func
+                case "__quantum__qis__m__body":
+                    self.mz_func = func
+        if not hasattr(self, "h_func"):
+            self.h_func = Function(
+                FunctionType(void, [qubit_ty]),
+                Linkage.EXTERNAL,
+                "__quantum__qis__h__body",
+                module,
+            )
+        if not hasattr(self, "s_func"):
+            self.s_func = Function(
+                FunctionType(void, [qubit_ty]),
+                Linkage.EXTERNAL,
+                "__quantum__qis__s__body",
+                module,
+            )
+        if not hasattr(self, "sadj_func"):
+            self.sadj_func = Function(
+                FunctionType(void, [qubit_ty]),
+                Linkage.EXTERNAL,
+                "__quantum__qis__s__adj",
+                module,
+            )
+        if not hasattr(self, "mz_func"):
+            self.mz_func = Function(
+                FunctionType(void, [qubit_ty, qubit_ty]),
+                Linkage.EXTERNAL,
+                "__quantum__qis__m__body",
+                module,
+            )
+        super()._on_module(module)
+
+    def _on_call_instr(self, call: Call) -> None:
+        name = call.callee.name
+        if name == "__quantum__qis__mx__body":
+            self._on_qis_mx(call, call.args[0], call.args[1])
+        elif name == "__quantum__qis__my__body":
+            self._on_qis_my(call, call.args[0], call.args[1])
+        else:
+            super()._on_call_instr(call)
+
+    def _on_qis_mx(self, call: Call, target: Value, result: Value) -> None:
+        self.builder.insert_before(call)
+        self.builder.call(self.h_func, [target])
+        self.builder.call(self.mz_func, [target, result])
+        self.builder.call(self.h_func, [target])
+        call.erase()
+
+    def _on_qis_my(self, call: Call, target: Value, result: Value) -> None:
+        self.builder.insert_before(call)
+        self.builder.call(self.sadj_func, [target])
+        self.builder.call(self.h_func, [target])
+        self.builder.call(self.mz_func, [target, result])
+        self.builder.call(self.h_func, [target])
+        self.builder.call(self.s_func, [target])
+        call.erase()
+
+
 Simulator: TypeAlias = Callable[
     [List[QirInstruction], int, int, int, NoiseConfig, int], str
 ]
+
+
+def _validate_noise_intrinsics(mod: Module, noise: Optional[NoiseConfig]) -> None:
+    if noise is None:
+        return
+    for function in mod.functions:
+        if (
+            function.name in noise.intrinsics
+            and "qdk_noise" not in function.attributes.func
+        ):
+            raise ValueError(
+                f"Noise table '{function.name}' does not name a noise intrinsic."
+            )
 
 
 def preprocess_simulation_input(
@@ -570,6 +697,8 @@ def preprocess_simulation_input(
         mod = Module.from_ir(context, input)
     else:
         mod = Module.from_bitcode(context, input)
+
+    _validate_noise_intrinsics(mod, noise)
 
     return (mod, shots, noise, seed)
 
@@ -647,6 +776,7 @@ def run_qir_clifford(
 ) -> List:
     mod, shots, noise, seed = preprocess_simulation_input(input, shots, noise, seed)
     DecomposeCcxPass().run(mod)
+    _validate_noise_intrinsics(mod, noise)
     if is_adaptive(mod):
         program = AdaptiveProfilePass(Bytecode.Bit64).run(mod, noise)
         return run_adaptive(run_clifford_adaptive, mod, program, shots, noise, seed)
@@ -662,6 +792,7 @@ def run_qir_cpu(
 ) -> List:
     mod, shots, noise, seed = preprocess_simulation_input(input, shots, noise, seed)
     DecomposeCcxPass().run(mod)
+    _validate_noise_intrinsics(mod, noise)
     if is_adaptive(mod):
         program = AdaptiveProfilePass(Bytecode.Bit64).run(mod, noise)
         return run_adaptive(run_cpu_adaptive, mod, program, shots, noise, seed)
@@ -678,6 +809,9 @@ def run_qir_gpu(
     mod, shots, noise, seed = preprocess_simulation_input(input, shots, noise, seed)
     # Ccx is not support in the GPU simulator, decompose it
     DecomposeCcxPass().run(mod)
+    # The GPU has no native X/Y-basis measurement, so lower MX/MY to MZ.
+    DecomposeMxMyPass().run(mod)
+    _validate_noise_intrinsics(mod, noise)
     if is_adaptive(mod):
         program = AdaptiveProfilePass(Bytecode.Bit32).run(mod, noise)
         return run_adaptive(
@@ -696,6 +830,8 @@ def prepare_qir_with_correlated_noise(
 
     # Ccx is not support in the GPU simulator, decompose it
     DecomposeCcxPass().run(mod)
+    # The GPU has no native X/Y-basis measurement, so lower MX/MY to MZ.
+    DecomposeMxMyPass().run(mod)
 
     # Extract the gates including correlated noise instructions
     return GpuCorrelatedNoisePass(noise_tables).run_and_collect(mod)
@@ -744,6 +880,9 @@ class GpuSimulator:
         mod, _, _, _ = preprocess_simulation_input(input, None, None, None)
         if is_adaptive(mod):
             self._is_adaptive = True
+            # Ccx and X/Y-basis measurements are not supported in the GPU simulator, decompose them
+            DecomposeCcxPass().run(mod)
+            DecomposeMxMyPass().run(mod)
             # Build noise_intrinsics dict from loaded noise tables (if any)
             noise_intrinsics = None
             if self.tables is not None:
@@ -864,6 +1003,9 @@ def run_qir(
         Exhaustion re-raises the last failure without returning partial results.
     :return: A list of measurement results, in the order they happened during the simulation.
     :rtype: List
+    :raises RuntimeError: If any GPU shot fails, including exceeding the eight-frame
+        call-stack limit or the allocation limit. The error identifies the zero-based
+        shot index and GPU error code. No partial results are returned.
     """
     if qodec is not None:
         from ._qodec._run import run_qir_with_qodec

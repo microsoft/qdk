@@ -1299,6 +1299,85 @@ fn call_to_unresolved_callee_producing_dynamic_value_fails() {
 }
 
 #[test]
+fn recursive_scalar_call_with_dynamic_argument_is_rejected_in_adaptive_rif() {
+    let error = get_partial_evaluation_error_with_capabilities(
+        indoc! {"
+        function Sum(n : Int) : Int {
+            if n == 0 { 0 } else { n + Sum(n - 1) }
+        }
+        @EntryPoint()
+        operation Main() : Int {
+            use q = Qubit();
+            let n = MResetZ(q) == One ? 3 | 2;
+            Sum(n)
+        }
+        "},
+        Profile::AdaptiveRIF.into(),
+    );
+
+    assert!(matches!(error, crate::Error::UnexpectedDynamicValue(_)));
+}
+
+#[test]
+fn recursive_scalar_call_with_dynamic_argument_is_supported_in_adaptive() {
+    let program = get_rir_program_with_capabilities(
+        indoc! {"
+        function Sum(n : Int) : Int {
+            if n == 0 { 0 } else { n + Sum(n - 1) }
+        }
+        @EntryPoint()
+        operation Main() : Int {
+            use q = Qubit();
+            let n = MResetZ(q) == One ? 3 | 2;
+            Sum(n)
+        }
+        "},
+        Profile::Adaptive.into(),
+    );
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Call id(2), args( Qubit(0), Result(0), )
+            Variable(0, Boolean) = Call id(3), args( Result(0), )
+            Variable(1, Boolean) = Store Variable(0, Boolean)
+            Branch Variable(1, Boolean), 2, 3
+        Block 1:Block:
+            Variable(3, Integer) = Store Variable(2, Integer)
+            Variable(13, Integer) = Call id(4), args( Variable(3, Integer), )
+            Variable(14, Integer) = Store Variable(13, Integer)
+            Call id(5), args( Variable(14, Integer), Tag(0, 3), )
+            Return Integer(0)
+        Block 2:Block:
+            Variable(2, Integer) = Store Integer(3)
+            Jump(1)
+        Block 3:Block:
+            Variable(2, Integer) = Store Integer(2)
+            Jump(1)
+        Block 4:Block:
+            Variable(5, Integer) = Store Variable(4, Integer)
+            Variable(6, Boolean) = Icmp Eq, Variable(5, Integer), Integer(0)
+            Branch Variable(6, Boolean), 6, 7
+        Block 5:Block:
+            Return Variable(7, Integer)
+        Block 6:Block:
+            Variable(7, Integer) = Store Integer(0)
+            Jump(5)
+        Block 7:Block:
+            Variable(8, Integer) = Store Variable(4, Integer)
+            Variable(9, Integer) = Store Variable(4, Integer)
+            Variable(10, Integer) = Sub Variable(9, Integer), Integer(1)
+            Variable(11, Integer) = Call id(4), args( Variable(10, Integer), )
+            Variable(12, Integer) = Add Variable(8, Integer), Variable(11, Integer)
+            Variable(7, Integer) = Store Variable(12, Integer)
+            Jump(5)"#]],
+    );
+}
+
+#[test]
 fn call_to_unresolved_callee_via_closure_with_dynamic_arg_fails() {
     let error = get_partial_evaluation_error_with_capabilities(
         indoc! {"

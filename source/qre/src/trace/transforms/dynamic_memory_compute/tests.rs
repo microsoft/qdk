@@ -447,7 +447,7 @@ fn restore_does_not_clobber_memory() {
 
     // Verify it produces a valid trace with operations.
     let gates = collect_gates(&result);
-    assert!(!gates.is_empty());
+    assert_ne!(gates.len(), 0);
 }
 
 // ---------- Percentage-based capacity tests ----------

@@ -7,10 +7,11 @@
 //!
 //! ```text
 //! {
-//!     ...
+//!     mutable __has_returned = false;
+//!     ... // no writes to the return flag or slot
 //!     if c { __ret_val = v; __has_returned = true; }
-//!     if not __has_returned { rest_stmts; rest_value }
-//!     if __has_returned { __ret_val } else { rest_value_or_fallback }
+//!     let __trailing_result = if not __has_returned { rest } else __ret_val;
+//!     if __has_returned { __ret_val } else { __trailing_result }
 //! }
 //! ```
 //!
@@ -19,25 +20,28 @@
 //! ```text
 //! {
 //!     ...
-//!     if c { v } else { rest_stmts; rest_value }
+//!     if c { v } else { rest }
 //! }
 //! ```
 //!
-//! # Slot identification
+//! # Rewrite preconditions
 //!
-//! The slot [`LocalVarId`]s for `__has_returned` and `__ret_val` are
-//! recovered from the trailing merge expression:
+//! The flag, return slot, and trailing-result binding must match the
+//! [`SynthSlots`] identities. The merge must read that exact trailing result,
+//! not merely an expression with the same type. Bare continuations and merges
+//! whose trailing-result binding has already been folded are not accepted.
 //!
-//! * its `cond` is `Var(Res::Local(has_returned), _)` of type `Bool`;
-//! * its `then` is a `Block` with a single trailing
-//!   `Expr(Var(Res::Local(return_slot), _))` of the merge's type `T`.
-//!
-//! The guard-set and lazy continuation must then reference exactly those
-//! locals, or the rule refuses to fire.
+//! The prefix must declare the flag as false and must not write either slot.
+//! Neither the guard condition nor the continuation may write either slot.
+//! Otherwise the final merge may be needed to select an earlier or nested
+//! return. The skipped continuation arm and merge arms must be pure local reads.
 
 use qsc_fir::{
     assigner::Assigner,
-    fir::{BlockId, ExprId, ExprKind, LocalVarId, Package, PackageLookup, StmtId, StmtKind, UnOp},
+    fir::{
+        BlockId, ExprId, ExprKind, Lit, LocalVarId, Mutability, Package, PackageLookup, PatKind,
+        StmtId, StmtKind, UnOp,
+    },
     ty::{Prim, Ty},
 };
 
@@ -45,7 +49,10 @@ use crate::fir_builder::{
     alloc_block, alloc_block_expr, alloc_expr_stmt, alloc_if_expr, alloc_not_expr,
 };
 
-use super::{extract_local_read, identify_merge_or_trailing_slot, match_slot_set_arm};
+use super::{
+    expr_writes_to_merge_slots, extract_local_read, extract_then_arm_slot_read, identify_merge,
+    match_slot_set_arm,
+};
 use crate::return_unify::lower::SynthSlots;
 
 /// Apply the guard-clause collapse rule to `block_id`.
@@ -83,19 +90,29 @@ fn try_apply_once(
 
     let block_ty = package.get_block(block_id).ty.clone();
 
-    let Some((has_returned, return_slot)) =
-        identify_merge_or_trailing_slot(package, block_id, stmt_ids[merge_idx], &block_ty, slots)
-    else {
+    let Some(rest_expr_id) = identify_continuation(
+        package,
+        stmt_ids[cont_idx],
+        stmt_ids[merge_idx],
+        slots,
+        &block_ty,
+    ) else {
         return false;
     };
-    let (cond_id, v_id) = if let Some(pair) = identify_guard_set(
+    if !prefix_keeps_flag_clear(package, &stmt_ids[..guard_idx], slots) {
+        return false;
+    }
+
+    let has_returned = slots.has_returned;
+    let return_slot = slots.return_slot.var_id;
+    let (cond_id, v_id, inverted) = if let Some((cond, v)) = identify_guard_set(
         package,
         stmt_ids[guard_idx],
         has_returned,
         return_slot,
         &block_ty,
     ) {
-        pair
+        (cond, v, false)
     } else if let Some((cond, v)) = identify_guard_else_arm(
         package,
         stmt_ids[guard_idx],
@@ -103,18 +120,22 @@ fn try_apply_once(
         return_slot,
         &block_ty,
     ) {
-        let not_cond = alloc_not_expr(package, assigner, cond, package.synthetic_span());
-        (not_cond, v)
+        (cond, v, true)
     } else {
         return false;
     };
-    let Some(rest_block_id) =
-        identify_continuation(package, stmt_ids[cont_idx], has_returned, &block_ty)
-    else {
+    if expr_writes_to_merge_slots(package, cond_id, has_returned, return_slot)
+        || expr_writes_to_merge_slots(package, rest_expr_id, has_returned, return_slot)
+    {
         return false;
-    };
+    }
 
     // Build the replacement: `if c { v } else { rest_block }`.
+    let cond_id = if inverted {
+        alloc_not_expr(package, assigner, cond_id, package.synthetic_span())
+    } else {
+        cond_id
+    };
     let v_stmt = alloc_expr_stmt(package, assigner, v_id, package.synthetic_span());
     let then_bid = alloc_block(
         package,
@@ -130,19 +151,12 @@ fn try_apply_once(
         block_ty.clone(),
         package.synthetic_span(),
     );
-    let else_expr = alloc_block_expr(
-        package,
-        assigner,
-        rest_block_id,
-        block_ty.clone(),
-        package.synthetic_span(),
-    );
     let new_if = alloc_if_expr(
         package,
         assigner,
         cond_id,
         then_expr,
-        Some(else_expr),
+        Some(rest_expr_id),
         block_ty.clone(),
         package.synthetic_span(),
     );
@@ -152,6 +166,41 @@ fn try_apply_once(
     block.stmts.truncate(guard_idx);
     block.stmts.push(new_stmt);
     true
+}
+
+/// Proves that no earlier statement could have selected a return value.
+fn prefix_keeps_flag_clear(package: &Package, stmts: &[StmtId], slots: &SynthSlots) -> bool {
+    let mut initialized_false = false;
+    for &stmt_id in stmts {
+        let expr_id = match package.get_stmt(stmt_id).kind {
+            StmtKind::Local(mutability, pat_id, init) => {
+                let pat = package.get_pat(pat_id);
+                if let PatKind::Bind(ident) = &pat.kind
+                    && ident.id == slots.has_returned
+                {
+                    if mutability != Mutability::Mutable
+                        || pat.ty != Ty::Prim(Prim::Bool)
+                        || !matches!(package.get_expr(init).kind, ExprKind::Lit(Lit::Bool(false)))
+                    {
+                        return false;
+                    }
+                    initialized_false = true;
+                }
+                init
+            }
+            StmtKind::Expr(expr) | StmtKind::Semi(expr) => expr,
+            StmtKind::Item(_) => continue,
+        };
+        if expr_writes_to_merge_slots(
+            package,
+            expr_id,
+            slots.has_returned,
+            slots.return_slot.var_id,
+        ) {
+            return false;
+        }
+    }
+    initialized_false
 }
 
 /// Identifies an `if c { __ret_val = v; __has_returned = true; }` statement.
@@ -165,9 +214,9 @@ fn try_apply_once(
 /// well to make the rule robust against minor pretty-printer-equivalent
 /// shape drift.
 ///
-/// Returns `Some((cond_expr_id, v_expr_id))` on match. Refuses to fire
-/// when the `if` carries an `else` arm: such a shape is the
-/// both-branches-return pattern handled by the `both_branches` rule.
+/// Returns `Some((cond_expr_id, v_expr_id))` on match. This matcher
+/// rejects every `else` arm; [`identify_guard_else_arm`] separately
+/// checks the inverted guard shape.
 fn identify_guard_set(
     package: &Package,
     stmt_id: StmtId,
@@ -241,40 +290,56 @@ fn then_arm_is_unit_noop(package: &Package, then_expr_id: ExprId) -> bool {
     package.get_block(*bid).stmts.is_empty()
 }
 
-/// Identifies the `if not __has_returned { rest_block }` continuation
-/// statement and returns the underlying `rest_block` id. The continuation
-/// may carry an else arm (e.g. the canonical lazy-continuation `else
-/// __ret_val`); the else arm is dropped along with the merge.
-///
-/// Accepts two shapes:
-///
-/// * The bare `Semi(If(not __has_returned, rest_block, _))` statement.
-/// * The `let __trailing_result : T = if not __has_returned { ... } else __ret_val;`
-///   binding emitted by `create_flag_trailing_expr_for_slot`,
-///   where the lazy continuation is the let-bound initializer. The bound
-///   local is read by the trailing merge in the canonical shape, so
-///   discarding the binding alongside the merge is safe.
+/// Matches the synthesized trailing-result binding and the merge that reads it.
+/// Returns the continuation body only when all discarded arms are pure reads
+/// of the expected locals. Slot writes are checked by the caller.
 fn identify_continuation(
     package: &Package,
     stmt_id: StmtId,
-    has_returned: LocalVarId,
+    merge_stmt_id: StmtId,
+    slots: &SynthSlots,
     return_ty: &Ty,
-) -> Option<BlockId> {
-    let if_expr_id = match package.get_stmt(stmt_id).kind {
-        StmtKind::Expr(e) | StmtKind::Semi(e) => e,
-        StmtKind::Local(_, _, init) => init,
-        StmtKind::Item(_) => return None,
-    };
-    let if_expr = package.get_expr(if_expr_id);
-    let ExprKind::If(cond_id, then_id, _) = &if_expr.kind else {
+) -> Option<ExprId> {
+    let merge = identify_merge(package, merge_stmt_id, return_ty)?;
+    if merge.has_returned != slots.has_returned || merge.return_slot != slots.return_slot.var_id {
+        return None;
+    }
+    let trailing_result = slots.trailing_result?;
+    let StmtKind::Expr(merge_expr_id) = package.get_stmt(merge_stmt_id).kind else {
         return None;
     };
+    let ExprKind::If(_, _, Some(fallthrough)) = package.get_expr(merge_expr_id).kind else {
+        return None;
+    };
+    if extract_then_arm_slot_read(package, fallthrough, return_ty) != Some(trailing_result) {
+        return None;
+    }
+    let StmtKind::Local(Mutability::Immutable, pat_id, if_expr_id) = package.get_stmt(stmt_id).kind
+    else {
+        return None;
+    };
+    let pat = package.get_pat(pat_id);
+    let PatKind::Bind(ident) = &pat.kind else {
+        return None;
+    };
+    if ident.id != trailing_result || pat.ty != *return_ty {
+        return None;
+    }
+    let if_expr = package.get_expr(if_expr_id);
+    let ExprKind::If(cond_id, then_id, Some(else_id)) = &if_expr.kind else {
+        return None;
+    };
+    if if_expr.ty != *return_ty
+        || extract_then_arm_slot_read(package, *else_id, return_ty) != Some(merge.return_slot)
+    {
+        return None;
+    }
     let cond = package.get_expr(*cond_id);
     let ExprKind::UnOp(UnOp::NotL, inner_id) = &cond.kind else {
         return None;
     };
     let flag_id = extract_local_read(package, *inner_id, Some(&Ty::Prim(Prim::Bool)))?;
-    if flag_id != has_returned {
+    if flag_id != merge.has_returned {
         return None;
     }
     let then_expr = package.get_expr(*then_id);
@@ -284,5 +349,5 @@ fn identify_continuation(
     if package.get_block(*bid).ty != *return_ty {
         return None;
     }
-    Some(*bid)
+    Some(*then_id)
 }

@@ -5,7 +5,7 @@ import os
 import pytest
 from pathlib import Path
 from qdk.simulation import NoiseConfig, run_qir
-from qdk import Result
+from qdk import Context, Result, TargetProfile
 import qdk.openqasm
 from qdk.simulation._simulation import try_create_gpu_adapter
 
@@ -30,6 +30,59 @@ def gpu_param():
 
 
 SIM_TYPES = ["cpu", "stabilizer", gpu_param()]
+
+
+@pytest.mark.parametrize(
+    "profile", [qdk.TargetProfile.Base, qdk.TargetProfile.Adaptive_RI]
+)
+@pytest.mark.parametrize("sim_type", ["cpu", "stabilizer"])
+def test_noise_table_cannot_replace_gate(profile, sim_type):
+    ctx = qdk.Context(target_profile=profile)
+    ctx.eval("operation Main() : Result { use q = Qubit(); X(q); MResetZ(q) }")
+    noise = NoiseConfig()
+    noise.intrinsic("__quantum__qis__x__body", 1).z = 1.0
+    with pytest.raises(ValueError, match="does not name a noise intrinsic"):
+        run_qir(ctx.compile("Main()"), shots=1, noise=noise, type=sim_type)
+
+
+@pytest.mark.parametrize("sim_type", ["cpu", "stabilizer", "gpu"])
+def test_noise_table_cannot_replace_gate_introduced_by_decomposition(sim_type):
+    qir = """
+define void @main() #0 {
+entry:
+  call void @__quantum__qis__ccx__body(ptr null, ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 2 to ptr))
+  ret void
+}
+
+declare void @__quantum__qis__ccx__body(ptr, ptr, ptr)
+
+attributes #0 = { "entry_point" "qir_profiles"="base_profile" "required_num_qubits"="3" "required_num_results"="0" }
+"""
+    noise = NoiseConfig()
+    noise.intrinsic("__quantum__qis__h__body", 1).z = 1.0
+    with pytest.raises(
+        ValueError,
+        match="Noise table '__quantum__qis__h__body' does not name a noise intrinsic",
+    ):
+        run_qir(qir, shots=1, noise=noise, type=sim_type)
+
+
+@pytest.mark.parametrize(
+    "configure",
+    [
+        lambda table: setattr(table, "x", 0.0),
+        lambda table: table.set_pauli_noise("X", 0.0),
+        lambda table: table.set_depolarizing(0.0),
+    ],
+)
+def test_zero_probability_noise_is_noiseless(configure):
+    table = NoiseConfig().x
+    table.x = 1.0
+    assert not table.is_noiseless()
+    configure(table)
+    assert table.is_noiseless()
+    table.z = 0.5
+    assert not table.is_noiseless()
 
 
 QASM_WITH_CORRELATED_NOISE = """
@@ -93,3 +146,27 @@ def test_noisy_simulation_with_missing_gates_fails():
     with pytest.raises(ValueError) as excinfo:
         run_qir(QIR_WITH_CORRELATED_NOISE, shots=1, noise=noise, type="cpu")
     assert "Missing noise intrinsic: test_noise_intrinsic" in str(excinfo.value)
+
+
+@pytest.mark.parametrize("profile", [TargetProfile.Base, TargetProfile.Adaptive_RIF])
+@pytest.mark.parametrize("sim_type", ["cpu", "stabilizer", "gpu"])
+@pytest.mark.parametrize("with_noise", [False, True])
+def test_repeated_noise_qubit_reports_error(profile, sim_type, with_noise):
+    ctx = Context(target_profile=profile)
+    ctx.eval("""
+        @NoiseIntrinsic() operation N(a : Qubit, b : Qubit, c : Qubit) : Unit { body intrinsic; }
+        operation Main() : Result[] {
+            use qs = Qubit[2];
+            N(qs[0], qs[0], qs[1]);
+            MResetEachZ(qs)
+        }
+    """)
+    noise = NoiseConfig()
+    noise.intrinsic("N", 3).XXX = 1.0
+    with pytest.raises(ValueError, match="qubits in invocation.*are not unique"):
+        run_qir(
+            ctx.compile("Main()"),
+            shots=1,
+            noise=noise if with_noise else None,
+            type=sim_type,
+        )

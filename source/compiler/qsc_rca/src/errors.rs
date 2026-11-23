@@ -253,6 +253,14 @@ pub enum Error {
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-limit-in-parallel-expr"))]
     #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicLimitInParallelExpr"))]
     UseOfDynamicLimitInParallelExpr(#[label] PackageSpan),
+
+    #[error("cannot use dynamic fail")]
+    #[diagnostic(help(
+        "using a fail expression that must be evaluated at runtime is not supported by the configured target profile"
+    ))]
+    #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-fail"))]
+    #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicFail"))]
+    UseOfDynamicFail(#[label] PackageSpan),
 }
 
 impl Error {
@@ -289,7 +297,8 @@ impl Error {
             | Self::UseOfDynamicGeneric(span)
             | Self::UseOfDynamicQubitRelease(span)
             | Self::UseOfDynamicBranchingInParallelExpr(span)
-            | Self::UseOfDynamicLimitInParallelExpr(span) => *span,
+            | Self::UseOfDynamicLimitInParallelExpr(span)
+            | Self::UseOfDynamicFail(span) => *span,
         }
     }
 }

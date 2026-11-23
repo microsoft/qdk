@@ -426,7 +426,7 @@ fn qirgen(sources: SourceMap, profile: Profile) -> String {
 
     let entry_expr = format!("{namespace}.Main()");
     match interpreter.qirgen(&entry_expr) {
-        Ok(qir) => format!("generated QIR of length {}", qir.len()),
+        Ok(result) => format!("generated QIR of length {}", result.qir.len()),
         Err(errors) => format!("QIR generation error for `{entry_expr}`: {}", errors[0]),
     }
 }
@@ -495,7 +495,7 @@ fn qirgen_qasm(source: &str, profile: Profile) -> String {
     };
 
     match interpreter.qirgen("qasm_import.program()") {
-        Ok(qir) => format!("generated QIR of length {}", qir.len()),
+        Ok(result) => format!("generated QIR of length {}", result.qir.len()),
         Err(errors) => format!(
             "QIR generation error for `qasm_import.program()`: {}",
             errors[0]

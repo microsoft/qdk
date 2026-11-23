@@ -11,7 +11,7 @@ mod tests;
 /// Transforms result literals in the program.
 /// Since result literals are not supported in QIR, this function attempts to handle them as best as possible.
 /// Result literals are replaced with new result ids that are explicitly set via calls to the `write_result` function.
-pub fn transform_result_literals(program: &mut Program) {
+pub(crate) fn transform_result_literals(program: &mut Program) {
     let result_zero_id = program.num_results;
     let result_one_id = program.num_results + 1;
     let mut replaced_zero = false;
@@ -19,7 +19,7 @@ pub fn transform_result_literals(program: &mut Program) {
 
     for block in program.blocks.values_mut() {
         for instr in &mut block.0 {
-            // Result literals are only expected in context of Store, Call, or Return instructions
+            // Rewrite scalar operands and operand lists before QIR serialization.
             match instr {
                 Instruction::Store(operand, _) | Instruction::Return(Some(operand)) => {
                     let Operand::Literal(Literal::ResultLit(val)) = *operand else {
@@ -35,7 +35,7 @@ pub fn transform_result_literals(program: &mut Program) {
                     *operand = Operand::Literal(Literal::Result(id));
                 }
 
-                Instruction::Call(_, operands, _, _) => {
+                Instruction::Call(_, operands, _, _) | Instruction::StoreArray(operands, _) => {
                     for operand in operands.iter_mut() {
                         if let Operand::Literal(Literal::ResultLit(val)) = *operand {
                             let id = if val {

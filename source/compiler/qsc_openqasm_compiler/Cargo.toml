@@ -1,7 +1,6 @@
 [package]
 name = "qsc_openqasm_compiler"
 authors.workspace = true
-homepage.workspace = true
 repository.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -13,13 +12,13 @@ num-bigint = { workspace = true }
 miette = { workspace = true }
 qsc_ast = { path = "../qsc_ast" }
 qsc_data_structures = { path = "../qsc_data_structures" }
-qsc_frontend = { path = "../qsc_frontend" }
 qdk_openqasm = { path = "../../qdk_openqasm" }
-qsc_hir = { path = "../qsc_hir" }
 rustc-hash = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+qsc_frontend = { path = "../qsc_frontend" }
+qsc_hir = { path = "../qsc_hir" }
 criterion = { workspace = true, features = ["cargo_bench_support"] }
 difference = { workspace = true }
 expect-test = { workspace = true }

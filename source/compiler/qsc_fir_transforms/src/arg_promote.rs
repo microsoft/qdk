@@ -34,8 +34,9 @@
 //! - **Post-convergence normalization.** [`normalize_reachable_call_arg_types`]
 //!   runs once after the fixed point to make argument expression types exactly
 //!   match callable input types (e.g. `T` → `(T,)` wrapping for single-element
-//!   tuple inputs). Run once, not per round, to avoid `(T,)` churn polluting
-//!   change detection.
+//!   tuple inputs). It can also restore direct callable functors when an exact
+//!   concrete declaration proves them, without changing the callable's shape.
+//!   Run once, not per round, to avoid `(T,)` churn polluting change detection.
 //! - **Functor-applied callees** (`Adjoint`/`Controlled`) are handled directly:
 //!   [`resolve_direct_item_callee`] unwraps the `UnOp` functor wrappers and
 //!   [`rewrite_controlled_call_site`] preserves the control-tuple layers and
@@ -69,7 +70,7 @@ use qsc_fir::fir::{
     LocalVarId, Mutability, Package, PackageId, PackageLookup, PackageStore, PatId, PatKind, Res,
     SpecDecl, SpecImpl, StmtId, StoreItemId, UnOp,
 };
-use qsc_fir::ty::{Prim, Ty};
+use qsc_fir::ty::{Arrow, FunctorSet, Prim, Ty};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Base name for the synthesized local that holds a materialized call
@@ -355,8 +356,9 @@ fn apply_promotions(
 ///
 /// Runs once after the whole-closure fixed point: the expected input type of
 /// every reachable callable is snapshotted up front (keyed by `StoreItemId`, so
-/// foreign callees resolve correctly), then each reachable package body is
-/// normalized against that snapshot with the package's own assigner.
+/// foreign callees resolve correctly). Concrete signatures also prove when
+/// direct callable arguments can recover functor support lost from their stored
+/// types. Each reachable package uses its own assigner.
 pub(crate) fn normalize_reachable_call_arg_types(
     store: &mut PackageStore,
     package_id: PackageId,
@@ -369,12 +371,26 @@ pub(crate) fn normalize_reachable_call_arg_types(
     // so a direct call to a foreign promoted callee resolves to the callee's own
     // (already-promoted) input shape rather than the caller package's arena.
     let mut callable_inputs: FxHashMap<StoreItemId, Ty> = FxHashMap::default();
+    let mut callable_types: FxHashMap<StoreItemId, Arrow> = FxHashMap::default();
     for store_id in &reachable {
         let package = store.get(store_id.package);
         if let Some(item) = package.items.get(store_id.item)
             && let ItemKind::Callable(decl) = &item.kind
         {
             callable_inputs.insert(*store_id, package.get_pat(decl.input).ty.clone());
+            // Pinned runtime targets may be outside monomorphization's
+            // entry-reachable scope and retain their generic declarations.
+            if decl.generics.is_empty() {
+                callable_types.insert(
+                    *store_id,
+                    Arrow {
+                        kind: decl.kind,
+                        input: Box::new(package.get_pat(decl.input).ty.clone()),
+                        output: Box::new(decl.output.clone()),
+                        functors: FunctorSet::Value(decl.functors),
+                    },
+                );
+            }
         }
     }
 
@@ -398,7 +414,13 @@ pub(crate) fn normalize_reachable_call_arg_types(
         };
         let assigner = assigners.get_mut(store, caller_pkg);
         let package = store.get_mut(caller_pkg);
-        normalize_call_arg_types(package, &callable_inputs, assigner, &reachable_expr_ids);
+        normalize_call_arg_types(
+            package,
+            &callable_inputs,
+            &callable_types,
+            assigner,
+            &reachable_expr_ids,
+        );
     }
 }
 
@@ -2016,10 +2038,12 @@ fn rebuild_controlled_arg_layers(
 /// # Ensures
 /// - For every direct call expression, argument type structure matches the
 ///   expected callable input type where normalization can be done locally.
-/// - Does not rewrite callee declarations; only argument expression shape.
+/// - Does not rewrite callee declarations; only argument shape and
+///   declaration-proven callable functor metadata.
 fn normalize_call_arg_types(
     package: &mut Package,
     callable_inputs: &FxHashMap<StoreItemId, Ty>,
+    callable_types: &FxHashMap<StoreItemId, Arrow>,
     assigner: &mut Assigner,
     reachable_expr_ids: &[ExprId],
 ) {
@@ -2036,7 +2060,7 @@ fn normalize_call_arg_types(
         .collect();
 
     for (arg_id, expected_input) in call_sites {
-        normalize_arg_to_expected_input(package, assigner, arg_id, &expected_input);
+        normalize_arg_to_expected_input(package, assigner, arg_id, &expected_input, callable_types);
     }
 }
 
@@ -2076,29 +2100,56 @@ fn apply_controlled_input_layers(mut input_ty: Ty, controlled_depth: usize) -> T
 /// Before, `arg_id` may still reflect the pre-promotion shape, such as a scalar
 /// where the promoted callee now expects `(scalar,)`, or nested tuple children
 /// whose wrapper structure no longer matches the updated input pattern. After,
-/// the subtree rooted at `arg_id` mirrors `expected_input`: single-element tuple
-/// wrappers are inserted only where required and tuple types are refreshed after
-/// recursive normalization.
+/// proven wrapper differences are normalized and tuple types are refreshed after
+/// recursive normalization. Direct callable functors are refined only when the
+/// declaration proves the required signature, retaining all declared capabilities
+/// for other uses of the same expression. This may also insert one singleton
+/// wrapper. Other callable values and incompatible signatures are left unchanged.
 fn normalize_arg_to_expected_input(
     package: &mut Package,
     assigner: &mut Assigner,
     arg_id: ExprId,
     expected_input: &Ty,
+    callable_types: &FxHashMap<StoreItemId, Arrow>,
 ) {
     let arg = package.get_expr(arg_id).clone();
+    // 1. Preserve exact matches without allocating or changing their representation.
     if arg.ty == *expected_input {
         return;
     }
 
+    // 2. Separate a possible singleton argument wrapper from its element type,
+    // so callable metadata repair and wrapping can be proved together.
+    let (expected_callable, needs_wrapper) = match expected_input {
+        Ty::Tuple(items) if items.len() == 1 => (&items[0], true),
+        _ => (expected_input, false),
+    };
+    // 3. Restore the declaration's full type, not the consumer's weaker type.
+    // Other uses of this expression may still need its additional functors.
+    if let Some(arrow) = proven_callable_type(&arg, expected_callable, callable_types) {
+        package.exprs.get_mut(arg_id).expect("argument exists").ty =
+            Ty::Arrow(Box::new(arrow.clone()));
+        if needs_wrapper {
+            wrap_arg_in_single_tuple(package, assigner, arg_id);
+        }
+        return;
+    }
+
+    // 4. No callable repair was proved. Only tuple-shape repairs remain;
+    // leave other mismatches unchanged rather than guessing a conversion.
     let Ty::Tuple(expected_items) = expected_input else {
         return;
     };
 
+    // 5. If the argument already has the exact element type, adding the
+    // required singleton wrapper needs no callable-specific proof.
     if expected_items.len() == 1 && arg.ty == expected_items[0] {
         wrap_arg_in_single_tuple(package, assigner, arg_id);
         return;
     }
 
+    // 6. Recursive repair requires an explicit tuple with matching arity.
+    // Do not unpack opaque values or insert, remove, or reorder elements.
     let ExprKind::Tuple(arg_items) = arg.kind else {
         return;
     };
@@ -2106,16 +2157,60 @@ fn normalize_arg_to_expected_input(
         return;
     }
 
+    // 7. Repair each child independently; an unproven child stays unchanged.
     for (arg_item, expected_item) in arg_items.iter().zip(expected_items) {
-        normalize_arg_to_expected_input(package, assigner, *arg_item, expected_item);
+        normalize_arg_to_expected_input(
+            package,
+            assigner,
+            *arg_item,
+            expected_item,
+            callable_types,
+        );
     }
 
+    // 8. Derive the parent type from the actual children, not the requested
+    // types: a child may be unchanged or retain stronger proven functors.
     let updated_tys = arg_items
         .iter()
         .map(|arg_item| package.get_expr(*arg_item).ty.clone())
         .collect();
     let arg_mut = package.exprs.get_mut(arg_id).expect("arg expr exists");
     arg_mut.ty = Ty::Tuple(updated_tys);
+}
+
+/// Returns the full type of a direct, nongeneric declaration that proves the
+/// required functors without changing the callable kind or input/output shape.
+fn proven_callable_type<'a>(
+    argument: &Expr,
+    expected: &Ty,
+    callable_types: &'a FxHashMap<StoreItemId, Arrow>,
+) -> Option<&'a Arrow> {
+    // 1. Only a direct global reference with arrow types can use this proof.
+    // Locals, closures, and functor-wrapper expressions need different reasoning.
+    let (ExprKind::Var(Res::Item(item), generics), Ty::Arrow(stored), Ty::Arrow(expected)) =
+        (&argument.kind, &argument.ty, expected)
+    else {
+        return None;
+    };
+    // 2. Restrict the repair to functor metadata. Do not instantiate generic
+    // references or reinterpret a different callable kind or input/output shape.
+    if !generics.is_empty()
+        || stored.kind != expected.kind
+        || stored.input != expected.input
+        || stored.output != expected.output
+    {
+        return None;
+    }
+    // 3. Obtain the concrete declaration using both package and item identity.
+    // A reference's stored type alone cannot prove additional capabilities.
+    let actual = callable_types.get(&StoreItemId::from((item.package, item.item)))?;
+    // 4. Require the declaration's exact signature and sufficient functors.
+    // Return its full type so satisfying a weaker use does not erase capabilities.
+    (actual.kind == expected.kind
+        && actual.input == expected.input
+        && actual.output == expected.output
+        && crate::fir_builder::functors_satisfy(actual.functors, expected.functors))
+    .then_some(actual)
 }
 
 /// Replaces `arg_id` with a one-element tuple node while preserving the

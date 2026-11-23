@@ -12,9 +12,10 @@ use crate::gpu_resources::GpuResources;
 use crate::noise_config::NoiseConfig;
 use crate::noise_mapping::{expand_correlated_loss_commits, get_noise_ops, loss_policy_u32};
 use crate::shader_types::{
-    self, DiagnosticsData, InterpreterState, MAX_ALLOCA_SIZE, MAX_BUFFER_SIZE, MAX_QUBIT_COUNT,
-    MAX_QUBITS_PER_WORKGROUP, MAX_REGISTERS, MAX_SHOTS_PER_BATCH, MIN_QUBIT_COUNT, MIN_REGISTERS,
-    Op, SIZEOF_SHOTDATA, THREADS_PER_WORKGROUP, Uniforms, WorkgroupCollationBuffer, ops,
+    self, DiagnosticsData, InterpreterState, MAX_ALLOCA_SIZE, MAX_BUFFER_SIZE, MAX_CALL_DEPTH,
+    MAX_QUBIT_COUNT, MAX_QUBITS_PER_WORKGROUP, MAX_REGISTERS, MAX_SHOTS_PER_BATCH, MIN_QUBIT_COUNT,
+    MIN_REGISTERS, Op, SIZEOF_SHOTDATA, THREADS_PER_WORKGROUP, Uniforms, WorkgroupCollationBuffer,
+    ops,
 };
 
 // On Windows, running larger circuits/shots can hit TDR issues if too many ops are dispatched in one go.
@@ -203,6 +204,17 @@ impl GpuContext {
         self.batch_data_is_dirty = true;
     }
 
+    /// Results for a run with zero shots: no shots, no diagnostics, and success.
+    fn empty_run_results() -> RunResults {
+        RunResults {
+            shot_results: Vec::new(),
+            shot_result_codes: Vec::new(),
+            shot_output_records: Vec::new(),
+            diagnostics: None,
+            success: true,
+        }
+    }
+
     pub fn run_shots_sync(
         &mut self,
         shot_count: i32,
@@ -222,6 +234,10 @@ impl GpuContext {
     ) -> Result<RunResults, String> {
         if self.program.is_empty() {
             return Err("No program has been set".to_string());
+        }
+        // Nothing to run. Return early so batch sizing never divides by zero.
+        if shot_count <= 0 {
+            return Ok(Self::empty_run_results());
         }
         // Update all the parameters we need for GPU resources based on current program, noise, shots, etc.
         self.update_run_params(shot_count);
@@ -584,8 +600,17 @@ impl GpuContext {
         // tiny buffers, but grow to match the program's actual requirement.
         let num_registers = (program.num_registers as usize).max(MIN_REGISTERS);
 
-        // Memory sizing: constant_data + headroom for alloca'd variables.
-        let max_memory = program.constant_data.len() + MAX_ALLOCA_SIZE;
+        // Call frames save registers separately from addressable program allocations.
+        let saved_registers = if program
+            .instructions
+            .iter()
+            .any(|instruction| instruction.opcode & 0xFF == 0x07)
+        {
+            num_registers * MAX_CALL_DEPTH
+        } else {
+            0
+        };
+        let max_memory = program.constant_data.len() + MAX_ALLOCA_SIZE + saved_registers;
         assert!(max_memory >= 1, "WGSL arrays must have length >= 1");
 
         if num_registers > MAX_REGISTERS {
@@ -773,6 +798,11 @@ impl GpuContext {
     ) -> Result<RunResults, String> {
         const MAX_ROUNDS_PER_BATCH: u32 = 100_000;
 
+        // Nothing to run. Return early so batch sizing never divides by zero.
+        if shot_count <= 0 {
+            return Ok(Self::empty_run_results());
+        }
+
         // 1. Update run params.
         self.update_run_params(shot_count);
 
@@ -853,6 +883,8 @@ impl GpuContext {
                 let mut interp = InterpreterState::zeroed();
                 interp.pc = entry_pc;
                 interp.current_block_id = entry_block;
+                interp.memory_top = u32::try_from(self.run_params.num_constant_data)
+                    .map_err(|_| "Constant data exceeds the GPU address range")?;
                 let interp_bytes =
                     cast_slice::<InterpreterState, u8>(std::slice::from_ref(&interp));
 

@@ -74,8 +74,15 @@ fn resolve_closure_separates_callable_and_source_packages() {
         },
     );
 
-    let value = resolve_closure(&env, callable_package, source_span, &[capture], callable)
-        .expect("bound capture should resolve");
+    let value = resolve_closure(
+        &env,
+        callable_package,
+        source_span,
+        &[capture],
+        callable,
+        crate::callable::TypeArgs::Empty,
+    )
+    .expect("bound capture should resolve");
     let Value::Closure(closure) = value else {
         panic!("expected a closure value");
     };
@@ -94,12 +101,24 @@ fn resolve_closure_separates_callable_and_source_packages() {
         source_span,
         &[capture],
         callable,
+        crate::callable::TypeArgs::Empty,
     )
     .expect_err("unbound capture should fail");
     assert!(matches!(error, Error::UnboundName(span) if span == source_span));
 }
 
 fn check_expr(file: &str, expr: &str, expect: &Expect) {
+    match eval_expr(file, expr, ExecGraphConfig::NoDebug) {
+        Ok(value) => expect.assert_eq(&value.to_string()),
+        Err((err, _)) => expect.assert_debug_eq(&err),
+    }
+}
+
+fn eval_expr(
+    file: &str,
+    expr: &str,
+    config: ExecGraphConfig,
+) -> Result<Value, (Error, Vec<Frame>)> {
     let mut fir_lowerer = qsc_lowerer::Lowerer::new();
     let mut core = compile::core();
     run_core_passes(&mut core);
@@ -147,18 +166,52 @@ fn check_expr(file: &str, expr: &str, expect: &Expect) {
     fir_store.insert(map_hir_package_to_fir(id), unit_fir);
 
     let mut out = Vec::new();
-    match eval_graph(
+    eval_graph(
         entry,
         &mut SparseSim::new(),
         &fir_store,
-        ExecGraphConfig::NoDebug,
+        config,
         map_hir_package_to_fir(id),
         &mut Env::default(),
         &mut GenericReceiver::new(&mut out),
-    ) {
-        Ok(value) => expect.assert_eq(&value.to_string()),
-        Err((err, _)) => expect.assert_debug_eq(&err),
-    }
+    )
+}
+
+fn check_generic_reference_metadata(config: ExecGraphConfig) {
+    let value = eval_expr(
+        "namespace Test { function Identity<'T>(value : 'T) : 'T { value } }",
+        "{ let f : Int -> Int = Test.Identity; f }",
+        config,
+    )
+    .expect("typed generic reference should evaluate");
+    let cloned = value.clone();
+    let Value::GlobalWithArgs(global) = value else {
+        panic!("expected an instantiated global");
+    };
+    let Value::GlobalWithArgs(cloned) = cloned else {
+        panic!("expected a cloned global");
+    };
+    assert!(std::rc::Rc::ptr_eq(&global, &cloned));
+    let crate::callable::TypeArgs::Bound(binding) = &global.type_args else {
+        panic!("expected checked bindings");
+    };
+    assert_eq!(binding.owner, global.id);
+    assert_eq!(
+        binding.args.as_ref(),
+        &[qsc_fir::ty::GenericArg::Ty(qsc_fir::ty::Ty::Prim(
+            qsc_fir::ty::Prim::Int
+        ))],
+    );
+}
+
+#[test]
+fn generic_reference_metadata_without_debug() {
+    check_generic_reference_metadata(ExecGraphConfig::NoDebug);
+}
+
+#[test]
+fn generic_reference_metadata_with_debug() {
+    check_generic_reference_metadata(ExecGraphConfig::Debug);
 }
 
 /// Same as [`check_expr`], but compiles an additional user-authored library package that the
@@ -3632,6 +3685,83 @@ fn udt_unwrap() {
             foo!
         }",
         &expect!["(1, true)"],
+    );
+}
+
+#[test]
+fn udt_unwrap_nested_nan_is_not_equal_to_itself() {
+    check_expr(
+        "",
+        "{
+            newtype Box = (Double, Int);
+            let boxed = Box(0.0 / 0.0, 7);
+            let values = [boxed!];
+            (boxed! == boxed!, values == values, values != values)
+        }",
+        &expect!["(false, false, true)"],
+    );
+}
+
+#[test]
+fn udt_unwrap_unit_equality_uses_payload() {
+    check_expr(
+        "",
+        "{
+            newtype Foo = Unit;
+            newtype Bar = Unit;
+            let foo = Foo();
+            let bar = Bar();
+            (foo! == (), () == foo!, foo! != (), () != foo!, foo! == bar!)
+        }",
+        &expect!["(true, true, false, false, true)"],
+    );
+}
+
+#[test]
+fn udt_unwrap_tuple_equality_uses_payload() {
+    check_expr(
+        "",
+        "{
+            newtype Foo = (Int, Bool);
+            newtype Bar = (Int, Bool);
+            let foo = Foo(1, true);
+            let bar = Bar(1, true);
+            (foo! == (1, true), (1, true) == foo!, foo! != (1, true),
+             foo! == bar!, foo! == (2, true), foo! != (1, false))
+        }",
+        &expect!["(true, true, false, true, false, true)"],
+    );
+}
+
+#[test]
+fn udt_unwrap_equality_recurses_into_tuples_and_arrays() {
+    check_expr(
+        "",
+        "{
+            newtype Pair = (Int, Bool);
+            let pair = Pair(1, true);
+            (([pair!], 7) == ([(1, true)], 7),
+             [([pair!], 7)] == [([(1, true)], 7)],
+             [pair!] != [(1, true)],
+             [pair!] == [(2, true)],
+             [pair!] != [(1, true), (1, true)])
+        }",
+        &expect!["(true, true, false, false, true)"],
+    );
+}
+
+#[test]
+fn udt_unwrap_equality_preserves_nested_complex_values() {
+    check_expr(
+        "",
+        "{
+            newtype Box = (Unit, Complex);
+            let box = Box((), 3.0 + 4.0i);
+            let (_, z) = box!;
+            (box! == ((), 3.0 + 4.0i), box! != ((), 3.0 - 4.0i),
+             z + (1.0 + 0.0i), -z, +z)
+        }",
+        &expect!["(true, true, (4.0, 4.0), (-3.0, -4.0), (3.0, 4.0))"],
     );
 }
 

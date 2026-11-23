@@ -43,8 +43,8 @@ fn quantum_field_update_records_measurement_dependent_value() {
         block_2:
           br label %block_3
         block_3:
-          %var_12 = phi i64 [1, %block_1], [0, %block_2]
-          %var_8 = mul i64 100, %var_12
+          %var_11 = phi i64 [1, %block_1], [0, %block_2]
+          %var_8 = mul i64 100, %var_11
           %var_10 = add i64 %var_8, 3
           call void @__quantum__rt__int_record_output(i64 %var_10, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
           ret i64 0

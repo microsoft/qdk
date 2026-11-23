@@ -43,7 +43,8 @@
 //!
 //! The shared discovery keys close same-type and finite changing-type cycles,
 //! including mutual recursion, without allocating a duplicate for a back edge.
-//! Each invocation allows at most 1024 concrete specializations across packages.
+//! Each codegen preparation allows at most 1024 concrete specializations across
+//! packages, shared by runtime-instance preparation and subsequent pipeline passes.
 //! A specialization's constructed type or reference's type-argument forest may
 //! contain at most 4096 type nodes, with depth at most 128 (a leaf has depth one).
 //! Substituted sizes are checked before constructing the expanded tree. Generic
@@ -78,7 +79,9 @@ use qsc_fir::fir::{
 
 use miette::Diagnostic;
 pub use qsc_data_structures::intrinsic_names::must_preserve_intrinsic_name;
-use qsc_fir::ty::{Arrow, FunctorSet, GenericArg, ParamId, Ty, TypeParameter};
+use qsc_fir::ty::{
+    Arrow, FunctorSet, GenericArg, MAX_TYPE_DEPTH, MAX_TYPE_NODES, ParamId, Ty, TypeParameter,
+};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::VecDeque;
 use std::rc::Rc;
@@ -86,10 +89,25 @@ use thiserror::Error;
 
 /// Per-invocation limits, including foreign-package and lifted-lambda specializations.
 const MAX_SPECIALIZATIONS: usize = 1024;
-/// Maximum nodes in one substituted type or a reference's generic-argument list.
-const MAX_TYPE_NODES: usize = 4096;
-/// Maximum type depth (a scalar has depth one), bounding recursive type consumers.
-const MAX_TYPE_DEPTH: usize = 128;
+
+/// One budget shared by runtime-instance preparation and the normal pipeline.
+/// Its prepared targets belong to one codegen store; do not reuse the budget
+/// with another store or an independent compilation.
+#[derive(Default)]
+pub struct SpecializationBudget {
+    used: usize,
+    prepared: Vec<Specialization>,
+}
+
+impl SpecializationBudget {
+    fn reserve(&mut self, span: PackageSpan) -> Result<(), Error> {
+        if self.used == MAX_SPECIALIZATIONS {
+            return Err(Error::SpecializationLimit(span));
+        }
+        self.used += 1;
+        Ok(())
+    }
+}
 
 /// Fatal resource-limit diagnostics. The intermediate store must not be consumed.
 #[derive(Clone, Debug, Diagnostic, Error)]
@@ -123,6 +141,7 @@ impl Error {
 type Instantiation = (StoreItemId, Vec<GenericArg>);
 
 /// A concrete target allocated for a discovered instantiation.
+#[derive(Clone)]
 struct Specialization {
     source: StoreItemId,
     args: Vec<GenericArg>,
@@ -147,22 +166,44 @@ struct Specialization {
 /// Panics if the package has no entry expression. The reachability scans
 /// in this pass go through [`collect_reachable_from_entry`], which asserts
 /// `package.entry.is_some()`.
+#[cfg(test)]
 pub fn monomorphize(
     store: &mut PackageStore,
     package_id: PackageId,
     assigners: &mut PackageAssigners,
 ) -> Result<(), Error> {
-    let instantiations = discover_instantiations(store, package_id)?;
+    monomorphize_with_budget(
+        store,
+        package_id,
+        assigners,
+        &mut SpecializationBudget::default(),
+    )
+}
+
+pub(crate) fn monomorphize_with_budget(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    assigners: &mut PackageAssigners,
+    budget: &mut SpecializationBudget,
+) -> Result<(), Error> {
+    let instantiations = discover_instantiations(store, package_id)?
+        .into_iter()
+        .filter(|(source, args)| {
+            !budget
+                .prepared
+                .iter()
+                .any(|entry| entry.source == *source && entry.args == *args)
+        })
+        .collect::<Vec<_>>();
     if !instantiations.is_empty() {
         // Create specialized callables, allocating each into the package that owns
         // the generic source callable (specialize-in-place). The per-package
         // assigners thread the advanced id watermarks back into the pipeline.
-        let specializations = create_specializations(store, instantiations, assigners)?;
-
-        // Rewrite generic call sites across every reachable package so foreign
-        // bodies that call the now-specialized generics point at the concrete
-        // specializations in their own arena.
-        rewrite_all_packages(store, package_id, &specializations);
+        let specializations = create_specializations(store, instantiations, assigners, budget)?;
+        budget.prepared.extend(specializations);
+    }
+    if !budget.prepared.is_empty() {
+        rewrite_all_packages(store, package_id, &budget.prepared);
     }
 
     // After monomorphization no generic callable may remain reachable in any
@@ -561,11 +602,14 @@ fn mono_key(source: StoreItemId, args: &[GenericArg]) -> String {
 /// Functor set arguments use compact identifiers (`Empty`, `Adj`, `Ctl`,
 /// `AdjCtl`) instead of the user-facing display forms. A bounded set of
 /// intrinsic names is exempt because downstream FIR consumers recognize them
-/// by literal name.
+/// by literal name. Runtime specialization can precede simulation-body collapse,
+/// so both intrinsic representations preserve those names.
 fn mono_name(decl: &CallableDecl, args: &[GenericArg]) -> Rc<str> {
     use std::fmt::Write;
-    if matches!(decl.implementation, CallableImpl::Intrinsic)
-        && must_preserve_intrinsic_name(&decl.name.name)
+    if matches!(
+        decl.implementation,
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_)
+    ) && must_preserve_intrinsic_name(&decl.name.name)
     {
         return Rc::clone(&decl.name.name);
     }
@@ -619,8 +663,10 @@ fn collect_generic_refs_in_expr(
 /// A `Var(Res::Item(id), args)` with a non-empty `args` list is a direct
 /// generic reference (a call or a first-class use). A `Closure(captures, item)`
 /// may target a generic lambda whose concrete type arguments are not written
-/// out anywhere, so they are reconstructed from the capture and arrow types via
-/// [`infer_closure_generic_args`]. Both kinds are deduplicated through `seen`.
+/// out anywhere, so they are reconstructed from statically checked FIR capture
+/// and arrow types via [`infer_closure_generic_args`]. This does not inspect runtime
+/// value payloads; runtime instances supply separately retained arguments.
+/// Both kinds are deduplicated through `seen`.
 fn collect_generic_refs_in_expr_ids(
     pkg_id: PackageId,
     pkg: &Package,
@@ -1055,7 +1101,9 @@ fn create_specializations(
     store: &mut PackageStore,
     instantiations: Vec<Instantiation>,
     assigners: &mut PackageAssigners,
+    budget: &mut SpecializationBudget,
 ) -> Result<Vec<Specialization>, Error> {
+    let remaining = MAX_SPECIALIZATIONS - budget.used;
     let mut specializations = Vec::new();
 
     // Pre-populate seen keys from initial discovery.
@@ -1063,14 +1111,17 @@ fn create_specializations(
         .iter()
         .map(|(source, args)| mono_key(*source, args))
         .collect();
+    seen_keys.extend(
+        budget
+            .prepared
+            .iter()
+            .map(|entry| mono_key(entry.source, &entry.args)),
+    );
+    let prepared_count = budget.prepared.len();
     let mut worklist: VecDeque<Instantiation> = instantiations.into();
 
     while let Some((source_id, args)) = worklist.pop_front() {
-        if specializations.len() == MAX_SPECIALIZATIONS {
-            return Err(Error::SpecializationLimit(
-                store.get(source_id.package).get_item(source_id.item).span,
-            ));
-        }
+        budget.reserve(store.get(source_id.package).get_item(source_id.item).span)?;
         let owning_pkg_id = source_id.package;
 
         // Allocate into the owning package using its own assigner. A fresh
@@ -1102,7 +1153,7 @@ fn create_specializations(
         for (ref_id, ref_args) in new_refs {
             let key = mono_key(ref_id, &ref_args);
             if !seen_keys.contains(&key) {
-                if seen_keys.len() >= MAX_SPECIALIZATIONS {
+                if seen_keys.len() - prepared_count >= remaining {
                     return Err(Error::SpecializationLimit(
                         store.get(ref_id.package).get_item(ref_id.item).span,
                     ));
@@ -1202,6 +1253,152 @@ fn specialize_one(
     let refs_out = collect_new_generic_refs(owning_pkg, owning_pkg_id, new_local_id)?;
 
     Ok((new_item_id, refs_out))
+}
+
+/// Finds parameters used by a runtime callable's signature and codegen body.
+/// Follows lexical closure bodies, not local declarations with independent binders.
+/// Simulation-only implementations are intentionally excluded.
+#[must_use]
+pub fn runtime_callable_parameters(package: &Package, target: LocalItemId) -> FxHashSet<ParamId> {
+    let ItemKind::Callable(decl) = &package.get_item(target).kind else {
+        unreachable!("runtime target must be callable");
+    };
+    let mut parameters: FxHashSet<_> = (0..decl.generics.len()).map(ParamId::from).collect();
+    let mut pending = vec![target];
+    let mut seen = FxHashSet::default();
+    while let Some(item) = pending.pop() {
+        if !seen.insert(item) {
+            continue;
+        }
+        let ItemKind::Callable(decl) = &package.get_item(item).kind else {
+            unreachable!("closure target must be callable");
+        };
+        collect_type_parameters(&decl.output, &mut parameters);
+        for_each_node_in_callable(package, decl, &mut |node| match node {
+            CallableNode::Expr(id) => {
+                let expr = package.get_expr(id);
+                collect_type_parameters(&expr.ty, &mut parameters);
+                match &expr.kind {
+                    ExprKind::Var(_, args) => {
+                        for arg in args {
+                            match arg {
+                                GenericArg::Ty(ty) => collect_type_parameters(ty, &mut parameters),
+                                GenericArg::Functor(FunctorSet::Param(param)) => {
+                                    parameters.insert(*param);
+                                }
+                                GenericArg::Functor(_) => {}
+                            }
+                        }
+                    }
+                    ExprKind::Closure(_, target) => pending.push(*target),
+                    _ => {}
+                }
+            }
+            CallableNode::Pat(id) => {
+                collect_type_parameters(&package.get_pat(id).ty, &mut parameters);
+            }
+            CallableNode::Block(id) => {
+                collect_type_parameters(&package.get_block(id).ty, &mut parameters);
+            }
+            CallableNode::Stmt(_) => {}
+        });
+    }
+    parameters
+}
+
+fn collect_type_parameters(ty: &Ty, parameters: &mut FxHashSet<ParamId>) {
+    let mut pending = vec![ty];
+    while let Some(ty) = pending.pop() {
+        match ty {
+            Ty::Param(param) => {
+                parameters.insert(*param);
+            }
+            Ty::Array(item) => pending.push(item),
+            Ty::Tuple(items) => pending.extend(items),
+            Ty::Arrow(arrow) => {
+                pending.extend([arrow.input.as_ref(), arrow.output.as_ref()]);
+                if let FunctorSet::Param(param) = arrow.functors {
+                    parameters.insert(param);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Gives a saved runtime callable its own concrete target.
+///
+/// Lifted targets can inherit parameters without declaring a generic scheme.
+/// Runtime metadata supplies the original checked bindings, including types
+/// used only in the body, without inspecting captured values.
+/// The normal pipeline still specializes generic references in the copied body.
+///
+/// # Errors
+///
+/// Returns the existing specialization/type-expansion diagnostic if its shared
+/// budget is exceeded, or `Ok(None)` when a required binding is missing.
+pub fn instantiate_runtime_closure(
+    package: &mut Package,
+    target: LocalItemId,
+    arguments: impl IntoIterator<Item = (ParamId, GenericArg)>,
+    budget: &mut SpecializationBudget,
+) -> Result<Option<LocalItemId>, crate::PipelineError> {
+    let arguments: FxHashMap<_, _> = arguments.into_iter().collect();
+    let ItemKind::Callable(decl) = &package.get_item(target).kind else {
+        unreachable!("runtime closure target should be callable");
+    };
+    if !decl.generics.is_empty() {
+        let Some(args) = (0..decl.generics.len())
+            .map(|index| arguments.get(&ParamId::from(index)).cloned())
+            .collect::<Option<Vec<_>>>()
+        else {
+            return Ok(None);
+        };
+        budget.reserve(decl.span)?;
+        let mut cloner =
+            FirCloner::from_assigner(qsc_fir::assigner::Assigner::from_package(package));
+        let source_target = target;
+        let (target, _) = specialize_one(
+            package,
+            package.id,
+            StoreItemId {
+                package: package.id,
+                item: target,
+            },
+            &args,
+            &mut cloner,
+        )?;
+        budget.prepared.push(Specialization {
+            source: StoreItemId {
+                package: package.id,
+                item: source_target,
+            },
+            args,
+            new_item_id: target,
+        });
+        return Ok(Some(target.item));
+    }
+    let mut source = extract_callable_body(package, decl);
+    source.id = package.id;
+    source
+        .items
+        .insert(target, package.get_item(target).clone());
+    validate_specialization_types(&source, decl, &arguments)?;
+    budget.reserve(decl.span)?;
+
+    let mut cloner = FirCloner::from_assigner(qsc_fir::assigner::Assigner::from_package(package));
+    let target = cloner.clone_nested_item(&source, target, package);
+    substitute_types_in_cloned_nodes(package, &cloner, &arguments);
+    let ItemKind::Callable(decl) = &mut package.items.get_mut(target).expect("cloned target").kind
+    else {
+        unreachable!("cloned closure target should be callable");
+    };
+    decl.output = substitute_ty(&decl.output, &arguments);
+    decl.generics.clear();
+
+    Ok(runtime_callable_parameters(package, target)
+        .is_empty()
+        .then_some(target))
 }
 
 /// Scans a freshly created monomorphized callable and its transitive closure

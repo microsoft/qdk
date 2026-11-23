@@ -26,6 +26,7 @@ mod test_attribute;
 
 use callable_limits::CallableLimits;
 use capabilitiesck::{check_supported_capabilities_for_callable, lower_store, run_rca_pass};
+pub use entry_point::Error as EntryPointError;
 use entry_point::generate_entry_expr;
 use index_assignment::ConvertToWSlash;
 use loop_control::LoopControl;
@@ -57,6 +58,7 @@ pub(crate) static QIR_RUNTIME_NAMESPACE: &[&str] = &["QIR", "Runtime"];
 #[diagnostic(transparent)]
 #[error(transparent)]
 pub enum Error {
+    AdaptiveFallbackProof(AdaptiveFallbackAnalysisError),
     BorrowCk(borrowck::Error),
     CallableLimits(callable_limits::Error),
     CapabilitiesCk(qsc_rca::errors::Error),
@@ -71,6 +73,42 @@ pub enum Error {
     Reset(reset::Error),
     SpecGen(spec_gen::Error),
     TestAttribute(test_attribute::TestAttributeError),
+}
+
+/// Adds a failed-fallback note while preserving an original Adaptive diagnostic.
+#[derive(Clone, Debug, Diagnostic, Error)]
+#[error("{error}")]
+#[diagnostic(forward(error), help("{help}"))]
+pub struct AdaptiveFallbackAnalysisError {
+    pub error: Box<Error>,
+    help: String,
+}
+
+impl AdaptiveFallbackAnalysisError {
+    /// Preserves the original diagnostic's help and appends one failed-fallback note.
+    #[must_use]
+    pub fn new(error: Error) -> Self {
+        let note = "Adaptive_RIF fallback was also rejected; these diagnostics describe the requested Adaptive profile.";
+        let help = error
+            .help()
+            .map_or_else(|| note.to_string(), |help| format!("{help}\n\n{note}"));
+        Self {
+            error: Box::new(error),
+            help,
+        }
+    }
+}
+
+impl Error {
+    /// Returns the capability diagnostic, including a failed fallback attempt.
+    #[must_use]
+    pub fn capability_error(&self) -> Option<&qsc_rca::errors::Error> {
+        match self {
+            Self::CapabilitiesCk(error) => Some(error),
+            Self::AdaptiveFallbackProof(context) => context.error.capability_error(),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -308,4 +346,29 @@ pub fn run_rca_for_callable(
         .into_iter()
         .map(Error::CapabilitiesCk)
         .collect()
+}
+
+/// Checks declaration bodies and the entry separately, without treating each
+/// declaration's return type as a program output.
+#[must_use]
+pub fn check_fir_capabilities_by_scope(
+    fir_store: &fir::PackageStore,
+    compute_properties: &PackageStoreComputeProperties,
+    package_id: fir::PackageId,
+    capabilities: TargetCapabilityFlags,
+) -> Vec<(Option<fir::LocalItemId>, Vec<Error>)> {
+    capabilitiesck::check_supported_capabilities_by_scope(
+        fir_store.get(package_id),
+        compute_properties.get(package_id, false),
+        capabilities,
+        fir_store,
+    )
+    .into_iter()
+    .map(|(scope, errors)| {
+        (
+            scope,
+            errors.into_iter().map(Error::CapabilitiesCk).collect(),
+        )
+    })
+    .collect()
 }

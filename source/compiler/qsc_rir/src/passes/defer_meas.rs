@@ -18,7 +18,7 @@ use rustc_hash::FxHashSet;
 /// Relative ordering within each section is maintained. Note that the scope is limited to each
 /// block, so measurements are not necessarily deferred to the end of the entire program unless the
 /// program consists of a single block.
-pub fn defer_measurements(program: &mut Program) {
+pub(crate) fn defer_measurements(program: &mut Program) {
     let mut measure_call_ids = FxHashSet::default();
     let mut output_recording_ids = FxHashSet::default();
     for (id, callable) in program.callables.iter() {

@@ -261,6 +261,99 @@ def test_cross_context_callable_as_argument_raises() -> None:
         context_b.code.InvokeWithFive(context_a.code.AddOne)
 
 
+def test_run_checks_callable_context_before_noise() -> None:
+    left = qdk.Context()
+    right = qdk.Context()
+    left.eval("operation Read() : Int { 7 }")
+    saved = left.eval("Read")
+
+    with pytest.raises(QSharpError, match="different Context"):
+        right.run(saved, 1, noise=(1.0, 1.0, 1.0))
+
+
+@pytest.mark.parametrize(
+    "entry_path", ["argument", "target-run", "target-compile", "target-circuit"]
+)
+def test_cross_context_generic_instance_is_rejected(entry_path: str) -> None:
+    left = qdk.Context(target_profile=qdk.TargetProfile.Adaptive_RI)
+    right = qdk.Context(target_profile=qdk.TargetProfile.Adaptive_RI)
+    left.eval("function Pick<'T>(a : 'T, b : 'T) : 'T { a }")
+    right.eval("""
+        function Pick<'T>(a : 'T, b : 'T) : 'T { b }
+        operation Use(pick : (Int, Int) -> Int) : Int { pick(1, 2) }
+    """)
+    saved = left.eval("{ let f : (Int, Int) -> Int = Pick; f }")
+    assert left.run(saved, 1, 1, 2) == [1]
+    paths = {
+        "argument": lambda: right.code.Use(saved),
+        "target-run": lambda: right.run(saved, 1, 1, 2),
+        "target-compile": lambda: right.compile(saved, 1, 2),
+        "target-circuit": lambda: right.circuit(saved, 1, 2),
+    }
+
+    with pytest.raises(QSharpError, match="different Context"):
+        paths[entry_path]()
+
+
+def test_foreign_generic_nominal_type_is_rejected_before_lookup() -> None:
+    left = qdk.Context()
+    right = qdk.Context()
+    left.eval("function Id<'T>(x : 'T) : 'T { x } struct A { Data : Int }")
+    saved = left.eval("{ let f : A -> A = Id; f }")
+    right.eval("""
+        function Id<'T>(x : 'T) : 'T { x }
+        function NotAType(x : Int) : Int { x }
+        operation Use(f : Int -> Int) : Int { f(7) }
+    """)
+
+    with pytest.raises(QSharpError, match="different Context"):
+        right.code.Use(saved)
+
+
+@pytest.mark.parametrize("container", ["array", "tuple", "struct"])
+def test_foreign_closure_nested_in_arguments_is_rejected(container: str) -> None:
+    left = qdk.Context()
+    right = qdk.Context()
+    source = """
+        function Save(n : Int) : Int -> Int { x -> x + n }
+        struct Config { Read : Int -> Int }
+        function FromArray(reads : (Int -> Int)[]) : Int { reads[0](1) }
+        function FromTuple(input : (Int, Int -> Int)) : Int {
+            let (n, read) = input;
+            read(n)
+        }
+        function FromStruct(config : Config) : Int { config.Read(1) }
+    """
+    left.eval(source)
+    right.eval(source)
+    saved = left.code.Save(2)
+    paths = {
+        "array": lambda ctx: ctx.code.FromArray([saved]),
+        "tuple": lambda ctx: ctx.code.FromTuple((1, saved)),
+        "struct": lambda ctx: ctx.code.FromStruct({"Read": saved}),
+    }
+    assert paths[container](left) == 3
+
+    with pytest.raises(QSharpError, match="different Context"):
+        paths[container](right)
+
+
+def test_saved_generic_instance_is_rejected_after_reinitialization() -> None:
+    source = """
+        function Id<'T>(x : 'T) : 'T { x }
+        function Use(read : Int -> Int) : Int { read(7) }
+    """
+    qsharp.init()
+    qsharp.eval(source)
+    saved = qsharp.eval("{ let f : Int -> Int = Id; f }")
+    assert qdk.code.Use(saved) == 7
+    qsharp.init()
+    qsharp.eval(source)
+
+    with pytest.raises(QSharpError, match="different Context"):
+        qdk.code.Use(saved)
+
+
 def test_circular_reference_raises():
     qsharp.eval("function First(x : Int[]) : Int { x[0] }")
     assert qdk.code.First([1, 2]) == 1

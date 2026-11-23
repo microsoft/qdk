@@ -4,8 +4,7 @@ binar>=0.1.2
 cirq-core==1.7.0
 # `deq` requires `stim`, which has no wheels for Linux aarch64 or Windows ARM64,
 # so, we skip type-checking on those platforms.
-deq>=0.5.2,<0.6; platform_machine != 'aarch64' and platform_machine != 'ARM64'
-deq-runtime>=0.5.2,<0.6; platform_machine != 'aarch64' and platform_machine != 'ARM64'
+deq>=0.6.0,<0.7; platform_machine != 'aarch64' and platform_machine != 'ARM64'
 highspy>=1.11,<2
 matplotlib
 more-itertools>=10.0
@@ -13,7 +12,7 @@ numpy>=1.24
 pandas>=2.1
 pandas-stubs
 paulimer>=0.2.2
-pyqir>=0.12.6,<0.13
+pyqir>=0.12.8,<0.13
 pyright==1.1.411
 qiskit>=1.2.2,<3.0.0
 # `stim` (via `qodec[parsers]`) has no wheels for Linux aarch64 or Windows ARM64.

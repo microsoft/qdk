@@ -11,6 +11,11 @@ use std::{
     rc::Rc,
 };
 
+/// Maximum nodes in one materialized generic type or argument forest.
+pub const MAX_TYPE_NODES: usize = 4096;
+/// Maximum materialized generic type depth, counting a leaf as one.
+pub const MAX_TYPE_DEPTH: usize = 128;
+
 /// A type.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub enum Ty {

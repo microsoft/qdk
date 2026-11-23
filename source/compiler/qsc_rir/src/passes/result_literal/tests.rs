@@ -12,6 +12,112 @@ use crate::rir::{
 
 use super::transform_result_literals;
 
+const RUNTIME_RESULT: Variable = Variable {
+    variable_id: VariableId(0),
+    ty: Ty::Prim(Prim::Result),
+};
+
+fn result_array_program(operands: Vec<Operand>) -> Program {
+    let mut program = Program::new();
+    program.callables.insert(
+        CallableId(0),
+        Callable {
+            name: "main".to_string(),
+            input_type: Vec::new(),
+            output_type: None,
+            body: Some(BlockId(0)),
+            input_vars: Vec::new(),
+            call_type: CallableType::Regular,
+        },
+    );
+    program
+        .callables
+        .insert(CallableId(1), crate::builder::initialize_decl());
+    let array = Variable::new_array(VariableId(1), operands.len(), Prim::Result);
+    program.blocks.insert(
+        BlockId(0),
+        Block(vec![
+            Instruction::Call(
+                CallableId(1),
+                vec![Operand::Literal(Literal::NullPointer)],
+                None,
+                None,
+            ),
+            Instruction::Store(Operand::Literal(Literal::Result(0)), RUNTIME_RESULT),
+            Instruction::StoreArray(operands, array),
+            Instruction::Return(None),
+        ]),
+    );
+    program.num_results = 1;
+    program
+}
+
+#[test]
+fn store_array_zero_literals_share_one_initialized_result() {
+    let mut program = result_array_program(vec![
+        Operand::Variable(RUNTIME_RESULT),
+        Operand::Literal(Literal::ResultLit(false)),
+        Operand::Literal(Literal::ResultLit(false)),
+    ]);
+
+    transform_result_literals(&mut program);
+
+    assert_eq!(program.num_results, 2);
+    expect![[r#"
+        Block:
+            Call id(1), args( Pointer, )
+            Call id(2), args( Bool(false), Result(1), )
+            Variable(0, Result) = Store Result(0)
+            Variable(1, Array(3, Result)) = StoreArray [Variable(0, Result), Result(1), Result(1)]
+            Return"#]]
+    .assert_eq(&program.get_block(BlockId(0)).to_string());
+}
+
+#[test]
+fn store_array_one_literals_share_one_initialized_result() {
+    let mut program = result_array_program(vec![
+        Operand::Literal(Literal::ResultLit(true)),
+        Operand::Variable(RUNTIME_RESULT),
+        Operand::Literal(Literal::ResultLit(true)),
+    ]);
+
+    transform_result_literals(&mut program);
+
+    assert_eq!(program.num_results, 3);
+    expect![[r#"
+        Block:
+            Call id(1), args( Pointer, )
+            Call id(2), args( Bool(true), Result(2), )
+            Variable(0, Result) = Store Result(0)
+            Variable(1, Array(3, Result)) = StoreArray [Result(2), Variable(0, Result), Result(2)]
+            Return"#]]
+    .assert_eq(&program.get_block(BlockId(0)).to_string());
+}
+
+#[test]
+fn store_array_zero_and_one_literals_use_distinct_initialized_results() {
+    let mut program = result_array_program(vec![
+        Operand::Variable(RUNTIME_RESULT),
+        Operand::Literal(Literal::ResultLit(false)),
+        Operand::Literal(Literal::ResultLit(true)),
+        Operand::Literal(Literal::ResultLit(false)),
+        Operand::Literal(Literal::ResultLit(true)),
+    ]);
+
+    transform_result_literals(&mut program);
+
+    assert_eq!(program.num_results, 3);
+    expect![[r#"
+        Block:
+            Call id(1), args( Pointer, )
+            Call id(2), args( Bool(false), Result(1), )
+            Call id(2), args( Bool(true), Result(2), )
+            Variable(0, Result) = Store Result(0)
+            Variable(1, Array(5, Result)) = StoreArray [Variable(0, Result), Result(1), Result(2), Result(1), Result(2)]
+            Return"#]]
+    .assert_eq(&program.get_block(BlockId(0)).to_string());
+}
+
 #[test]
 fn program_with_no_result_literals_unchanged() {
     let mut program = Program::new();

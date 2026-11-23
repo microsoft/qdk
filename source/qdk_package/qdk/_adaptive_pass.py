@@ -19,13 +19,26 @@ from typing import Any, Dict, List, Optional, Tuple, TypeAlias, cast
 from ._adaptive_bytecode import *
 
 
+def validate_qubit_arguments(call: pyqir.Call) -> None:
+    qubits = [
+        qubit
+        for arg in call.args
+        if isinstance(arg.type, pyqir.PointerType)
+        and (qubit := pyqir.ptr_id(arg)) is not None
+    ]
+    if len(qubits) != len(set(qubits)):
+        raise ValueError(f"qubits in invocation of `{call.callee.name}` are not unique")
+
+
 class Bytecode(Enum):
     Bit32 = 32
     Bit64 = 64
 
 
 # ---------------------------------------------------------------------------
-# Gate name → OpID mapping (must match shader_types.rs OpID enum)
+# Gate name → OpID mapping (must match shader_types.rs OpID enum, except
+# mx/my, which only the CPU/Clifford runtime handles natively; the GPU path
+# lowers them via ``DecomposeMxMyPass()``)
 # ---------------------------------------------------------------------------
 
 GATE_MAP: Dict[str, int] = {
@@ -52,6 +65,8 @@ GATE_MAP: Dict[str, int] = {
     "rzz": 19,
     "ccx": 20,
     "m": 21,
+    "mx": 30,
+    "my": 31,
     "mz": 21,
     "mresetz": 22,
     "swap": 24,
@@ -59,7 +74,7 @@ GATE_MAP: Dict[str, int] = {
 }
 
 # Gates that take a result ID as a second argument
-MEASURE_GATES = {"m", "mz", "mresetz"}
+MEASURE_GATES = {"m", "mx", "my", "mz", "mresetz"}
 
 # Gates that reset a qubit (single qubit argument, no result)
 RESET_GATES = {"reset"}
@@ -1066,6 +1081,7 @@ class AdaptiveProfilePass:
                 aux3=q3,
             )
             return
+        validate_qubit_arguments(call)
         if gate_name in ROTATION_GATES:
             qubit_arg_offset = 1
             angle: FloatOperand | Reg = self._resolve_angle_operand(call.args[0])
@@ -1095,6 +1111,7 @@ class AdaptiveProfilePass:
 
         When no noise config is provided, emit an identity gate (no-op).
         """
+        validate_qubit_arguments(call)
         callee_name = call.callee.name
         if self._noise_intrinsics is not None and callee_name in self._noise_intrinsics:
             table_id = self._noise_intrinsics[callee_name]
@@ -1280,6 +1297,8 @@ class AdaptiveProfilePass:
                     "Aggregate stack allocations for structs are not supported."
                 )
 
+        # Retain the static layout for bytecode compatibility and size accounting.
+        # Interpreters allocate fresh storage each time this instruction executes.
         addr = self._alloca_ptr
         self._alloca_ptr += num_words
         self._memory_size = max(self._memory_size, self._alloca_ptr)

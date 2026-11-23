@@ -53,14 +53,14 @@
 
 use qsc_fir::{
     assigner::Assigner,
-    fir::{BlockId, ExprId, ExprKind, LocalVarId, Package, PackageLookup, PatKind, StmtKind},
+    fir::{BlockId, ExprKind, Package, PackageLookup, PatKind, StmtKind},
 };
 
 use crate::fir_builder::{alloc_block, alloc_block_expr, alloc_expr_stmt, alloc_if_expr};
 
 use super::{
-    expr_tree_contains_qubit_type, extract_root_local, identify_merge_or_trailing_slot,
-    match_slot_set_arm, push_children,
+    expr_tree_contains_qubit_type, expr_writes_to_merge_slots, identify_merge_or_trailing_slot,
+    match_slot_set_arm,
 };
 use crate::return_unify::lower::SynthSlots;
 
@@ -139,7 +139,7 @@ fn try_apply_once(
             }
             // Refuse when the value arm writes to the merge slots — the
             // fold would discard the trailing merge that reads those slots.
-            if arm_writes_to_merge_slots(package, then_id, has_returned, return_slot) {
+            if expr_writes_to_merge_slots(package, then_id, has_returned, return_slot) {
                 return false;
             }
             let else_arm = wrap_in_block_expr(package, assigner, v, &block_ty);
@@ -166,7 +166,7 @@ fn try_apply_once(
                 return false;
             }
             // Refuse when the value arm writes to the merge slots.
-            if arm_writes_to_merge_slots(package, else_id, has_returned, return_slot) {
+            if expr_writes_to_merge_slots(package, else_id, has_returned, return_slot) {
                 return false;
             }
             let then_arm = wrap_in_block_expr(package, assigner, v, &block_ty);
@@ -214,39 +214,4 @@ fn wrap_in_block_expr(
         block_ty.clone(),
         package.synthetic_span(),
     )
-}
-
-/// Returns `true` when `arm_expr_id` contains any assignment whose LHS
-/// root resolves to `has_returned` or `return_slot`.
-///
-/// Mirrors `super::let_folding::init_writes_to_merge_slots`. The fold
-/// is only valid when the value arm does not write the merge's slots;
-/// otherwise the trailing merge (which we remove) would have read the
-/// post-write slot values and produced a different result than the
-/// folded `if`.
-fn arm_writes_to_merge_slots(
-    package: &Package,
-    arm_expr_id: ExprId,
-    has_returned: LocalVarId,
-    return_slot: LocalVarId,
-) -> bool {
-    let mut stack = vec![arm_expr_id];
-    while let Some(id) = stack.pop() {
-        let expr = package.get_expr(id);
-        let lhs = match &expr.kind {
-            ExprKind::Assign(lhs, _)
-            | ExprKind::AssignOp(_, lhs, _)
-            | ExprKind::AssignField(lhs, _, _)
-            | ExprKind::AssignIndex(lhs, _, _) => Some(*lhs),
-            _ => None,
-        };
-        if let Some(lhs_id) = lhs
-            && let Some(root_local) = extract_root_local(package, lhs_id)
-            && (root_local == has_returned || root_local == return_slot)
-        {
-            return true;
-        }
-        push_children(package, id, &mut stack);
-    }
-    false
 }

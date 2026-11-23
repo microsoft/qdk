@@ -3,7 +3,6 @@ name = "qsc_fir_transforms"
 
 version.workspace = true
 authors.workspace = true
-homepage.workspace = true
 repository.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -14,7 +13,6 @@ thiserror = { workspace = true }
 num-bigint = { workspace = true }
 qsc_data_structures = { path = "../qsc_data_structures" }
 qsc_fir = { path = "../qsc_fir" }
-qsc_formatter = { path = "../qsc_formatter" }
 qsc_frontend = { path = "../qsc_frontend", optional = true }
 qsc_hir = { path = "../qsc_hir", optional = true }
 qsc_lowerer = { path = "../qsc_lowerer" }
@@ -26,6 +24,7 @@ slow-proptest-tests = []
 testutil = ["qsc_frontend", "qsc_hir", "qsc_passes"]
 
 [dev-dependencies]
+qsc_formatter = { path = "../qsc_formatter" }
 qsc_fir_transforms = { path = ".", features = ["testutil"] }
 expect-test = { workspace = true }
 indoc = { workspace = true }

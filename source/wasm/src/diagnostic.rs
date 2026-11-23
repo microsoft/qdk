@@ -9,7 +9,6 @@ use miette::{Diagnostic, LabeledSpan, Severity};
 use qsc::{self, SourceName, Span, error::WithSource, interpret, project};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{fmt::Write, iter};
 use wasm_bindgen::prelude::*;
 
 serializable_type! {
@@ -61,7 +60,7 @@ serializable_type! {
     QSharpError,
     {
         document: String,
-        diagnostic: VSDiagnostic,
+        pub(crate) diagnostic: VSDiagnostic,
         stack: Option<String>,
     },
     r#"export interface IQSharpError {
@@ -147,16 +146,7 @@ impl VSDiagnostic {
             })
             .collect();
 
-        // e.g. "runtime error"
-        let mut message = err.to_string();
-        for source in iter::successors(std::error::Error::source(&err), |e| e.source()) {
-            // e.g. " Qubit0 released while not in |0⟩ state"
-            write!(message, ": {source}").expect("message should be writable");
-        }
-        if let Some(help) = err.help() {
-            // e.g. "qubits should be returned to the |0⟩ state before being released to satisfy the assumption that allocated qubits start in the |0⟩ state"
-            write!(message, "\n\nhelp: {help}").expect("message should be writable");
-        }
+        let message = qsc::error::diagnostic_message(err);
 
         // e.g. Qdk.Qsc.Eval.ReleasedQubitNotZero
         let code = err.code().map(|c| c.to_string());
@@ -310,6 +300,9 @@ pub fn project_errors_into_qsharp_errors(
 
 fn interpret_error_labels(err: &interpret::Error) -> Vec<Label> {
     match err {
+        interpret::Error::AdaptiveProfileFallback(warning) => {
+            interpret_error_labels(&warning.reason)
+        }
         interpret::Error::Eval(e) => error_labels(e.error()),
         interpret::Error::Compile(e) => error_labels(e),
         interpret::Error::Pass(e) => error_labels(e),

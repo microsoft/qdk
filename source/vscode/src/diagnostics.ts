@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { log, QdkDiagnostics } from "qsharp-lang";
+import { log, QdkDiagnostics, IQSharpError } from "qsharp-lang";
 import * as vscode from "vscode";
 import {
   qsharpExtensionId,
@@ -97,13 +97,15 @@ function startCommandDiagnostics(): vscode.Disposable[] {
     [qsharpLanguageId, { language: "json", pattern: "**/qsharp.json" }],
     {
       provideCodeActions(doc, range, context): vscode.CodeAction[] | undefined {
-        const commandErrors = context.diagnostics.filter((d) =>
-          d.message.startsWith("QDK command error: "),
+        const commandErrors = context.diagnostics.filter(
+          (d) =>
+            d.message.startsWith("QDK command error: ") ||
+            d.message.startsWith("QDK command warning: "),
         );
 
         if (commandErrors.length > 0) {
           const action = new vscode.CodeAction(
-            "Dismiss errors for the last run QDK command",
+            "Dismiss diagnostics for the last run QDK command",
             vscode.CodeActionKind.QuickFix, // makes the lightbulb reliably show up
           );
           action.diagnostics = commandErrors;
@@ -127,6 +129,24 @@ export function clearCommandDiagnostics() {
   }
 
   commandDiagnostics?.clear();
+}
+
+export function reportCommandDiagnostics(diagnostics: IQSharpError[]) {
+  const byUri = new Map<string, vscode.Diagnostic[]>();
+  for (const error of diagnostics) {
+    const uri = getSourceUri(error.document).toString();
+    const label = error.diagnostic.severity === "warning" ? "warning" : "error";
+    const diagnostic = toVsCodeDiagnostic({
+      ...error.diagnostic,
+      message: `QDK command ${label}: ${error.diagnostic.message}`,
+    });
+    const group = byUri.get(uri) ?? [];
+    group.push(diagnostic);
+    byUri.set(uri, group);
+  }
+  for (const [uri, group] of byUri) {
+    commandDiagnostics?.set(vscode.Uri.parse(uri), group);
+  }
 }
 
 /**
@@ -171,20 +191,7 @@ function reportIfQSharpErrors(
 
   if (e instanceof QdkDiagnostics) {
     if (options.populateProblemsView) {
-      const byUri = new Map<vscode.Uri, vscode.Diagnostic[]>();
-
-      for (const error of e.diagnostics) {
-        const uri = getSourceUri(error.document);
-
-        const diagnostics = byUri.get(uri) || [];
-        error.diagnostic.message = `QDK command error: ${error.diagnostic.message}`;
-        diagnostics.push(toVsCodeDiagnostic(error.diagnostic));
-        byUri.set(uri, diagnostics);
-      }
-
-      for (const [uri, diags] of byUri) {
-        commandDiagnostics.set(uri, diags);
-      }
+      reportCommandDiagnostics(e.diagnostics);
     }
 
     if (options.showModalError) {

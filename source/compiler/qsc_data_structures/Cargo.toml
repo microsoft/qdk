@@ -4,7 +4,6 @@ name = "qsc_data_structures"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-homepage.workspace = true
 license.workspace = true
 repository.workspace = true
 
@@ -15,9 +14,9 @@ miette = { workspace = true }
 serde = { workspace = true }
 bitflags = { workspace = true }
 rustc-hash = { workspace = true }
-thiserror = { workspace = true }
 
 [dev-dependencies]
+thiserror = { workspace = true }
 expect-test = { workspace = true }
 
 [lints]

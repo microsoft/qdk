@@ -12,6 +12,75 @@ use crate::walk_utils::collect_expr_ids_in_local_callables;
 use qsc_fir::fir::CallableKind;
 
 #[test]
+fn shared_capture_binding_requires_matching_callable_keys() {
+    use qsc_data_structures::functors::FunctorApp;
+
+    let source = r#"
+        operation A(q : Qubit) : Unit is Adj + Ctl { X(q); }
+        operation B(q : Qubit) : Unit is Adj + Ctl { H(q); }
+        function Make(f : Qubit => Unit is Adj + Ctl) : Qubit => Unit is Adj + Ctl {
+            q => f(q)
+        }
+        @EntryPoint() operation Main() : Unit {
+            use q = Qubit();
+            Make(A)(q);
+            Reset(q);
+        }
+    "#;
+    let (store, package_id) = compile_to_monomorphized_fir(source);
+    let package = store.get(package_id);
+    let (occurrence, target) = package
+        .exprs
+        .iter()
+        .find_map(|(id, expr)| match &expr.kind {
+            ExprKind::Closure(captures, target) if !captures.is_empty() => Some((id, *target)),
+            _ => None,
+        })
+        .expect("source contains a capturing closure");
+    let global = |name, functor| ConcreteCallable::Global {
+        item_id: ItemId {
+            package: package_id,
+            item: callable_id_by_name(package, name),
+        },
+        functor,
+    };
+    let a = global("A", FunctorApp::default());
+    let b = global("B", FunctorApp::default());
+    let adj_a = global(
+        "A",
+        FunctorApp {
+            adjoint: true,
+            controlled: 0,
+        },
+    );
+    let metadata = UdtMetadata::new(&store);
+    for (first, next, conflict) in [
+        (vec![a.clone()], vec![a.clone()], false),
+        (vec![a.clone()], vec![b.clone()], true),
+        (vec![a.clone()], vec![adj_a], true),
+        (
+            vec![a.clone(), b.clone()],
+            vec![a.clone(), b.clone()],
+            false,
+        ),
+        (vec![a.clone(), b.clone()], vec![b, a.clone()], true),
+        (vec![a.clone()], vec![a.clone(), a.clone()], true),
+    ] {
+        let mut tracker = CaptureSpecializations::new(&metadata);
+        assert!(tracker.first_use(package, target, occurrence, 0, &first[0], &first));
+        assert!(!tracker.failed);
+        assert!(!tracker.first_use(package, target, occurrence, 0, &next[0], &next));
+        assert_eq!(tracker.failed, conflict, "{first:?} followed by {next:?}");
+    }
+    let mut tracker = CaptureSpecializations::new(&metadata);
+    assert!(!tracker.first_use(package, target, occurrence, usize::MAX, &a, &[]));
+    assert!(
+        tracker.failed,
+        "an unresolved binding must not count as reuse"
+    );
+}
+
+#[test]
 fn replay_disposition_uses_shared_guard_discard_contract() {
     use super::super::rewrite::{
         ConsumptionSite, EvaluationDisposition, consumed_callable_expr_disposition,
@@ -377,7 +446,7 @@ fn removal_layout_keeps_empty_path_extraction_types() {
                 let ExprKind::Field(base, Field::Path(path)) = &expr.kind else {
                     panic!("nominal extraction")
                 };
-                assert!(path.indices.is_empty());
+                assert_eq!(path.indices.len(), 0);
                 let Ty::Udt(Res::Item(item)) = &fixture.package.get_expr(*base).ty else {
                     panic!("nominal base")
                 };
@@ -442,7 +511,7 @@ fn closure_call_convention_controls_zero_capture_packaging() {
             &mut fixture.assigner,
         )
         .expect("convention matches declared input");
-        assert!(result.prefix.is_empty());
+        assert_eq!(result.prefix.len(), 0);
         assert_eq!(fixture.package.get_expr(result.value).ty, expected);
         assert_eq!(
             fixture.package.get_expr(fixture.args_id).kind,
@@ -518,7 +587,7 @@ fn dispatch_layout_capability_packing_is_idempotent() {
                         &mut fixture.assigner,
                     )
                     .expect("stronger capabilities populate the declared input");
-                    assert!(result.prefix.is_empty());
+                    assert_eq!(result.prefix.len(), 0);
                     value = result.value;
                     let mut base = value;
                     for _ in 0..layers {
@@ -596,7 +665,7 @@ fn dispatch_layout_capability_packing_rejects_weaker_packed_input() {
         &mut fixture.assigner,
     )
     .expect("weaker declaration accepts weaker captures");
-    assert!(packed.prefix.is_empty());
+    assert_eq!(packed.prefix.len(), 0);
     let original = fixture.package.get_expr(packed.value).clone();
     assert!(
         build_closure_call_args(

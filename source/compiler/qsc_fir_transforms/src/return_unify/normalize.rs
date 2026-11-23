@@ -53,8 +53,8 @@ mod shape_tests;
 use qsc_fir::{
     assigner::Assigner,
     fir::{
-        BinOp, ExprId, ExprKind, Mutability, Package, PackageId, PackageLookup, StmtId, StmtKind,
-        StringComponent,
+        BinOp, ExprId, ExprKind, Lit, LocalVarId, Mutability, Package, PackageId, PackageLookup,
+        PatKind, Res, StmtId, StmtKind, StringComponent, UnOp,
     },
     ty::{Prim, Ty},
 };
@@ -63,6 +63,7 @@ use crate::fir_builder::{
     alloc_block, alloc_bool_lit, alloc_discard_pat, alloc_expr, alloc_expr_stmt, alloc_local_stmt,
     alloc_local_var, alloc_local_var_expr, alloc_not_expr, alloc_semi_stmt,
 };
+use rustc_hash::FxHashMap;
 use std::rc::Rc;
 
 use super::detect::contains_return_in_expr;
@@ -207,7 +208,8 @@ pub(super) fn hoist_returns_to_statement_boundary(
     block_id: qsc_fir::fir::BlockId,
     errors: &mut Vec<super::Error>,
 ) -> bool {
-    let mut changed_any = blockify_return_bearing_if_arms(package, assigner, block_id);
+    let mut changed_any = prune_skipped_short_circuit_returns(package, block_id);
+    changed_any |= blockify_return_bearing_if_arms(package, assigner, block_id);
     let hard_cap = package.exprs.iter().count() + package.stmts.iter().count() + 1;
     let mut prev_measure: Option<usize> = None;
     for _ in 0..hard_cap {
@@ -238,6 +240,103 @@ pub(super) fn hoist_returns_to_statement_boundary(
         (package_id, block_id).into(),
     ));
     changed_any
+}
+
+/// Remove proven skipped operands before return lowering turns their releases
+/// into conditional control flow.
+///
+/// Scan each block in statement order, tracking known Boolean values for simple
+/// bindings and assignments. Facts never flow between blocks, and any nested
+/// write invalidates them. Only statement-root logical operators with a
+/// return-bearing RHS are candidates; this is not general constant folding.
+/// Returns whether any expression was replaced.
+fn prune_skipped_short_circuit_returns(package: &mut Package, root: qsc_fir::fir::BlockId) -> bool {
+    use crate::walk_utils::{assignment_written_locals, for_each_expr};
+
+    // Restrict the proof to side-effect-free expressions: replacing the whole
+    // operator must not discard effects from evaluating its LHS.
+    fn known_bool(
+        package: &Package,
+        expr: ExprId,
+        values: &FxHashMap<LocalVarId, bool>,
+    ) -> Option<bool> {
+        match package.get_expr(expr).kind {
+            ExprKind::Lit(Lit::Bool(value)) => Some(value),
+            ExprKind::Var(Res::Local(local), _) => values.get(&local).copied(),
+            ExprKind::UnOp(UnOp::NotL, operand) => {
+                known_bool(package, operand, values).map(|value| !value)
+            }
+            _ => None,
+        }
+    }
+
+    let mut changed = false;
+    for block in collect_reachable_blocks(package, root) {
+        // In particular, an outer fact cannot be assumed to hold on every
+        // iteration of a nested loop.
+        let mut values = FxHashMap::default();
+        for stmt in package.get_block(block).stmts.clone() {
+            // Extract the expression to inspect and, for a simple declaration,
+            // the local whose Boolean value it may establish. Destructuring
+            // yields no per-element facts, but its initializer is still analyzed.
+            // Expression statements introduce no binding; items are skipped.
+            let (expr, binding) = match package.get_stmt(stmt).kind {
+                StmtKind::Local(_, pat, expr) => {
+                    let binding = match &package.get_pat(pat).kind {
+                        PatKind::Bind(ident) => Some(ident.id),
+                        _ => None,
+                    };
+                    (expr, binding)
+                }
+                StmtKind::Expr(expr) | StmtKind::Semi(expr) => (expr, None),
+                StmtKind::Item(_) => continue,
+            };
+            // `false and rhs` and `true or rhs` skip the RHS, including its
+            // returns and the qubit releases associated with those returns.
+            if let ExprKind::BinOp(op @ (BinOp::AndL | BinOp::OrL), lhs, rhs)
+            | ExprKind::AssignOp(op @ (BinOp::AndL | BinOp::OrL), lhs, rhs) =
+                package.get_expr(expr).kind
+                && known_bool(package, lhs, &values) == Some(op == BinOp::OrL)
+                && contains_return_in_expr(package, rhs)
+            {
+                let expr = package.exprs.get_mut(expr).expect("expression exists");
+                // A skipped compound assignment leaves the target unchanged
+                // and yields Unit; a plain logical operator yields its LHS.
+                expr.kind = if matches!(expr.kind, ExprKind::AssignOp(..)) {
+                    ExprKind::Tuple(Vec::new())
+                } else {
+                    ExprKind::Lit(Lit::Bool(op == BinOp::OrL))
+                };
+                changed = true;
+            }
+            // Capture the new value using pre-write facts, as in `x = not x`.
+            // Reinstall it only after invalidating the statement's writes.
+            let fact = if let Some(local) = binding {
+                known_bool(package, expr, &values).map(|value| (local, value))
+            } else if let ExprKind::Assign(lhs, rhs) = package.get_expr(expr).kind
+                && let ExprKind::Var(Res::Local(local), _) = package.get_expr(lhs).kind
+            {
+                known_bool(package, rhs, &values).map(|value| (local, value))
+            } else {
+                None
+            };
+            // Conservatively kill facts for every remaining write, including
+            // conditional/nested writes and tuple destinations. Walking the
+            // rewritten expression excludes writes in an RHS just removed.
+            for_each_expr(package, expr, &mut |_, expr| {
+                for local in assignment_written_locals(package, expr) {
+                    values.remove(&local);
+                }
+            });
+            // Remember the proven post-statement value for later guards.
+            // Insert it after invalidation so the assignment's own write
+            // cannot erase this new fact.
+            if let Some((local, value)) = fact {
+                values.insert(local, value);
+            }
+        }
+    }
+    changed
 }
 
 /// Wraps non-block, return-bearing `If` arms in value-preserving blocks so

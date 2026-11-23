@@ -60,6 +60,8 @@ export function OutputTabs(props: {
   hir: string;
   rir: string[];
   qir: string;
+  rirWarnings: VSDiagnostic[];
+  qirWarnings: VSDiagnostic[];
   activeTab: ActiveTab;
   setActiveTab: (tab: ActiveTab) => void;
 }) {
@@ -77,6 +79,16 @@ export function OutputTabs(props: {
           ))}
         </div>
       ) : null}
+      {(props.activeTab === "rir-tab"
+        ? props.rirWarnings
+        : props.activeTab === "qir-tab"
+          ? props.qirWarnings
+          : []
+      ).map((warning) => (
+        <div class="warning-row" role="status">
+          Warning {warning.code}: {warning.message}
+        </div>
+      ))}
       <ResultsTab {...props} />
       <AstTab {...props} />
       <HirTab {...props} />

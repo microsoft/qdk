@@ -145,6 +145,8 @@ function App(props: {
   const [hir, setHir] = useState<string>("");
   const [rir, setRir] = useState<string[]>(["", ""]);
   const [qir, setQir] = useState<string>("");
+  const [rirWarnings, setRirWarnings] = useState<VSDiagnostic[]>([]);
+  const [qirWarnings, setQirWarnings] = useState<VSDiagnostic[]>([]);
   const [activeTab, setActiveTab] = useState<ActiveTab>("results-tab");
 
   const onRestartCompiler = () => {
@@ -303,6 +305,8 @@ function App(props: {
             setHir={setHir}
             setRir={setRir}
             setQir={setQir}
+            setRirWarnings={setRirWarnings}
+            setQirWarnings={setQirWarnings}
             activeTab={activeTab}
             languageService={languageService}
           ></Editor>
@@ -314,6 +318,8 @@ function App(props: {
             hir={hir}
             rir={rir}
             qir={qir}
+            rirWarnings={rirWarnings}
+            qirWarnings={qirWarnings}
             activeTab={activeTab}
             setActiveTab={setActiveTab}
           ></OutputTabs>

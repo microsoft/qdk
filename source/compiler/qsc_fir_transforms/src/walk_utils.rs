@@ -66,8 +66,18 @@
 /// Includes expressions in nested blocks without following callable references.
 /// Arena IDs are not a dependency order after cloning or operand replacement.
 pub(crate) fn expressions_in_postorder(package: &Package) -> Vec<ExprId> {
-    let roots: Vec<_> = package.exprs.iter().map(|(id, _)| (id, false)).collect();
-    let mut pending: Vec<_> = roots.into_iter().rev().collect();
+    expressions_in_postorder_from_roots(package, package.exprs.iter().map(|(id, _)| id))
+}
+
+/// Returns the roots and their structural descendants once, children first.
+/// Traverses nested blocks but not callable references or unrelated arena nodes.
+/// Root order and arena IDs need not be a dependency order.
+pub(crate) fn expressions_in_postorder_from_roots(
+    package: &Package,
+    roots: impl IntoIterator<Item = ExprId>,
+) -> Vec<ExprId> {
+    let mut pending: Vec<_> = roots.into_iter().map(|id| (id, false)).collect();
+    pending.reverse();
     let mut seen = FxHashSet::default();
     let mut ordered = Vec::new();
     while let Some((id, children_visited)) = pending.pop() {

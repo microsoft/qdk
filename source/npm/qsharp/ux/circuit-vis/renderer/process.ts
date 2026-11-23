@@ -429,6 +429,7 @@ const _opToRenderData = (
     }
   } else if (op.kind === "measurement") {
     renderData.type = GateType.Measure;
+    renderData.label = gate;
   } else if (op.kind === "ket") {
     renderData.type = GateType.Ket;
     renderData.label = gate;
