@@ -37,13 +37,14 @@ use crate::{
 pub struct DeclaredParts<'a> {
     parts: usize,
     fits: bool,
-    /// What a walk that lists faults keeps; `None` for one that only
-    /// checks, as each run's does.
-    faults: Option<Faults<'a>>,
+    /// What a walk that lists faults keeps of each part; `None` for a walk
+    /// without listing, which keeps only the count and the fit.
+    listing: Option<Listing<'a>>,
 }
 
-/// What a walk that lists faults keeps of each part.
-struct Faults<'a> {
+/// What a walk that lists faults keeps: each part's name, what each sends
+/// and requires, and the faults found.
+struct Listing<'a> {
     names: Vec<&'a str>,
     /// What each part sends, by its position: all but the bottom part.
     sent: Vec<Sent<'a>>,
@@ -63,12 +64,13 @@ struct Sent<'a> {
 
 impl<'a> DeclaredParts<'a> {
     /// No part yet, for a walk that lists every fault, by the parts'
-    /// names: the one `on` checks a chain with.
+    /// names: the one `on` checks a chain with, and the one a run refused
+    /// at its start lists its faults with.
     pub(crate) fn listing_faults() -> Self {
         Self {
             parts: 0,
             fits: true,
-            faults: Some(Faults {
+            listing: Some(Listing {
                 names: Vec::new(),
                 sent: Vec::new(),
                 found: BTreeMap::new(),
@@ -76,22 +78,22 @@ impl<'a> DeclaredParts<'a> {
         }
     }
 
-    /// No part yet, for a walk that only checks whether each part provides
-    /// what arrives at it: the one each run starts with. A join counts its
-    /// upper half's parts with one too.
-    pub(crate) fn checking() -> Self {
+    /// No part yet, for a walk that keeps only how many parts it adds and
+    /// whether each provides what arrives at it: the one each run starts
+    /// with, and the one a join counts its upper half's parts with.
+    pub(crate) fn without_listing() -> Self {
         Self {
             parts: 0,
             fits: true,
-            faults: None,
+            listing: None,
         }
     }
 
     /// Adds the part below those added, by its name.
     pub(crate) fn push(&mut self, name: &'a str) {
         self.parts += 1;
-        if let Some(faults) = &mut self.faults {
-            faults.names.push(name);
+        if let Some(listing) = &mut self.listing {
+            listing.names.push(name);
         }
     }
 
@@ -107,21 +109,21 @@ impl<'a> DeclaredParts<'a> {
     ) {
         let fit = arriving.fits_limits(provides);
         self.fits &= fit.is_ok();
-        let Some(faults) = &mut self.faults else {
+        let Some(listing) = &mut self.listing else {
             return;
         };
         let receiver = self.parts - 1;
-        let sends = (faults.sent[receiver - 1].sends.downcast_ref::<S>())
+        let sends = (listing.sent[receiver - 1].sends.downcast_ref::<S>())
             .expect("the joins check at compile time that a part sends the set below it accepts");
         if let Err(mismatch) = sends.fits(accepts) {
             self.fits = false;
-            let fault = faults.found.entry((receiver - 1, receiver));
+            let fault = listing.found.entry((receiver - 1, receiver));
             fault.or_default().instructions = Some(Box::new(mismatch));
         }
         let Err(mismatch) = fit else {
             return;
         };
-        let sent = &faults.sent;
+        let sent = &listing.sent;
         // The first part above `receiver` whose requirement `alike` reads
         // as the one arriving at `receiver`, each part between passing it
         // on unchanged.
@@ -170,7 +172,7 @@ impl<'a> DeclaredParts<'a> {
             }
         }
         for (origin, mismatch) in split {
-            let capabilities = &mut (faults.found.entry((origin, receiver)))
+            let capabilities = &mut (listing.found.entry((origin, receiver)))
                 .or_default()
                 .capabilities;
             capabilities.resources.extend(mismatch.resources);
@@ -182,8 +184,8 @@ impl<'a> DeclaredParts<'a> {
     /// The part last added sends `sends`, and requires `required` of the
     /// part below.
     pub(crate) fn send<S: InstructionSet>(&mut self, sends: &'a S, required: &Capabilities<S>) {
-        if let Some(faults) = &mut self.faults {
-            faults.sent.push(Sent {
+        if let Some(listing) = &mut self.listing {
+            listing.sent.push(Sent {
                 sends,
                 resources: *required.resources(),
                 features: *required.features(),
@@ -205,7 +207,10 @@ impl<'a> DeclaredParts<'a> {
 
     /// Each part, by its position and the name it declared.
     pub(crate) fn ids(&self) -> Vec<PartId> {
-        let names = self.faults.as_ref().map_or(&[][..], |faults| &faults.names);
+        let names = self
+            .listing
+            .as_ref()
+            .map_or(&[][..], |listing| &listing.names);
         (names.iter().enumerate())
             .map(|(at, name)| PartId::new(at, name))
             .collect()
@@ -214,7 +219,10 @@ impl<'a> DeclaredParts<'a> {
     /// Every fault, by its requirer then its provider, top to bottom, each
     /// part named as `parts` names it, by its position.
     pub(crate) fn faults(self, parts: &[PartId]) -> Vec<CompositionFault> {
-        let found = self.faults.map(|faults| faults.found).unwrap_or_default();
+        let found = self
+            .listing
+            .map(|listing| listing.found)
+            .unwrap_or_default();
         (found.into_iter())
             .map(|((requirer, provider), mismatch)| CompositionFault {
                 requirer: parts[requirer].clone(),

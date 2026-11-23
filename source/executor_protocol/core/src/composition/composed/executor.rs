@@ -24,7 +24,7 @@ impl<U: TranslatingAdapter, L: Executor<Accepts = U::Sends>> Composed<U, L, U::S
                 boundary
             },
         );
-        let mut parts = DeclaredParts::checking();
+        let mut parts = DeclaredParts::without_listing();
         upper.count_parts(&mut parts);
         let upper_parts = parts.len();
         Self::new((upper, upper_parts), lower, fit)

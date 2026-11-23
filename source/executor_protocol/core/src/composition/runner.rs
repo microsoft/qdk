@@ -226,7 +226,7 @@ impl<D: Driver, E: Executor<Accepts = D::Sends>> Runner<D, E> {
     /// part provides what arrives at it; else the refusal, which lists
     /// every part that does not.
     fn required_below(&self, run: &RunRequirement) -> Result<Capabilities<D::Sends>, RunRefusal> {
-        let mut parts = DeclaredParts::checking();
+        let mut parts = DeclaredParts::without_listing();
         let required = self.driver.declare(run, &mut parts);
         self.executor.declare(&required, &mut parts);
         if parts.fit() {
