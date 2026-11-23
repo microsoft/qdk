@@ -17,9 +17,14 @@
 //                          Note: This controls the VS Code and test web server logging level.
 //                          Q# extension logs are usually more relevant for debugging tests.
 //                          To control the Q# extension log level see: suites/extensionUtils.ts
+// --download-only          Download the VS Code builds used by the tests, without running the
+//                          real test suites. Requires only the "empty" suite to have been built.
 
 import { runTests as runTestsWeb } from "@vscode/test-web";
-import { runTests as runTestsElectron } from "@vscode/test-electron";
+import {
+  downloadAndUnzipVSCode,
+  runTests as runTestsElectron,
+} from "@vscode/test-electron";
 import { readFileSync } from "node:fs";
 import { SourceMap } from "node:module";
 import path, { dirname, join } from "node:path";
@@ -30,8 +35,10 @@ const isCI = !!process.env.CI;
 const attachArgName = "--waitForDebugger=";
 const verboseArgName = "--verbose";
 const suiteArgName = "--suite=";
+const downloadOnlyArgName = "--download-only";
 
 const verbose = process.argv.includes(verboseArgName);
+const downloadOnly = process.argv.includes(downloadOnlyArgName);
 const waitForDebugger = process.argv.find((arg) =>
   arg.startsWith(attachArgName),
 );
@@ -50,6 +57,24 @@ if (waitForDebugger && !selectedSuite) {
 const thisDir = dirname(fileURLToPath(import.meta.url));
 // The folder containing the Extension Manifest package.json
 const extensionDevelopmentPath = join(thisDir, "..");
+
+if (downloadOnly) {
+  try {
+    // @vscode/test-web has no download-only API, so run the no-op "empty" suite,
+    // which downloads VS Code for the Web (and checks that it launches).
+    await runSuite("empty");
+    // Pass the same extensionDevelopmentPath as runTestsElectron, since it's used to pick the version.
+    await downloadAndUnzipVSCode({ extensionDevelopmentPath });
+  } catch (err) {
+    // Unlike a real test run, don't ignore infrastructure failures in CI:
+    // the point of this mode is to make sure the downloads are present.
+    console.error(
+      `Failed to download VS Code for the integration tests: ${err}`,
+    );
+    process.exit(1);
+  }
+  process.exit(0);
+}
 
 try {
   // Run the "empty" suite first to verify VS Code can be downloaded and launched.

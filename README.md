@@ -50,6 +50,11 @@ To build, in the root directory run `python ./build.py`. By default this will ru
 build of each project, including running tests and checks such as linting. Run with the
 `--help` option for detailed usage.
 
+To install the dependencies needed to build, check, and test without actually doing any of
+those things (e.g., to prepare for building without network access), run
+`python ./build.py --deps-only`, optionally with project options such as `--qdk`. This doesn't
+install the prerequisites listed above, or the dependencies of the widgets and JupyterLab projects.
+
 ### Playground
 
 The `playground` is a small website that loads the Q# editor, compiler, samples, and documentation for the standard library. It's a way to manually validate any changes you make to these components.
