@@ -18,10 +18,7 @@ qsc = { path = "../compiler/qsc" }
 qdk_openqasm = { path = "../qdk_openqasm" }
 stim_compiler = { path = "../compiler/stim_compiler" }
 qdk_simulators = { path = "../simulators", features = ["gpu"] }
-# The engines of `tensornetwork_qir(method="mps")`: `engine="gpu"` on
-# cuTensorNet, `engine="cpu"` on the host CPU, both behind `tensornet`'s
-# `MpsEngine`, and cuTensorNet's GPU setup check, which
-# `check_tensornetwork_setup` runs; joined in
+# The tensor-network engines and cuTensorNet's GPU setup check, joined in
 # `src/qir_simulation/tensor_network.rs`.
 qdk_cutensornet = { path = "../cutensornet" }
 canonical_mps = { path = "../canonical_mps" }
