@@ -9,9 +9,11 @@ import re
 
 from .common import LauncherError, run
 from .layout import (
+    AGENT_PIDS_LIMIT,
     AGENT_TMPFS,
     AGENT_USER,
     PROXY_COMMAND,
+    PROXY_PIDS_LIMIT,
     PROXY_TMPFS,
     PROXY_USER,
     RELAY_COMMAND,
@@ -26,6 +28,7 @@ import os
 from pathlib import Path
 import socket
 import stat
+import sys
 import time
 import uuid
 
@@ -33,6 +36,10 @@ import uuid
 def fail(message):
     raise SystemExit("probe: " + message)
 
+
+# Confirm the kernel enforces the expected PID limit.
+if Path("/sys/fs/cgroup/pids.max").read_text().strip() != sys.argv[1]:
+    fail("PID limit is not enforced")
 
 # Confirm the agent has only loopback, so the relay socket is its only way out.
 if sorted(os.listdir("/sys/class/net")) != ["lo"]:
@@ -99,8 +106,11 @@ def ask_proxy(request):
         connection.sendall(request.encode("ascii"))
         try:
             return connection.recv(4096)
-        except (ConnectionResetError, socket.timeout):
+        except ConnectionResetError:
             return b""
+        except socket.timeout:
+            # Squid refuses before connecting, so a hang means it allowed the request.
+            fail("proxy did not answer " + request.split(" ", 2)[1])
 
 
 # Confirm Squid itself answers through the relay, so a dead relay can't pass as a rejection below.
@@ -223,6 +233,22 @@ def verify_container_config(container: dict, role: str, session: Session) -> Non
             config["User"] == (AGENT_USER if agent else PROXY_USER),
             f"{role} has an unexpected user",
         )
+        _require(
+            host["PidsLimit"] == (AGENT_PIDS_LIMIT if agent else PROXY_PIDS_LIMIT),
+            f"{role} has an unexpected PID limit",
+        )
+        # Confirm no host proxy settings, which can hold credentials, were passed through.
+        actual = {
+            key: value
+            for key, _, value in (entry.partition("=") for entry in config["Env"])
+            if key.lower().endswith("_proxy")
+        }
+        expected = {
+            key: value
+            for key, value in (session.environment.items() if agent else ())
+            if key.lower().endswith("_proxy")
+        }
+        _require(actual == expected, f"{role} has unexpected proxy settings")
         # Confirm privileged mode is disabled and no capabilities or devices are added.
         _require(not host["Privileged"], f"{role} is privileged")
         _require(not host.get("CapAdd"), f"{role} has added capabilities")
@@ -434,8 +460,8 @@ def verify_boundary(session: Session) -> str:
             run(podman("exec", container, "/bin/bash", "-c", _LIST_DEVICES)).stdout,
             role,
         )
-    # Confirm kernel restrictions and loopback-only listening in the proxy using fresh processes.
-    print("Checking proxy process restrictions and listeners...", flush=True)
+    # Confirm kernel restrictions, loopback-only listening and no IPv6 in the proxy using fresh processes.
+    print("Checking proxy process restrictions, listeners and IPv6...", flush=True)
     verify_process_status(
         run(podman("exec", session.proxy, "/usr/bin/cat", "/proc/self/status")).stdout
     )
@@ -450,6 +476,12 @@ def verify_boundary(session: Session) -> str:
             )
         ).stdout
     )
+    _require(
+        not run(
+            podman("exec", session.proxy, "/usr/bin/cat", "/proc/net/if_inet6")
+        ).stdout.strip(),
+        "proxy has IPv6 addresses",
+    )
     # Confirm the agent's restrictions using a host-supplied probe in isolated Python.
     print("Checking agent isolation and proxy access restrictions...", flush=True)
     result = run(
@@ -462,6 +494,7 @@ def verify_boundary(session: Session) -> str:
             "/usr/bin/python3",
             "-I",
             "-",
+            str(AGENT_PIDS_LIMIT),
         ),
         input_text=_AGENT_PROBE,
         check=False,

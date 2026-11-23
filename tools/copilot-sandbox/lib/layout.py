@@ -11,6 +11,8 @@ from .state import validate_sandbox_instance_name
 LABEL_PREFIX = "io.qdk.copilot-sandbox."
 AGENT_USER = "1000:1000"
 PROXY_USER = "squid"
+AGENT_PIDS_LIMIT = 4096
+PROXY_PIDS_LIMIT = 512
 PROXY_URL = "http://127.0.0.1:3128"
 RELAY_DIRECTORY = "/run/qdk-relay"
 # The agent's main process: its only way out is the proxy's socket on the read-only relay volume.
@@ -29,6 +31,11 @@ PROBE_HOSTS = (
     "loopback.qdk-boundary.test:127.0.0.1",
     "host.qdk-boundary.test:host-gateway",
 )
+# Without these, the network helper fails to configure IPv6 once the sysctls disable it.
+_IPV4_ONLY_NETWORKS = {
+    "pasta": "pasta:--ipv4-only",
+    "slirp4netns": "slirp4netns:enable_ipv6=false",
+}
 
 
 @dataclass(frozen=True)
@@ -107,6 +114,8 @@ class Session:
         arguments = [
             "--pull=never",
             "--init",
+            # Otherwise Podman copies host proxy variables, such as ftp_proxy, which can hold credentials.
+            "--http-proxy=false",
             "--cap-drop=ALL",
             "--security-opt=no-new-privileges",
             "--security-opt=" + self.seccomp,
@@ -129,7 +138,7 @@ class Session:
             # Maps the agent to your user, so its outbox and exchange writes are yours on the host.
             "--userns=keep-id:uid=1000,gid=1000",
             "--network=none",
-            "--pids-limit=4096",
+            f"--pids-limit={AGENT_PIDS_LIMIT}",
         ]
         if self.cpus != "0":
             arguments.append("--cpus=" + self.cpus)
@@ -151,8 +160,11 @@ class Session:
             "--userns=nomap",
             "--read-only",
             "--read-only-tmpfs=false",
-            "--network=" + self.engine.network,
-            "--pids-limit=512",
+            # IPv4 only: LAN devices often have global IPv6 addresses, which Squid's private-address check allows.
+            "--network=" + _IPV4_ONLY_NETWORKS[self.engine.network],
+            "--sysctl=net.ipv6.conf.all.disable_ipv6=1",
+            "--sysctl=net.ipv6.conf.default.disable_ipv6=1",
+            f"--pids-limit={PROXY_PIDS_LIMIT}",
         ]
         for host in PROBE_HOSTS:
             arguments.append("--add-host=" + host)

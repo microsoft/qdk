@@ -12,7 +12,9 @@ More details below, but summarizing here for the TL;DR.
    2. By default, the loose files it creates are available within the repo itself, which VS Code typically considers trusted. If you're doing something risky, update your configuration to put them in an untrusted folder.
 2. The sandbox infrastructure is in the same repo the sandbox has access to - only run the infrastructure from a trusted branch, preferably `main`.
 3. State is preserved session over session in Podman volumes. If you work on something sensitive, you may wish to wipe them (or create a new instance).
-4. A sandbox makes `--allow-all` safer, not safe.
+4. Never open `outbox.git` or, on Linux, the `_work` volume with Git, a Git-aware shell prompt or an editor; they contain agent-controlled Git configuration. Use `sandbox.py fetch`.
+5. On Linux, a container escape runs as you on your host; Windows and macOS add a VM boundary.
+6. A sandbox makes `--allow-all` safer, not safe.
 
 ## Safeguards
 
@@ -22,7 +24,7 @@ All networking goes through a proxy with a domain allowlist.
 The agent container has no network interface except loopback.
 Its main process is a `socat` relay from `127.0.0.1:3128` to a Unix socket on a small volume that it mounts read-only.
 The proxy container creates that socket and forwards it to Squid, which listens only on the proxy's own loopback.
-Only the proxy has egress, through its own rootless network, and it's removed when the session ends.
+Only the proxy has egress, through its own IPv4-only rootless network, and it's removed when the session ends.
 
 ```mermaid
 flowchart LR
@@ -94,7 +96,7 @@ The default mounts are `exchange/INSTANCE_NAME/to_copilot` (read-only context) a
 ### Accounts
 
 The container runs as a non-root user and `sudo` is unavailable.
-Containers run under rootless Podman, so no sandbox process is root on the machine running Podman.
+Containers run under rootless Podman, so no sandbox process is root on the machine running Podman (on Linux, your host).
 The agent's user maps to your account, so its outbox and exchange writes are owned by you; nothing in the proxy maps to your account.
 
 Podman's default seccomp profile is more permissive than Docker's: it lets containers create user namespaces, a common first step in kernel exploits, and open vsock sockets to the hypervisor.
@@ -115,8 +117,16 @@ It never appears in a command line, the container's configuration or environment
 1. Every public repo on GitHub is reachable, which almost certainly includes a bunch of prompt injection.
 1. The agent's output goes straight to your terminal, and escape sequences can, for example, set your clipboard.
    Consider disabling clipboard access by programs in your terminal's settings.
-1. A container escape (a kernel or Podman bug) reaches the Podman machine, which can see the folders shared into it.
-   On Windows that's every drive, and the machine shares a kernel with your other WSL distributions.
+1. A container escape (a kernel or Podman bug) lands here:
+
+   | Host    | Lands as                                            | Can reach                                   |
+   | ------- | --------------------------------------------------- | ------------------------------------------- |
+   | macOS   | the machine's user, in its VM                       | this checkout and `~/qdk-copilot-sandbox`   |
+   | Windows | the machine's user, in the VM all WSL distros share | every drive, writable as you                |
+   | Linux   | you, on your host                                   | everything you can, with unfiltered network |
+
+   On Linux, consider running the sandbox as a separate local user.
+   Rootless Podman applies no AppArmor profile, so Ubuntu and Debian hosts lack that layer; Fedora and RHEL still apply SELinux.
 
 Since the code is already public (modulo local branches), the main risk is exfiltration of the fine-grained PAT, which should be short-lived and low-permission.
 There can also be private configuration and history data in `.git`.
@@ -330,7 +340,7 @@ To mimic the pipeline build locally, you need to pass a lot more arguments:
 
 `--instance NAME` defaults to `default`. Names are 1-40 lowercase letters, digits, hyphens or underscores, starting with a letter or digit.
 Windows device names such as `con` and `nul` are reserved on every platform.
-Each instance has its own containers (`qdk-copilot-sandbox-NAME-agent` and `-proxy`), volumes (`qdk-copilot-sandbox-NAME_work`, `_copilot` and `_relay`), PAT, outbox and settings.
+Each instance has its own containers (`qdk-copilot-sandbox-NAME-agent` and `-proxy`), volumes (`qdk-copilot-sandbox-NAME_work`, `_copilot` and `_relay`; on Linux, directories under `~/.local/share/containers/storage/volumes`), PAT, outbox and settings.
 Instances last run with the Docker-based launcher start with fresh work and Copilot volumes, since Podman can't see Docker's; their outbox commits and settings are kept.
 
 Host state lives in `~/qdk-copilot-sandbox/NAME/` outside the checkout.
