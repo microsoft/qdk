@@ -5,9 +5,8 @@
 //! Runtime: how its paths are chosen (the override variable, checked before
 //! anything is loaded, or else the library's packaged file, then its
 //! defaults), how an open library is checked and reported with the other
-//! copies beside it, and that the setup check has advice for each. Each
-//! library's own rules (its table, probes and versions) are tested in its
-//! module's file.
+//! copies beside it. Each library's own rules (its table, probes and
+//! versions) are tested in its module's file.
 
 #[cfg(unix)]
 mod cuda_runtime;
@@ -412,29 +411,44 @@ fn a_wheels_copy_beside_an_override_is_another_copy() {
     );
 }
 
-/// A user with no override whose CUDA Runtime was loaded from the wheel
-/// has no other copy: the loaded one is not reported as another.
+/// A path that names the loaded file, through a link or not, or a file of
+/// another library, is no other copy: a user with no override is told of
+/// none when the CUDA Runtime was loaded from the wheel, when the wheel
+/// holds a link to the file loaded, or when it was loaded through a link to
+/// the wheel's file; and cuTensorNet's other copies are looked for among
+/// its own paths only, so the CUDA Runtime's wheel is none. Each row is a
+/// scene and the other copies reported in it.
 #[cfg(unix)]
 #[test]
-fn the_loaded_copy_is_no_other_copy() {
+fn a_path_to_the_loaded_file_or_another_library_is_no_other_copy() {
     let (wheel, _remove_wheel) = packaged_file::<CudaRuntime>("loaded-wheel-copy");
-    assert_eq!(
-        other_test_copies::<CudaRuntime>(&wheel, None, &packaged(&[&wheel])),
-        Vec::<PathBuf>::new()
-    );
-}
-
-/// cuTensorNet's other copies are looked for among its own paths only: the
-/// CUDA Runtime's wheel is no copy of it.
-#[cfg(unix)]
-#[test]
-fn another_librarys_wheel_is_no_other_copy() {
-    let (loaded, _remove_loaded) = not_a_shared_object("loaded-cutensornet");
-    let (wheel, _remove_wheel) = packaged_file::<CudaRuntime>("cuda-runtime-wheel");
-    assert_eq!(
-        other_test_copies::<CuTensorNet>(&loaded, None, &packaged(&[&wheel])),
-        Vec::<PathBuf>::new()
-    );
+    let (cutensornet, _remove_cutensornet) = not_a_shared_object("loaded-cutensornet");
+    let (loaded, _remove_loaded) = not_a_shared_object("loaded-linked");
+    let (link_to_loaded, _remove_link) = packaged_path::<CudaRuntime>("link-to-loaded");
+    std::os::unix::fs::symlink(&loaded, &link_to_loaded).expect("a link is made");
+    let loaded_link = unique_temp_path("loaded-link");
+    std::os::unix::fs::symlink(&wheel, &loaded_link).expect("a link is made");
+    let _remove_loaded_link = RemoveFile(loaded_link.clone());
+    for (scene, copies) in [
+        (
+            "the wheel's copy loaded",
+            other_test_copies::<CudaRuntime>(&wheel, None, &packaged(&[&wheel])),
+        ),
+        (
+            "a link in the wheel to the file loaded",
+            other_test_copies::<CudaRuntime>(&loaded, None, &packaged(&[&link_to_loaded])),
+        ),
+        (
+            "the wheel's file loaded through a link",
+            other_test_copies::<CudaRuntime>(&loaded_link, None, &packaged(&[&wheel])),
+        ),
+        (
+            "cuTensorNet beside the CUDA Runtime's wheel",
+            other_test_copies::<CuTensorNet>(&cutensornet, None, &packaged(&[&wheel])),
+        ),
+    ] {
+        assert_eq!(copies, Vec::<PathBuf>::new(), "{scene}");
+    }
 }
 
 /// A bare file name, such as the default `libcudart.so.12`, is searched for
@@ -457,35 +471,6 @@ fn a_bare_file_name_is_not_looked_for_in_the_working_directory() {
         &PackagedLibraries::default(),
     );
     assert!(!copies.contains(&PathBuf::from("Cargo.toml")));
-}
-
-/// Two links in one installation, `libcudart.so.12` naming the file loaded:
-/// the link is no other copy.
-#[cfg(unix)]
-#[test]
-fn a_link_to_the_loaded_file_is_no_other_copy() {
-    let (loaded, _remove_loaded) = not_a_shared_object("loaded-linked");
-    let (link_to_loaded, _remove_link) = packaged_path::<CudaRuntime>("link-to-loaded");
-    std::os::unix::fs::symlink(&loaded, &link_to_loaded).expect("a link is made");
-    assert_eq!(
-        other_test_copies::<CudaRuntime>(&loaded, None, &packaged(&[&link_to_loaded])),
-        Vec::<PathBuf>::new()
-    );
-}
-
-/// A library loaded through a link: the file the link names is no other
-/// copy.
-#[cfg(unix)]
-#[test]
-fn the_file_a_loaded_link_names_is_no_other_copy() {
-    let (file, _remove_file) = packaged_file::<CudaRuntime>("linked-file");
-    let loaded_link = unique_temp_path("loaded-link");
-    std::os::unix::fs::symlink(&file, &loaded_link).expect("a link is made");
-    let _remove_loaded_link = RemoveFile(loaded_link.clone());
-    assert_eq!(
-        other_test_copies::<CudaRuntime>(&loaded_link, None, &packaged(&[&file])),
-        Vec::<PathBuf>::new()
-    );
 }
 
 /// One other file named twice, by the override and by a link to it, is
@@ -832,9 +817,7 @@ impl NativeLibrary for RefusedAtItsDefaultPath {
 /// system loader, was found: the path its override names, even if the
 /// variable changes during the check (another thread unsets it), its
 /// packaged file, a default absolute path, or a file name the system
-/// loader searched for; and no source when no copy was tried. A user whose
-/// override names a copy at fault is advised that override, which no
-/// install displaces.
+/// loader searched for; and no source when no copy was tried.
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 #[test]
 fn each_library_reports_where_the_copy_tried_was_found() {

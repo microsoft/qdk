@@ -118,9 +118,7 @@ impl fmt::Display for DriverFloor {
 }
 
 /// `value`, or `unread` when the report lacks it: the setup check shows
-/// a library at fault too, whose report may lack versions. A path goes
-/// through it as a defence only: the check shows the path of a library
-/// loaded, whose report always has it.
+/// a library at fault too, whose report may lack versions.
 pub(crate) fn or_unread(value: Option<impl fmt::Display>) -> String {
     value.map_or_else(|| "unread".to_string(), |value| value.to_string())
 }

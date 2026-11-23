@@ -14,7 +14,9 @@ mod report;
 use crate::{Availability, AvailabilityError};
 #[cfg(unix)]
 use crate::{
-    LibraryFault, PackagedLibraries, discovery::discover_from, libraries::cuda_runtime::CudaRuntime,
+    LibraryFault, PackagedLibraries,
+    discovery::{Discovered, discover_from},
+    libraries::cuda_runtime::CudaRuntime,
 };
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 use crate::{
@@ -67,8 +69,10 @@ fn every_library_is_checked_and_reported() {
         "QDK_CUTENSORNET_LIBRARY" => Some(OsString::from("libcutensornet.so.2")),
         _ => None,
     };
-    let (Err(AvailabilityError::Unusable(report)), guides) =
-        discover_from(read_variable, &PackagedLibraries::default())
+    let Discovered {
+        availability: Err(AvailabilityError::Unusable(report)),
+        guides,
+    } = discover_from(read_variable, &PackagedLibraries::default())
     else {
         panic!("neither library can be used");
     };
@@ -103,7 +107,8 @@ fn discovery_loads_a_packaged_library() {
         files: vec![cudart.clone()],
         install_command: None,
     };
-    let Err(AvailabilityError::Unusable(report)) = discover_from(|_| None, &packaged).0 else {
+    let Err(AvailabilityError::Unusable(report)) = discover_from(|_| None, &packaged).availability
+    else {
         panic!("the packaged CUDA Runtime is not a library");
     };
     let cuda_runtime = report
@@ -177,7 +182,7 @@ impl CheckLibrary for StandIns {
 #[test]
 fn discovery_succeeds_when_every_library_is_usable() {
     let availability = availability_of(StandIns { at_fault: None })
-        .0
+        .availability
         .expect("every library is usable");
     let libraries = &availability.report().libraries;
     let names: Vec<_> = libraries.iter().map(|library| library.library).collect();
@@ -194,7 +199,7 @@ fn one_library_at_fault_makes_discovery_fail_with_every_report() {
         let Err(AvailabilityError::Unusable(report)) = availability_of(StandIns {
             at_fault: Some(at_fault),
         })
-        .0
+        .availability
         else {
             panic!("{at_fault} is at fault");
         };
