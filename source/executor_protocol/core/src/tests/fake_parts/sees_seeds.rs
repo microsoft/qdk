@@ -82,7 +82,8 @@ impl<P: Driver> Driver for SeesSeeds<P> {
 
 /// A translating adapter states its limits itself, so one that sees seeds
 /// needs no [`AdapterLimits`]: it is the `StatesLimits` its constructor returns
-/// that takes the role, as for a driver and an executor.
+/// that takes the role, as for a driver and an executor; only the core can
+/// write this impl, as `Renamed`'s says.
 impl<P: TranslatingAdapter> TranslatingAdapter for StatesLimits<SeesSeeds<P>> {
     type Accepts = P::Accepts;
     type Sends = P::Sends;

@@ -804,13 +804,15 @@ where
 }
 
 /// A part of each role joined from two parts, wrapped by a part of a
-/// user's that forwards only its role's public methods, where the chain's
-/// check does not see its inner boundary: the chain composes, as its outer
-/// boundaries fit, but the joined part refuses each run its inner boundary
-/// does not take, at `ready`, as a part that cannot take it, named by the
-/// user's part's position and name, with the boundary's mismatch as its
-/// reason; nothing runs, and no shot is ended on any part. Its halves'
-/// sets not fitting, it refuses every run; an executor whose lower part
+/// user's that forwards its role's methods and the limits of what it
+/// holds, where the chain's check does not see its inner boundary: the
+/// chain composes, as its outer boundaries fit, but the joined part
+/// refuses each run its inner boundary does not take, at `ready`, as a
+/// part that cannot take it, named by the user's part's position and name,
+/// with the boundary's mismatch as its reason; nothing runs, and no shot
+/// is ended on any part. Its halves' sets not fitting, it refuses every
+/// run, and so too held by a part that forwards only its role's public
+/// methods, which gets it ready alone; an executor whose lower part
 /// takes 3 shots a run, and a driver joined through a job queue of 3
 /// shots, refuse a run of 4; one whose inner join, under a repetition
 /// doubling the shots, has a lower part taking 3 shots and no `x`, refuses
@@ -916,6 +918,20 @@ fn a_wrapped_joined_part_refuses_each_run_its_inner_boundary_does_not_take() {
             {
                 let log = Log::default();
                 let held = Renamed::new(
+                    profiler(*coin_gates(), &log).on(Bits::accepting(NO_X, &log)),
+                    "user's executor",
+                );
+                refused_in_turn(CoinCopy::new().on(held), &[4, 4], &counted, &log)
+            },
+        ),
+        (
+            "an adapter on an executor, held stating nothing",
+            1,
+            "user's executor",
+            vec![&no_x_fault; 2],
+            {
+                let log = Log::default();
+                let held = Renamed::stating_nothing(
                     profiler(*coin_gates(), &log).on(Bits::accepting(NO_X, &log)),
                     "user's executor",
                 );

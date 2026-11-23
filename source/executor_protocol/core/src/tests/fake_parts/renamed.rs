@@ -11,8 +11,9 @@ use crate::{
 
 /// `part`, named `name`, as a part built at run time is named by what it
 /// was built from rather than by its type; it does as `part` does
-/// otherwise, in each role `part` takes, stating the limits `part`
-/// states.
+/// otherwise, in each role `part` takes, stating the limits `part` states
+/// when [`new`](Self::new) makes it, and none when
+/// [`stating_nothing`](Self::stating_nothing) does.
 pub(crate) struct Renamed<P> {
     part: P,
     name: &'static str,
@@ -28,6 +29,17 @@ impl<P> Renamed<P> {
                 name,
                 name_once_ready: name,
             },
+        }
+    }
+
+    /// `part`, named `name`, held as a user's part that forwards only its
+    /// role's public methods holds it: it states no limits, and gets
+    /// `part` ready through that role's public `ready`.
+    pub(crate) fn stating_nothing(part: P, name: &'static str) -> Self {
+        Self {
+            part,
+            name,
+            name_once_ready: name,
         }
     }
 }
@@ -86,7 +98,9 @@ impl<P: Driver> Driver for Renamed<P> {
 
 /// A translating adapter states its limits itself, so a renamed one needs
 /// no [`AdapterLimits`]: it is the `StatesLimits` its constructor returns that
-/// takes the role, as for a driver and an executor.
+/// takes the role, as for a driver and an executor. Only the core can
+/// write this impl, as `StatesLimits` and `TranslatingAdapter` are both its
+/// own: code outside it implements `TranslatingAdapter` on its own type.
 impl<P: TranslatingAdapter> TranslatingAdapter for StatesLimits<Renamed<P>> {
     type Accepts = P::Accepts;
     type Sends = P::Sends;

@@ -673,13 +673,13 @@ fn a_joined_part_requires_its_parts_requirements_in_turn_and_provides_its_top_pa
 }
 
 /// An interleaver of 3 joined with a decoder limiting batches to 10,
-/// wrapped by a part of a user's that forwards only its role's public
-/// methods, between a program of batches of 2 and bits taking 2: the
-/// wrapper requires what its parts require in turn, the interleaver's
-/// batches of 3, so the chain's check meets them at the bits, the fault
-/// naming the wrapper, which required them. A joined `requires` passing
-/// what arrives unchanged, as the default does, or reading its lower part
-/// alone, composes instead.
+/// wrapped by a part of a user's that forwards its role's methods and the
+/// limits of what it holds, between a program of batches of 2 and bits
+/// taking 2: the wrapper requires what its parts require in turn, the
+/// interleaver's batches of 3, so the chain's check meets them at the
+/// bits, the fault naming the wrapper, which required them. A joined
+/// `requires` passing what arrives unchanged, as the default does, or
+/// reading its lower part alone, composes instead.
 #[test]
 fn a_wrapped_joined_part_requires_what_its_parts_require() {
     let log = Log::default();

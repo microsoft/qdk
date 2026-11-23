@@ -45,10 +45,18 @@ impl<U: TranslatingAdapter, L: Executor<Accepts = U::Sends>> Executor for Compos
         self.upper.accepts()
     }
 
-    /// As [`ready_at`](Self::ready_at), for what arrives from a part above
-    /// that states nothing, at a position not known.
-    fn ready(&mut self) -> impl Future<Output = Result<(), NotReady>> {
-        self.ready_at(U::Accepts::unconstrained(), ChainPosition::UNKNOWN)
+    /// Refuses the run as [`ready_at`](Self::ready_at) does, for what
+    /// arrives from a part above that states nothing, at a position not
+    /// known; else the executor, then the adapter, each through its role's
+    /// public `ready`, so that a part among them that states limits refuses,
+    /// as it does readied without what arrives.
+    async fn ready(&mut self) -> Result<(), NotReady> {
+        let (lower, ..) = self.start_run(
+            |upper| upper.requires(U::Accepts::unconstrained()),
+            ChainPosition::UNKNOWN,
+        )?;
+        await_part(Executor::ready(lower)).await?;
+        await_part(self.upper.ready_alone(Sealed(()))).await
     }
 
     async fn execute(

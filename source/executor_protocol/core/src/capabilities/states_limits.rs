@@ -18,7 +18,15 @@ use crate::{
 ///
 /// A part with limits is joined as this, made by its `stating_limits()`,
 /// so that a part with none never sees them: the protocol reads a part's
-/// limits only through this wrapper. Every other method is the part's own.
+/// limits only through this wrapper. Every other method is the part's own,
+/// but the role's public `ready`, which refuses: it says nothing of what
+/// arrives, so a part holding this one that calls it has bypassed its
+/// limits. Such a part is joined directly instead, or held by one that
+/// states limits too and forwards them through the role's readings
+/// ([`ExecutorReadings`](crate::ExecutorReadings),
+/// [`DriverReadings`](crate::DriverReadings), or an adapter's
+/// [`TranslatingAdapter`](crate::TranslatingAdapter) methods), which get
+/// it ready for what arrives.
 #[derive(Clone, Debug)]
 pub struct StatesLimits<P> {
     /// The part, reachable to read what it holds after a run, and to wrap
@@ -42,8 +50,12 @@ impl<E: ExecutorLimits> Executor for StatesLimits<E> {
         Executor::accepts(&self.part)
     }
 
+    /// Refuses: see [`StatesLimits`].
     fn ready(&mut self) -> impl Future<Output = Result<(), NotReady>> {
-        Executor::ready(&mut self.part)
+        std::future::ready(Err(limits_bypassed(
+            Executor::name(&self.part),
+            "`provided` and `ready_given`",
+        )))
     }
 
     fn execute(
@@ -99,8 +111,12 @@ impl<A: AdapterLimits> Adapter for StatesLimits<A> {
         Adapter::bind(&mut self.part, below);
     }
 
+    /// Refuses: see [`StatesLimits`].
     fn ready(&mut self) -> impl Future<Output = Result<(), NotReady>> {
-        Adapter::ready(&mut self.part)
+        std::future::ready(Err(limits_bypassed(
+            Adapter::name(&self.part),
+            "its `TranslatingAdapter` methods",
+        )))
     }
 
     fn adapt(
@@ -154,8 +170,12 @@ impl<D: DriverRequirements> Driver for StatesLimits<D> {
         self.part.bind(below);
     }
 
+    /// Refuses: see [`StatesLimits`].
     fn ready(&mut self) -> impl Future<Output = Result<(), NotReady>> {
-        Driver::ready(&mut self.part)
+        std::future::ready(Err(limits_bypassed(
+            Driver::name(&self.part),
+            "`required` and `ready_given`",
+        )))
     }
 
     fn drive(
@@ -195,4 +215,16 @@ impl<D: DriverRequirements> Driver for StatesLimits<D> {
         let _ = at;
         DriverRequirements::ready_for(&mut self.part, run)
     }
+}
+
+/// The refusal of a part stating limits, `name`, readied through its role's
+/// public `ready`: its limits were bypassed, and `readings` would have
+/// forwarded them.
+#[cold]
+fn limits_bypassed(name: &str, readings: &str) -> NotReady {
+    NotReady::new(format!(
+        "`{name}` states limits, but was readied without what arrives, which bypasses \
+         them: join it directly, or hold it in a part that states limits too and \
+         forwards them through {readings}"
+    ))
 }

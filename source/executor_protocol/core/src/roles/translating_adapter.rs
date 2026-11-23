@@ -122,12 +122,25 @@ pub trait TranslatingAdapter {
         let _ = at;
         self.ready(above)
     }
+
+    /// Gets this part ready as a part above that states nothing would:
+    /// how a joined part readied through its role's public `ready` readies
+    /// it. By default [`ready`](Self::ready), for what arrives from such a
+    /// part. Only the crate overrides it: for an [`Adapter`], to call its
+    /// own public `ready`, which a [`StatesLimits`](crate::StatesLimits)
+    /// adapter refuses; and for a joined part, to ready its halves so.
+    #[doc(hidden)]
+    fn ready_alone(&mut self, sealed: Sealed) -> impl Future<Output = Result<(), NotReady>> {
+        let _ = sealed;
+        self.ready(Self::Accepts::unconstrained())
+    }
 }
 
 // Every method forwards, but the protocol hooks: an `Adapter` cannot
-// override them, so their defaults are its. What it provides and requires,
-// and getting it ready for what arrives, are the adapter's own hooks: what
-// a `StatesLimits` adapter states, else nothing.
+// override them, so their defaults are its, but getting it ready alone,
+// which is its public `ready`. What it provides and requires, and getting
+// it ready for what arrives, are the adapter's own hooks: what a
+// `StatesLimits` adapter states, else nothing.
 impl<A: Adapter> TranslatingAdapter for A {
     type Accepts = A::Set;
     type Sends = A::Set;
@@ -161,6 +174,11 @@ impl<A: Adapter> TranslatingAdapter for A {
         above: &Capabilities<A::Set>,
     ) -> impl Future<Output = Result<(), NotReady>> {
         Adapter::ready_at(self, above, ChainPosition::UNKNOWN)
+    }
+
+    fn ready_alone(&mut self, sealed: Sealed) -> impl Future<Output = Result<(), NotReady>> {
+        let _ = sealed;
+        Adapter::ready(self)
     }
 
     fn adapt(
@@ -259,6 +277,13 @@ macro_rules! lent_translating_adapter {
                 at: $crate::part_id::ChainPosition<'_>,
             ) -> impl Future<Output = Result<(), $crate::NotReady>> {
                 <$ty as $crate::TranslatingAdapter>::ready_at(&mut **self, above, at)
+            }
+
+            fn ready_alone(
+                &mut self,
+                sealed: $crate::roles::Sealed,
+            ) -> impl Future<Output = Result<(), $crate::NotReady>> {
+                <$ty as $crate::TranslatingAdapter>::ready_alone(&mut **self, sealed)
             }
         }
     };

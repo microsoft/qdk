@@ -172,7 +172,8 @@ impl<P: Driver> Driver for PanicsInDrop<P> {
 
 /// A translating adapter states its limits itself, so one whose futures
 /// panic needs no [`AdapterLimits`]: it is the `StatesLimits` its constructor
-/// returns that takes the role, as for a driver and an executor.
+/// returns that takes the role, as for a driver and an executor; only the
+/// core can write this impl, as `Renamed`'s says.
 impl<P: TranslatingAdapter> TranslatingAdapter for StatesLimits<PanicsInDrop<P>> {
     type Accepts = P::Accepts;
     type Sends = P::Sends;

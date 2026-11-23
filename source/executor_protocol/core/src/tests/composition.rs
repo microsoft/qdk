@@ -17,6 +17,8 @@ mod driver_joins;
 mod part_panics;
 mod runner;
 
+use runner::{refused, runner};
+
 use std::any::type_name;
 use std::cell::Cell;
 use std::rc::Rc;
@@ -28,8 +30,8 @@ use crate::tests::fake_parts::{
     Renamed, Splitter, Spread, Stating, Trap, Values, batches_of, coin_gate, in_each_bracketing,
 };
 use crate::{
-    CompositionFaults, Features, Lowered, Resources, RunRequirement, Runner, ShotSet, StatesLimits,
-    TranslatingAdapter,
+    CompositionFaults, Features, Lowered, Resources, RunRefusal, RunRequirement, Runner, ShotSet,
+    StatesLimits, TranslatingAdapter,
 };
 
 const SEED: u64 = 7;
@@ -178,15 +180,18 @@ where
 
 /// Coin copies through two encodings, with a trap on shot 5 between them,
 /// over bits, each join's result held by a part of a user's that forwards
-/// only its role's public methods, as a user's wrapper does, at one depth
-/// or two, or lent by `&mut` to a chain since dropped first: over a run
-/// that succeeds and one the trap fails, the same results, the same
-/// requirements each part gets ready for, and the same shots ended on each
-/// part, in the same order, as the same chain unwrapped. So too for what
-/// is provided across the boundary inside the held part: a splitter, which
-/// takes batches of any length, over bits that take one instruction a
-/// batch, under a driver or an adapter sending two; and what a part over
-/// bits reads the bits provide.
+/// its role's methods and the limits of what it holds, as a user's wrapper
+/// of parts stating limits does, at one depth or two, or lent by `&mut` to
+/// a chain since dropped first: over a run that succeeds and one the trap
+/// fails, the same results, the same requirements each part gets ready
+/// for, and the same shots ended on each part, in the same order, as the
+/// same chain unwrapped. So too for what is provided across the boundary
+/// inside the held part: a splitter, which takes batches of any length,
+/// over bits that take one instruction a batch, under a driver or an
+/// adapter sending two; and what a part over bits reads the bits provide.
+/// And a chain of parts stating no limits, held by a part that forwards
+/// only its role's public methods, in the executor's role or the
+/// driver's: the same results, and the same shots ended.
 #[test]
 #[expect(clippy::too_many_lines, reason = "a table, one row per scene")]
 fn a_joined_part_runs_the_same_held_by_a_part_forwarding_its_role() {
@@ -263,6 +268,40 @@ fn a_joined_part_runs_the_same_held_by_a_part_forwarding_its_role() {
                 ),
             )
         }),
+        ("an executor stating no limits, held stating none", {
+            let [log, unwrapped_log] = [Log::default(), Log::default()];
+            let held = Renamed::stating_nothing(
+                BitFlip::new(0.3, &log).on(Bits::new(&log).part),
+                "user's executor",
+            );
+            (
+                two_runs(CoinCopy::new().part.on(held), &log),
+                two_runs(
+                    CoinCopy::new()
+                        .part
+                        .through(BitFlip::new(0.3, &unwrapped_log))
+                        .on(Bits::new(&unwrapped_log).part),
+                    &unwrapped_log,
+                ),
+            )
+        }),
+        ("a driver stating no limits, held stating none", {
+            let [log, unwrapped_log] = [Log::default(), Log::default()];
+            let held = Renamed::stating_nothing(
+                CoinCopy::new().part.through(BitFlip::new(0.3, &log)),
+                "user's driver",
+            );
+            (
+                two_runs(held.on(Bits::new(&log).part), &log),
+                two_runs(
+                    CoinCopy::new()
+                        .part
+                        .through(BitFlip::new(0.3, &unwrapped_log))
+                        .on(Bits::new(&unwrapped_log).part),
+                    &unwrapped_log,
+                ),
+            )
+        }),
     ];
     let rows = [
         ("a driver through an adapter", {
@@ -304,6 +343,109 @@ fn a_joined_part_runs_the_same_held_by_a_part_forwarding_its_role() {
     }
     for (row, (held, unwrapped)) in provision_rows {
         assert_eq!(held, unwrapped, "{row}");
+    }
+}
+
+/// A part stating limits, held by a part of a user's that forwards only
+/// its role's public methods, alone or in a joined part, in each role: the
+/// holder gets it ready without what arrives, so its limits would go
+/// unread; the run is refused, at the holder's position and by its name,
+/// with a refusal that names the part whose limits were bypassed, rather
+/// than run with them unread.
+#[test]
+fn a_part_whose_limits_a_holder_bypasses_refuses_the_run_naming_it() {
+    let log = Log::default();
+    let bits = type_name::<Bits>();
+    let spread = type_name::<Spread>();
+    let coin_copy = type_name::<CoinCopy>();
+    let rows = [
+        (
+            "an executor",
+            (1, "user's executor"),
+            bits,
+            refused(
+                runner(
+                    CoinCopy::new()
+                        .on(Renamed::stating_nothing(Bits::new(&log), "user's executor")),
+                )
+                .run(&ShotSet::ids(0..4), SEED),
+            ),
+        ),
+        (
+            "an executor under an adapter",
+            (1, "user's executor"),
+            bits,
+            refused(
+                runner(CoinCopy::new().on(Renamed::stating_nothing(
+                    BitFlip::new(0.3, &log).on(Bits::new(&log)),
+                    "user's executor",
+                )))
+                .run(&ShotSet::ids(0..4), SEED),
+            ),
+        ),
+        (
+            "an adapter on an executor",
+            (1, "user's executor"),
+            spread,
+            refused(
+                runner(CoinCopy::new().on(Renamed::stating_nothing(
+                    Spread::new(2, &log).on(Bits::new(&log).part),
+                    "user's executor",
+                )))
+                .run(&ShotSet::ids(0..4), SEED),
+            ),
+        ),
+        (
+            "a driver",
+            (0, "user's driver"),
+            coin_copy,
+            refused(
+                runner(
+                    Renamed::stating_nothing(CoinCopy::new(), "user's driver").on(Bits::new(&log)),
+                )
+                .run(&ShotSet::ids(0..4), SEED),
+            ),
+        ),
+        (
+            "a driver through an adapter",
+            (0, "user's driver"),
+            coin_copy,
+            refused(
+                runner(
+                    Renamed::stating_nothing(
+                        CoinCopy::new().through(BitFlip::new(0.3, &log)),
+                        "user's driver",
+                    )
+                    .on(Bits::new(&log)),
+                )
+                .run(&ShotSet::ids(0..4), SEED),
+            ),
+        ),
+        (
+            "an adapter through an adapter, under a driver",
+            (0, "user's driver"),
+            spread,
+            refused(
+                runner(
+                    Renamed::stating_nothing(
+                        CoinCopy::new()
+                            .part
+                            .through(BitFlip::new(0.3, &log).through(Spread::new(2, &log))),
+                        "user's driver",
+                    )
+                    .on(Bits::new(&log)),
+                )
+                .run(&ShotSet::ids(0..4), SEED),
+            ),
+        ),
+    ];
+    for (row, holder, bypassed, refusal) in rows {
+        let RunRefusal::PartNotReady { part, not_ready } = &refusal else {
+            panic!("{row}: a part's refusal, not {refusal:?}");
+        };
+        assert_eq!((part.position, part.name.as_str()), holder, "{row}");
+        let why = not_ready.why().to_string();
+        assert!(why.contains(bypassed), "{row}: {why}");
     }
 }
 

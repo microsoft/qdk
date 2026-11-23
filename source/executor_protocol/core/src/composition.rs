@@ -22,7 +22,9 @@
 //! the same way, from what the run requires. A joined part that walk
 //! cannot see into, inside a part of the user's that forwards only its
 //! role's public methods, checks its own parts when it gets ready, and
-//! refuses the run with its mismatch. A chain that joins is then a
+//! refuses the run with its mismatch, or, for a part in it that states
+//! limits, which that holder bypassed, naming that part. A chain that
+//! joins is then a
 //! runner, which gets every part ready on each run, and
 //! the protocol shapes the readouts crossing its boundaries, checks every
 //! batch's count of instructions, and each batch its sender marked

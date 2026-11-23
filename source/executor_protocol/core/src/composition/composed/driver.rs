@@ -53,11 +53,18 @@ impl<U: Driver, L: TranslatingAdapter<Accepts = U::Sends>> Driver for Composed<U
         self.lower.bind(below);
     }
 
-    /// As [`ready_at`](Self::ready_at), for a run that requires nothing,
-    /// at a position not known.
+    /// Refuses the run as [`ready_at`](Self::ready_at) does, for a run that
+    /// requires nothing, at a position not known; else the adapter, then
+    /// the driver, each through its role's public `ready`, so that a part
+    /// among them that states limits refuses, as it does readied without
+    /// what arrives.
     async fn ready(&mut self) -> Result<(), NotReady> {
-        self.ready_at(&RunRequirement::unconstrained(), ChainPosition::UNKNOWN)
-            .await
+        let (lower, ..) = self.start_run(
+            |upper| upper.required(&RunRequirement::unconstrained()),
+            ChainPosition::UNKNOWN,
+        )?;
+        await_part(lower.ready_alone(Sealed(()))).await?;
+        await_part(Driver::ready(&mut self.upper)).await
     }
 
     /// The driver's `drive`, on the adapter and the chain below as one

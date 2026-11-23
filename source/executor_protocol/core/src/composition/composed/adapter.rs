@@ -8,10 +8,10 @@ use crate::composition::DeclaredParts;
 use crate::composition::boundary_crossing::BoundaryCrossing;
 use crate::composition::part_panics::{await_part, end_both};
 use crate::part_id::ChainPosition;
-use crate::roles::lent_translating_adapter;
+use crate::roles::{Sealed, lent_translating_adapter};
 use crate::{
-    Batch, BatchReadouts, Binding, Capabilities, ExecuteError, Executor, NotReady, Seed, ShotSet,
-    TranslatingAdapter,
+    Batch, BatchReadouts, Binding, Capabilities, ExecuteError, Executor, InstructionSet, NotReady,
+    Seed, ShotSet, TranslatingAdapter,
 };
 
 impl<U: TranslatingAdapter, L: TranslatingAdapter<Accepts = U::Sends>> Composed<U, L, U::Sends> {
@@ -139,6 +139,19 @@ impl<U: TranslatingAdapter, L: TranslatingAdapter<Accepts = U::Sends>> Translati
             .await
             .map_err(|not_ready| not_ready.answered_by(part))?;
         await_part(self.upper.ready_at(above, at)).await
+    }
+
+    /// Refuses the run as [`ready_at`](Self::ready_at) does, for what
+    /// arrives from a part above that states nothing, at a position not
+    /// known; else the lower part, then the upper one, each as a part above
+    /// that states nothing readies it.
+    async fn ready_alone(&mut self, sealed: Sealed) -> Result<(), NotReady> {
+        let (lower, ..) = self.start_run(
+            |upper| upper.requires(U::Accepts::unconstrained()),
+            ChainPosition::UNKNOWN,
+        )?;
+        await_part(lower.ready_alone(Sealed(()))).await?;
+        await_part(self.upper.ready_alone(sealed)).await
     }
 }
 

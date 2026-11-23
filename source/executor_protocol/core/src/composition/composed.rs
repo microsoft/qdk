@@ -36,16 +36,20 @@
 //! from what the upper half requires.
 //!
 //! A `Composed` keeps its role's contract through its public methods
-//! alone, so it gives the same outputs when the chain's check does not
-//! see into it, such as inside a part of the user's that forwards only the
-//! role's public methods: a panic or a refusal below it then passes up
-//! unnamed, and the boundary above names the part at its position. Such a
-//! part provides what its upper half provides, and the chain's checks see
-//! no further, so a `Composed` refuses the run at `ready` when its halves'
-//! instruction sets do not fit, rather than running instructions its upper
-//! half was never bound for, or when what arrives at its lower half does
-//! not fit what that half provides, with every mismatch of that boundary,
-//! in one `BoundaryMismatch`.
+//! alone, when the chain's check does not see into it, such as inside a
+//! part of the user's that forwards only the role's public methods: a
+//! panic or a refusal below it then passes up unnamed, and the boundary
+//! above names the part at its position. Such a part states nothing, and
+//! the chain's checks see no further, so a `Composed` readied through its
+//! public `ready` refuses the run when its halves' instruction sets do not
+//! fit, rather than running instructions its upper half was never bound
+//! for, or when what arrives at its lower half from an upper half given
+//! nothing does not fit what that half provides, with every mismatch of
+//! that boundary, in one `BoundaryMismatch`; else it readies each half
+//! through its public `ready`. A chain of parts stating no limits so gives
+//! the same outputs, and a part stating limits refuses the run, naming
+//! itself ([`StatesLimits`](crate::StatesLimits)), rather than run with
+//! its limits unread.
 
 mod adapter;
 mod driver;

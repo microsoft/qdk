@@ -14,6 +14,9 @@ use crate::{Capabilities, Driver, NotReady, RunRequirement, StatesLimits};
 /// joined [`stating_limits`](Self::stating_limits): the protocol reads it, at
 /// the joins and at each run's start, only through that [`StatesLimits`] part.
 /// Every method has a default, so a part implements only what it states.
+///
+/// Joined bare, it states nothing and is not readied for the run, and
+/// no check can tell, so its constructor may return [`StatesLimits<Self>`].
 pub trait DriverRequirements: Driver {
     /// What it requires of the parts below on a run that requires `run`:
     /// the run's shots, and seeded runs when its seed is fixed, which the
@@ -51,7 +54,8 @@ pub trait DriverRequirements: Driver {
         self.ready()
     }
 
-    /// This part, as the part the protocol reads these limits of.
+    /// This part, as the part the protocol reads these limits of. A part
+    /// joined without it states nothing, so its constructor may call it.
     fn stating_limits(self) -> StatesLimits<Self>
     where
         Self: Sized,

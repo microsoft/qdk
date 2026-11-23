@@ -15,6 +15,9 @@ use crate::{Adapter, Capabilities, InstructionSet, NotReady, StatesLimits};
 /// protocol reads them, at the joins and at each run's start, only through that
 /// [`StatesLimits`] part. Every method has a default, so a part implements only
 /// what it states.
+///
+/// Joined bare, it states nothing and is not readied for what arrives, and
+/// no check can tell, so its constructor may return [`StatesLimits<Self>`].
 pub trait AdapterLimits: Adapter {
     /// Its fixed limits on what arrives from above, such as a job queue's
     /// most shots, or what its set's capabilities say it takes: what
@@ -61,7 +64,8 @@ pub trait AdapterLimits: Adapter {
         self.ready()
     }
 
-    /// This part, as the part the protocol reads these limits of.
+    /// This part, as the part the protocol reads these limits of. A part
+    /// joined without it states nothing, so its constructor may call it.
     fn stating_limits(self) -> StatesLimits<Self>
     where
         Self: Sized,

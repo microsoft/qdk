@@ -13,6 +13,9 @@ use crate::{Capabilities, Executor, InstructionSet, NotReady, StatesLimits};
 /// [`stating_limits`](Self::stating_limits): the protocol reads them, at the
 /// joins and at each run's start, only through that [`StatesLimits`] part.
 /// Every method has a default, so a part implements only what it states.
+///
+/// Joined bare, it states nothing and is not readied for what arrives, and
+/// no check can tell, so its constructor may return [`StatesLimits<Self>`].
 pub trait ExecutorLimits: Executor {
     /// Its fixed limits on what arrives from above, such as its most shots
     /// in a run, whether a run may fix its seed, or what its set's
@@ -45,7 +48,8 @@ pub trait ExecutorLimits: Executor {
         self.ready()
     }
 
-    /// This part, as the part the protocol reads these limits of.
+    /// This part, as the part the protocol reads these limits of. A part
+    /// joined without it states nothing, so its constructor may call it.
     fn stating_limits(self) -> StatesLimits<Self>
     where
         Self: Sized,
