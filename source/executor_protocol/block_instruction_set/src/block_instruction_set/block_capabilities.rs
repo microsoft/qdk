@@ -8,9 +8,9 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use executor_protocol_core::BoundaryCompatible;
+use executor_protocol_core::{BoundaryCompatible, SameNeed};
 
-use crate::BlockType;
+use crate::{BlockInstructionSet, BlockType};
 
 /// The most blocks of each type a shot holds at once, and whether shots
 /// use readout parities, resolved per shot as it runs
@@ -106,6 +106,35 @@ impl BlockCapabilitiesMismatch {
     #[must_use]
     pub fn readout_parity(&self) -> bool {
         self.readout_parity
+    }
+
+    /// Each of its mismatches alone, with how two parts state the same
+    /// need of it: a short count, the same count of its block type;
+    /// readout parities, the same readout parities. The set's
+    /// [`split_mismatch`](executor_protocol_core::InstructionSet::split_mismatch),
+    /// so that a composition fault names, for each, the part that stated
+    /// it.
+    pub(crate) fn split(self) -> Vec<(Self, SameNeed<BlockInstructionSet>)> {
+        let blocks = self.blocks.into_iter().map(|count| {
+            let block_type = count.block_type.clone();
+            let same: SameNeed<BlockInstructionSet> =
+                Box::new(move |a, b| a.blocks(&block_type) == b.blocks(&block_type));
+            let piece = Self {
+                blocks: vec![count],
+                readout_parity: false,
+            };
+            (piece, same)
+        });
+        let readout_parity = self.readout_parity.then(|| {
+            let same: SameNeed<BlockInstructionSet> =
+                Box::new(|a, b| a.readout_parity == b.readout_parity);
+            let piece = Self {
+                blocks: Vec::new(),
+                readout_parity: true,
+            };
+            (piece, same)
+        });
+        blocks.chain(readout_parity).collect()
     }
 }
 

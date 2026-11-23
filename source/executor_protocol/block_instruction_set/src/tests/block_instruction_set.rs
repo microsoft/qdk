@@ -16,11 +16,14 @@ mod opcode_map;
 mod pauli;
 mod shot_conditions;
 
+use crate::BlockCapabilitiesMismatch;
+use crate::tests::fake_parts::{ParityMeasurement, QubitProgram, QubitRegister};
 use crate::{
     Angle, Argument, Bit, BlockCapabilities, BlockInstruction, BlockInstructionSet, BlockOperand,
     BlockType, DeclarationFault, InstructionDef, InstructionFault, Meaning, MeaningFault, Opcode,
     ParameterKind, Pauli, instruction_set,
 };
+use executor_protocol_core::prelude::*;
 use executor_protocol_core::{BoundaryCompatible, InstructionSet};
 use smallvec::smallvec;
 
@@ -891,6 +894,66 @@ fn an_instruction_s_readout_slots_are_those_its_check_answers() {
             set.readout_slots(&instruction),
             checked.unwrap_or(0),
             "{row}'s readout slots"
+        );
+    }
+}
+
+/// A driver needing 10 qubits, through an adapter measuring by readout
+/// parities, which adds a need of them below, on an executor of 8 qubits
+/// taking no readout parity: the qubits are the driver's need, which the
+/// adapter passes on unchanged, and the readout parities the adapter's.
+/// So the chain's faults are two, each against the executor and naming
+/// the part that stated its need, in either bracketing, as whoever fixes
+/// the chain reads which part to change. A set whose mismatch is not split
+/// names the adapter for both.
+#[test]
+fn each_short_need_of_the_block_set_names_the_part_that_stated_it() {
+    let chains = [
+        (
+            "d.through(a).on(e)",
+            QubitProgram::new(10)
+                .through(ParityMeasurement::new())
+                .on(QubitRegister::new(8))
+                .err(),
+        ),
+        (
+            "d.on(a.on(e))",
+            QubitProgram::new(10)
+                .on(ParityMeasurement::new().on(QubitRegister::new(8)))
+                .err(),
+        ),
+    ];
+    for (brackets, faults) in chains {
+        let faults = faults.expect("the executor is short of both needs");
+        let read: Vec<_> = (faults.faults().iter())
+            .map(|fault| {
+                let pieces: Vec<_> = (fault.mismatch.capabilities.set_capabilities.iter())
+                    .map(|piece| {
+                        let piece = piece
+                            .downcast_ref::<BlockCapabilitiesMismatch>()
+                            .expect("the block set's mismatch");
+                        let blocks: Vec<_> = (piece.blocks().iter())
+                            .map(|count| {
+                                (
+                                    count.block_type().clone(),
+                                    count.required(),
+                                    count.provided(),
+                                )
+                            })
+                            .collect();
+                        (blocks, piece.readout_parity())
+                    })
+                    .collect();
+                (fault.requirer.position, fault.provider.position, pieces)
+            })
+            .collect();
+        assert_eq!(
+            read,
+            vec![
+                (0, 2, vec![(vec![(BlockType::qubit(), 10, 8)], false)]),
+                (1, 2, vec![(vec![], true)]),
+            ],
+            "{brackets}"
         );
     }
 }

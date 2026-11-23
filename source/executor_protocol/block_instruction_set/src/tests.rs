@@ -1,7 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The crate's tests: one file per module with run-time behaviour.
+//! The crate's tests: one file per module with run-time behaviour, and
+//! the fake parts (`fake_parts`) that compose chains on the block set.
 //!
 //! This module also installs a counting `#[global_allocator]` for the whole
 //! test binary, so that the promises on allocations (a built readout
@@ -10,6 +11,13 @@
 //! disturb its count.
 
 mod block_instruction_set;
+#[expect(
+    clippy::unused_async_trait_impl,
+    reason = "a fake part that never waits keeps the trait's `async fn` form, the form the \
+              protocol documents; the `core::future::ready` the lint suggests would run the \
+              body when the method is called, not when its future is polled"
+)]
+mod fake_parts;
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;

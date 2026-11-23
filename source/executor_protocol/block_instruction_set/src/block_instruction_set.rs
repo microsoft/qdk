@@ -77,7 +77,7 @@ pub use pauli::Pauli;
 pub use readout_value::{ReadoutFailure, ReadoutValue};
 pub use shot_conditions::ShotConditions;
 
-use executor_protocol_core::ReadoutSlots;
+use executor_protocol_core::{ReadoutSlots, SameNeed};
 use layout::Layout;
 use std::collections::BTreeMap;
 use std::fmt;
@@ -268,6 +268,17 @@ impl executor_protocol_core::InstructionSet for BlockInstructionSet {
     /// [`BlockCapabilities::NONE`]: no block and no readout parity needed.
     fn needs_nothing() -> BlockCapabilities {
         BlockCapabilities::NONE
+    }
+
+    /// One piece per short count, which two parts state alike when they
+    /// state the same count of its block type, and one for readout
+    /// parities, alike when they state the same readout parities: so that
+    /// a driver's qubits and an adapter's readout parities, both short
+    /// below, are two faults, each naming its part.
+    fn split_mismatch(
+        mismatch: BlockCapabilitiesMismatch,
+    ) -> Vec<(BlockCapabilitiesMismatch, SameNeed<Self>)> {
+        mismatch.split()
     }
 
     /// The readout slots of the instruction at its opcode
