@@ -9,8 +9,8 @@
 //! and `CUDA driver`, reported only. CUDA encodes a version as
 //! `1000·major + 10·minor` (`12090` is 12.9). One file per family of the
 //! table's functions declares their function-pointer types, mirroring
-//! cuTensorNet's: `versions`, `error_strings`, `device`, `memory` and
-//! `stream`.
+//! cuTensorNet's (for instance `memory`: free memory, allocation, release
+//! and copies).
 //!
 //! `cudart_12`, in `generated/`, declares the CUDA Runtime 12's API, the
 //! functions, types and constants of its header: a function pointer is only

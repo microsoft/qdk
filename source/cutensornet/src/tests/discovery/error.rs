@@ -73,6 +73,8 @@ fn each_fault_follows_its_library_and_path() {
 
 /// A library with no fault is named neither by its file nor by its name, so
 /// the user looks only at the library to fix, whichever it is.
+/// (cuTensorNet's name is in the message's lead, so only its file is checked
+/// when it is the healthy one.)
 #[test]
 fn a_library_without_a_fault_is_not_named() {
     let only_cuda_at_fault = message_of(vec![missing("cudaMalloc")], Vec::new());

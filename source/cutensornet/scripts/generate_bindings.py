@@ -5,9 +5,7 @@
 
 """Generates the crate's Rust declarations of NVIDIA's C APIs, which are
 checked in: the bindings of each library in src/libraries/ whose folder has
-a bindings.toml, written to that folder's generated/ folder; now the CUDA
-Runtime's (cuda_runtime/generated/cudart_12.rs) and cuTensorNet's
-(cutensornet/generated/v2_13.rs).
+a bindings.toml, written to that folder's generated/ folder.
 
 Context: the crate opens the CUDA Runtime and cuTensorNet at run time, so
 neither its build nor its users need NVIDIA's SDK. Calling a library still
@@ -30,14 +28,10 @@ target and the Rust edition, given to them), so the checked-in files can be
 reproduced, and a reviewer checks the pins, not the declarations. The build
 never runs it.
 
-The pins are in two places:
-- scripts/generate_bindings.toml pins what every library shares: bindgen,
-  the libclang it parses with, rustfmt, the target, the Rust edition, and
-  NVIDIA's archives;
-- each library's folder, src/libraries/<library>/, has a bindings.toml, which
-  says what its bindings are made of: its header, the archives clang
-  searches for it, the prefix of its API's names, and the file written (see
-  `Library`). The script binds every library that has one.
+The pins shared by every library are in scripts/generate_bindings.toml;
+each library's own (its header, the archives clang searches for it, the
+prefix of its API's names, the file written; see `Library`) are in the
+bindings.toml of its folder, src/libraries/<library>/.
 The generated file's header names the header it comes from and that
 header's archive. The generated/ folders hold only the script's output;
 the crate's .gitattributes marks them as generated, so that GitHub hides
@@ -51,7 +45,7 @@ No GPU and no CUDA installation are needed, as the headers come from
 NVIDIA's archives.
 
     sudo apt-get install build-essential clang libclang-dev pkg-config python3.11
-    # Rust 1.95 with rustfmt, through rustup; then:
+    # the rustfmt pinned in generate_bindings.toml, through rustup; then:
     cargo install bindgen-cli --version 0.72.1 --locked
 
 Download the archives of generate_bindings.toml (each `file`, from its `url`)

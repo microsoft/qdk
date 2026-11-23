@@ -9,8 +9,7 @@
 //! one's functions, or an [`AvailabilityError`] saying everything that is
 //! wrong, so that it can tell the user or run on the CPU instead. An
 //! `Availability` can be relied on: every required function of each table
-//! was found, and each library is the audited version. Discovery selects no
-//! device, allocates no GPU memory and runs no GPU work.
+//! was found, and each library is the audited version.
 //!
 //! An `Availability`, and the error when a library is at fault
 //! ([`AvailabilityError::Unusable`]), carry an [`AvailabilityReport`], with
