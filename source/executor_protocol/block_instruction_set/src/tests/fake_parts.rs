@@ -4,8 +4,9 @@
 //! The fake parts on the block set, for the tests of a composition fault
 //! naming the part that stated each need: a driver needing qubits, an
 //! adapter needing readout parities below, and an executor of a few
-//! qubits taking none. They are composed, never run: each sends, adapts
-//! or executes nothing.
+//! qubits taking none. They are composed, never run: the driver sends
+//! nothing, the adapter passes on what it is sent, and the executor runs
+//! nothing.
 
 use executor_protocol_core::prelude::*;
 use executor_protocol_core::{
