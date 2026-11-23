@@ -99,6 +99,7 @@ The agent's user maps to your account, so its outbox and exchange writes are own
 
 Podman's default seccomp profile is more permissive than Docker's: it lets containers create user namespaces, a common first step in kernel exploits, and open vsock sockets to the hypervisor.
 The launcher therefore applies [`seccomp.json`](seccomp.json), Docker's default profile from [moby/profiles](https://github.com/moby/profiles/blob/2ab3e516a3b49550c35b5e4511a0a7d136a02c8d/seccomp/default.json) (Apache-2.0), and verification confirms its effect.
+The profile is an unmodified copy; see the [third-party notice and license](../../NOTICE.txt).
 
 ### Tokens
 

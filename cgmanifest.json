@@ -12,6 +12,16 @@
         }
       },
       "developmentDependency": false
+    },
+    {
+      "component": {
+        "type": "git",
+        "git": {
+          "repositoryUrl": "https://github.com/moby/profiles",
+          "commitHash": "2ab3e516a3b49550c35b5e4511a0a7d136a02c8d"
+        }
+      },
+      "developmentDependency": true
     }
   ]
 }

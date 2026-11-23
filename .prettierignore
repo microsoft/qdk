@@ -33,4 +33,5 @@ __pycache__/
 /source/wasm/
 /samples/
 /target/
+/tools/copilot-sandbox/seccomp.json
 .config/1espt/PipelineAutobaseliningConfig.yml
