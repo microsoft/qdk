@@ -58,6 +58,10 @@ harness = false
 name = "sparse_sim"
 harness = false
 
+[[bench]]
+name = "qir_machine"
+harness = false
+
 [[bin]]
 name = "gpu-runner"
 path = "src/bin/gpu-runner.rs"
