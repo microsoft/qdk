@@ -20,17 +20,16 @@
 //! - **Finding and loading.** cuTensorNet runs on the CUDA Runtime, and most
 //!   users have neither, so the QDK must build, install and run without
 //!   them: the crate never links them. When a GPU run is asked for,
-//!   [`discover`] finds and opens the shared libraries it needs (today the
-//!   CUDA Runtime and cuTensorNet) installed on the host, looks up the
+//!   [`discover`] opens the libraries installed on the host, looks up the
 //!   functions of a table per library, and checks the libraries' versions
-//!   against the audited ones. It returns an
-//!   [`Availability`] that keeps the libraries loaded, or an
-//!   [`AvailabilityError`] listing every fault of each library, so a caller
-//!   can report them or run on the CPU instead. Discovery runs no GPU work.
+//!   against the audited ones. It returns an [`Availability`] that keeps
+//!   the libraries loaded, or an [`AvailabilityError`] listing every fault
+//!   of each library, so a caller can report them or run on the CPU
+//!   instead.
 //!
-//! The crate's `docs/engine.md` shows how the algebra calls cuTensorNet, and
-//! its `docs/loading.md` the steps of discovery and the faults each one can
-//! find.
+//! The crate's README says why; its `docs/engine.md` shows how the algebra
+//! calls cuTensorNet, and its `docs/loading.md` the steps of discovery and
+//! the faults each one can find.
 
 mod discovery;
 #[cfg_attr(
