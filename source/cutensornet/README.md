@@ -13,8 +13,8 @@ change. The problem includes:
 - and when a GPU run is asked for, its caller needs to know what is
   missing, to tell the user or to run on the CPU instead.
 
-The crate solves these with libraries opened at run time. cuTensorNet and
-the CUDA Runtime are never linked: they are opened at run time and checked
+The crate never links cuTensorNet or the CUDA Runtime: it opens them at run
+time and checks them
 ([discovery](#the-discovery-and-loading-of-the-libraries)), which returns
 the loaded libraries, or why they cannot be used: every fault it found, or,
 off Linux x86-64, that the platform is unsupported.
@@ -36,13 +36,10 @@ Today the crate holds:
 a GPU run needs; each library's module in [`src/libraries/`](src/libraries)
 says what the crate needs of it.
 
-**The problem.** cuTensorNet and the CUDA Runtime are shared libraries
-(`libcutensornet.so.2`, `libcudart.so.12`), and linking them would make
-every QDK build, and every process that loads the QDK, fail without them.
-
-**How it is solved.** Nothing is linked. When a GPU run is asked for,
-[`discover`](src/discovery.rs) opens the libraries it needs (today the CUDA
-Runtime and cuTensorNet), looks up by name each C function the crate uses
+**How it is solved.** When a GPU run is asked for,
+[`discover`](src/discovery.rs) opens the shared libraries it needs (today
+the CUDA Runtime, `libcudart.so.12`, and cuTensorNet,
+`libcutensornet.so.2`), looks up by name each C function the crate uses
 (its _symbol_), cuTensorNet's tensor API among them, and checks the
 versions the libraries report. It returns an `Availability`, which keeps
 them loaded, or an `AvailabilityError` that says what is missing.
@@ -101,8 +98,13 @@ let availability = discover().expect("the audited libraries are installed");
 let report = availability.report();
 let cutensornet = report.library("cuTensorNet").expect("cuTensorNet is used");
 assert_eq!(cutensornet.version("cuTensorNet"), Some(21_300));
-assert_eq!(cutensornet.version("cuTensorNet's CUDA Runtime"), Some(12_090));
-let cuda_runtime = report.library("CUDA Runtime").expect("the CUDA Runtime is used");
+assert_eq!(
+    cutensornet.version("cuTensorNet's CUDA Runtime"),
+    Some(12_090)
+);
+let cuda_runtime = report
+    .library("CUDA Runtime")
+    .expect("the CUDA Runtime is used");
 assert_eq!(cuda_runtime.version("CUDA Runtime"), Some(12_090));
 println!("{report:#?}");
 ```
@@ -140,9 +142,12 @@ component: `CUDA Runtime` and `CUDA driver` in the CUDA Runtime's,
 ## Tests
 
 The [unit tests](src/tests) drive each way discovery fails without
-NVIDIA's libraries, on any Unix host: missing and refused libraries,
-missing functions, failed version probes, refused versions, and bad
-override variables, each reported with the others.
+NVIDIA's libraries: on any Unix host, refused libraries, missing
+functions, failed version probes, refused versions, and bad override
+variables, each reported with the others; on Linux with glibc, the tests
+that need a library open or glibc's messages: a library found nowhere, an
+opened library at fault reported with its path, and what discovery
+concludes from each library's faults.
 [`tests/availability.rs`](tests/availability.rs) discovers the audited
 libraries where they are installed.
 

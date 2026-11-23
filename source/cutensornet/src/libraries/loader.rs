@@ -50,12 +50,11 @@ pub(crate) fn load_library(paths: Vec<PathBuf>) -> Result<OpenLibraryFile, Libra
         }
 
         // SAFETY: opening a library runs its initialisers (and, when it is
-        // closed, its finalisers) as foreign code. The candidate is one of
-        // the NVIDIA libraries `libraries` lists, by a fixed name or by an
-        // absolute path the user set, and its initialisers are trusted as
-        // any NVIDIA library's are. The `Library` is never closed while a
-        // resolved pointer is live: it is kept in the `Arc<LoadedLibraries>`
-        // that the pointers live in.
+        // closed, its finalisers) as foreign code. The candidate is one of a
+        // `NativeLibrary`'s paths, a fixed name or an absolute path the user
+        // set, whose initialisers are trusted. The `Library` lives in the
+        // returned `OpenLibraryFile`, which callers keep while a resolved
+        // pointer is live (`SymbolResolver::resolve`'s contract).
         let result = unsafe {
             unix_library::Library::open(
                 Some(path.as_os_str()),

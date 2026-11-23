@@ -15,9 +15,7 @@
 //! An `Availability`, and the error when a library is at fault
 //! ([`AvailabilityError::Unusable`]), carry an [`AvailabilityReport`], with
 //! one [`LibraryReport`](crate::LibraryReport) per library: where it was
-//! loaded from, the versions it reports, and its faults. The report is in
-//! `report`, and each library's entry, made where the library is opened, in
-//! `libraries::report`; the error, and the message it shows, in `error`.
+//! loaded from, the versions it reports, and its faults.
 //!
 //! Discovery names no library: `libraries::LoadedLibraries` lists the
 //! libraries a GPU run needs, in the order they are opened, and each
@@ -40,8 +38,8 @@ use std::fmt;
 /// The loaded and checked libraries, with their [`AvailabilityReport`].
 ///
 /// Holding it keeps the libraries loaded, and with them every function of
-/// their tables. It reserves no GPU and no GPU memory. It is `Send` and
-/// `Sync`, so one discovery serves every thread.
+/// their tables. It is `Send` and `Sync`, so one discovery serves every
+/// thread.
 pub struct Availability {
     report: AvailabilityReport,
     #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
