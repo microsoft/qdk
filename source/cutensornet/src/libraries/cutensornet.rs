@@ -12,9 +12,8 @@
 //! cuTensorNet encodes its version as `10000·major + 100·minor + patch`
 //! (`21300` is 2.13.0), and a CUDA Runtime version as CUDA does,
 //! `1000·major + 10·minor` (`12090` is 12.9). One file per family of the
-//! table's functions declares their function-pointer types: `handle`,
-//! `versions`, `error_strings`, `tensor` (descriptors), `decomposition`
-//! (SVD, gate split, QR), `network` (contraction) and `workspace`.
+//! table's functions declares their function-pointer types (for instance
+//! `decomposition`: SVD, gate split, QR).
 //!
 //! `v2_13`, in `generated/`, declares cuTensorNet 2.13's API, the functions,
 //! types and constants of its header: a function pointer is only as right as

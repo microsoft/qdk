@@ -36,9 +36,9 @@ flowchart TD
   driver and device it runs on; discovery keeps each library's guide, in
   the order opened, for the check. cuTensorNet's table
   holds the functions the crate may call: its handle's, its versions' and
-  error strings', its workspaces', and those of its tensor API (tensor
-  descriptors, SVD settings and reports, `GateSplit`, `TensorQR` and
-  contraction networks); each is required but `cutensornetGetLastError`,
+  error strings', its workspaces', its tensor descriptors', its
+  decompositions' (SVD settings and reports, `GateSplit`, `TensorQR`) and its
+  contraction networks'; each is required but `cutensornetGetLastError`,
   which only adds detail to an error message.
 - [`CheckLibrary`](../src/libraries.rs) is a trait so that what discovery
   concludes from the checks is tested without library files.
