@@ -3,11 +3,21 @@
 
 //@ts-check
 
+// Command-line arguments:
+// --suite=<name>  Build only the specified test suite. The "empty" suite doesn't
+//                 depend on any other build outputs, so it can be built on its own
+//                 to download VS Code before anything else has been built.
+
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 
 const thisDir = dirname(fileURLToPath(import.meta.url));
+
+const suiteArgName = "--suite=";
+const selectedSuite = process.argv
+  .find((arg) => arg.startsWith(suiteArgName))
+  ?.slice(suiteArgName.length);
 
 /** @type {import("esbuild").BuildOptions} */
 const commonBuildOptions = {
@@ -16,6 +26,8 @@ const commonBuildOptions = {
   format: "cjs",
   target: ["es2022"],
   sourcemap: "linked",
+  // Keep output paths (e.g. out/browser/empty/index.browser.js) stable when only some suites are built.
+  outbase: join(thisDir, "suites"),
   //logLevel: "debug",
 };
 
@@ -51,8 +63,23 @@ const platformBuildOptions = {
 
 console.log("Running esbuild");
 
+let builtAny = false;
 for (const [platform, buildOptions] of Object.entries(platformBuildOptions)) {
-  build(buildOptions).then(() =>
+  const entryPoints = /** @type {string[]} */ (buildOptions.entryPoints).filter(
+    (entry) =>
+      !selectedSuite ||
+      dirname(entry) === join(thisDir, "suites", selectedSuite),
+  );
+  if (entryPoints.length === 0) {
+    continue;
+  }
+  builtAny = true;
+  build({ ...buildOptions, entryPoints }).then(() =>
     console.log(`Built tests for ${platform} to ${buildOptions.outdir}`),
   );
+}
+
+if (!builtAny) {
+  console.error(`Error: Unknown test suite '${selectedSuite}'`);
+  process.exit(1);
 }

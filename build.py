@@ -114,7 +114,30 @@ parser.add_argument(
     help="Install Python packages in editable mode (pip install -e) instead of building wheels",
 )
 
+parser.add_argument(
+    "--deps-only",
+    action="store_true",
+    help="Only install the dependencies the selected projects, checks, and tests would need, "
+    "without building, checking, or testing anything. Prerequisites are still the "
+    "responsibility of prereqs.py. Not supported with --widgets, --jupyterlab, "
+    "--course-notebook-tests, or --ci-bench",
+)
+
 args = parser.parse_args()
+
+if args.deps_only:
+    unsupported = [
+        name
+        for name, value in (
+            ("--widgets", args.widgets),
+            ("--jupyterlab", args.jupyterlab),
+            ("--course-notebook-tests", args.course_notebook_tests),
+            ("--ci-bench", args.ci_bench),
+        )
+        if value
+    ]
+    if unsupported:
+        parser.error(f"--deps-only is not supported with {', '.join(unsupported)}")
 
 if args.qdk_wheel:
     if not args.qdk:
@@ -157,6 +180,14 @@ build_play = build_all or args.play
 build_vscode = build_all or args.vscode
 build_jupyterlab = build_all or args.jupyterlab
 ci_bench = args.ci_bench
+
+if args.deps_only and build_all and not args.check_py:
+    print(
+        "build.py: WARNING: --deps-only does not install the dependencies of the "
+        "widgets and jupyterlab projects."
+    )
+    build_widgets = False
+    build_jupyterlab = False
 
 
 def step_start(description):
@@ -299,6 +330,33 @@ def is_windows_arm64() -> bool:
     return platform.system() == "Windows" and platform.machine().lower() == "arm64"
 
 
+# Packages such as deq depend on qdk, so installing them pulls a qdk release from PyPI into the
+# environment. A regular build replaces it with a build of this checkout, but --deps-only doesn't.
+def warn_about_installed_qdk(python_bin, env):
+    result = subprocess.run(
+        [python_bin, "-m", "pip", "show", "qdk"],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    if result.returncode != 0:
+        return
+    fields = {
+        key.strip(): value.strip()
+        for key, _, value in (
+            line.partition(":") for line in result.stdout.splitlines()
+        )
+    }
+    if fields.get("Editable project location"):
+        return
+    required_by = fields.get("Required-by") or "nothing"
+    print(
+        f"build.py: WARNING: qdk {fields.get('Version')} (required by {required_by}) is installed "
+        "in the Python environment, but it isn't a build of the current source, since "
+        "--deps-only doesn't build qdk. Run a regular build before using or testing qdk."
+    )
+
+
 # Static checks for Python code in source/qdk_package.
 # Currently only includes type checking with pyright.
 # Runs if:
@@ -323,6 +381,9 @@ def run_python_checks():
     )
     step_end()
 
+    if args.deps_only:
+        return python_bin, env
+
     step_start("Running pyright checks")
     # Disable the pyright wrapper's unnecessary GitHub update check.
     # Nice to have locally; important for network isolation in pipelines.
@@ -337,10 +398,13 @@ def run_python_checks():
         env=env,
     )
     step_end()
+    return python_bin, env
 
 
 if args.check_py:
-    run_python_checks()
+    python_bin, pip_env = run_python_checks()
+    if args.deps_only:
+        warn_about_installed_qdk(python_bin, pip_env)
     exit(0)
 
 
@@ -354,7 +418,14 @@ if npm_install_needed:
     subprocess.run(command, check=True, text=True, cwd=root_dir)
     step_end()
 
-if args.check:
+# Download crates up front, rather than as a side effect of the first cargo build, so --deps-only
+# installs the same Rust dependencies as a regular build.
+if build_cli or build_wasm or (build_qdk and not args.qdk_wheel):
+    step_start("Fetching Rust dependencies")
+    subprocess.run(["cargo", "fetch"], check=True, text=True, cwd=root_dir)
+    step_end()
+
+if args.check and not args.deps_only:
     step_start("Checking vendored file provenance")
     # Stdlib only, so it runs on the ambient interpreter without a venv.
     subprocess.run(
@@ -424,15 +495,15 @@ if args.check:
         )
     step_end()
 
-    if build_qdk:
-        if is_windows_arm64():
-            print("Python static checks skipped on Windows ARM64")
-        else:
-            run_python_checks()
+if args.check and build_qdk:
+    if is_windows_arm64():
+        print("Python static checks skipped on Windows ARM64")
+    else:
+        run_python_checks()
 
 
 if build_cli:
-    if run_tests:
+    if run_tests and not args.deps_only:
         step_start("Running Rust unit tests")
         cargo_test_args = ["cargo", "test"]
         if build_type == "release":
@@ -545,7 +616,11 @@ if build_qdk:
     step_start(
         "Using the prebuilt qdk wheel"
         if args.qdk_wheel
-        else "Building the qdk python package"
+        else (
+            "Installing the qdk python package build dependencies"
+            if args.deps_only
+            else "Building the qdk python package"
+        )
     )
 
     # Reuse (or create) the pip environment so qdk wheel can be built/installed consistently.
@@ -558,15 +633,16 @@ if build_qdk:
             requires = tomllib.load(f)["build-system"]["requires"]
         pip_install(python_bin, *requires, cwd=qdk_python_src, env=pip_env)
 
-        if args.editable:
-            # Install qdk in editable mode using the pre-installed build deps.
-            editable_install(
-                python_bin, qdk_python_src, env=pip_env, no_build_isolation=True
-            )
-        else:
-            # maturin builds into raw_wheels_dir and copies into wheels_dir; using
-            # wheels_dir as --outdir directly would clash with maturin's own copy step.
-            build_wheel(python_bin, qdk_python_src, env=pip_env, maturin=True)
+        if not args.deps_only:
+            if args.editable:
+                # Install qdk in editable mode using the pre-installed build deps.
+                editable_install(
+                    python_bin, qdk_python_src, env=pip_env, no_build_isolation=True
+                )
+            else:
+                # maturin builds into raw_wheels_dir and copies into wheels_dir; using
+                # wheels_dir as --outdir directly would clash with maturin's own copy step.
+                build_wheel(python_bin, qdk_python_src, env=pip_env, maturin=True)
     step_end()
 
     if args.check or run_tests:
@@ -579,13 +655,13 @@ if build_qdk:
         # install the wheel here. Dependencies (pyqir, etc.) come from
         # test_requirements; --no-index can't resolve them from PyPI.
         install_python_test_requirements(qdk_python_src, python_bin)
-        if not args.editable:
+        if not args.editable and not args.deps_only:
             install_from_wheels(
                 python_bin, args.qdk_wheel or "qdk", cwd=qdk_python_src
             )
         step_end()
 
-    if args.check:
+    if args.check and not args.deps_only:
         if is_windows_arm64():
             print("API surface checks skipped on Windows ARM64")
         else:
@@ -596,7 +672,7 @@ if build_qdk:
             )
             step_end()
 
-    if run_tests:
+    if run_tests and not args.deps_only:
         step_start("Running tests for the qdk python package")
         # Run its test suite
         run_python_tests(os.path.join(qdk_python_src, "tests"), python_bin, pip_env)
@@ -607,13 +683,17 @@ if build_qdk:
         test_dir = os.path.join(qdk_python_src, "tests-integration")
         install_python_test_requirements(test_dir, python_bin, check=False)
 
-        if not args.editable:
+        if not args.editable and not args.deps_only:
             install_from_wheels(python_bin, args.qdk_wheel or "qdk", cwd=test_dir)
         step_end()
 
-        step_start("Running integration tests for the qdk package")
-        run_python_integration_tests(test_dir, python_bin)
-        step_end()
+        if not args.deps_only:
+            step_start("Running integration tests for the qdk package")
+            run_python_integration_tests(test_dir, python_bin)
+            step_end()
+
+    if args.deps_only:
+        warn_about_installed_qdk(python_bin, pip_env)
 
 
 if args.course_notebook_tests:
@@ -641,7 +721,7 @@ if build_widgets:
 
     step_end()
 
-if build_wasm:
+if build_wasm and not args.deps_only:
     step_start("Building the wasm files")
 
     add_wasm_tools_to_path()  # Run again here in case --no-check-prereqs was passed
@@ -718,7 +798,7 @@ if build_wasm:
 
     step_end()
 
-if build_npm:
+if build_npm and not args.deps_only:
     step_start("Building the npm package")
 
     npm_args = [npm_cmd, "run", "build"]
@@ -730,20 +810,25 @@ if build_npm:
         subprocess.run(npm_test_args, check=True, text=True, cwd=npm_src)
     step_end()
 
-if build_play:
+if build_play and not args.deps_only:
     step_start("Building the playground")
     play_args = [npm_cmd, "run", "build"]
     subprocess.run(play_args, check=True, text=True, cwd=play_src)
     step_end()
 
 if build_vscode:
-    step_start("Building the VS Code extension")
-    vscode_args = [npm_cmd, "run", "build"]
-    subprocess.run(vscode_args, check=True, text=True, cwd=vscode_src)
-    step_end()
+    if not args.deps_only:
+        step_start("Building the VS Code extension")
+        vscode_args = [npm_cmd, "run", "build"]
+        subprocess.run(vscode_args, check=True, text=True, cwd=vscode_src)
+        step_end()
     if args.integration_tests:
-        step_start("Running the VS Code integration tests")
-        vscode_args = [npm_cmd, "test"]
+        if args.deps_only:
+            step_start("Downloading the VS Code integration test dependencies")
+            vscode_args = [npm_cmd, "run", "test:deps"]
+        else:
+            step_start("Running the VS Code integration tests")
+            vscode_args = [npm_cmd, "test"]
         subprocess.run(vscode_args, check=True, text=True, cwd=vscode_src)
         step_end()
 
