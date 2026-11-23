@@ -13,7 +13,7 @@ use std::fmt;
 /// the most the part takes. A part that does not state one (`None`)
 /// neither needs nor limits it.
 ///
-/// Built from [`unconstrained`](Self::unconstrained), which states
+/// Built from [`nothing_stated`](Self::nothing_stated), which states
 /// nothing, with the builders below, or by setting its fields.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Resources {
@@ -29,7 +29,7 @@ impl Resources {
     /// on: a part that needs more shots or instructions a batch than this
     /// one holds is joined with it all the same.
     #[must_use]
-    pub const fn unconstrained() -> Self {
+    pub const fn nothing_stated() -> Self {
         Self {
             shots: None,
             instructions_per_batch: None,

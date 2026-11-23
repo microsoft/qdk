@@ -163,11 +163,11 @@ fn a_batch_of_more_than_the_receivers_most_instructions_is_refused() {
         };
         let resources = Resources {
             instructions_per_batch: most,
-            ..Resources::unconstrained()
+            ..Resources::nothing_stated()
         };
         let provided = Some(Capabilities::new(
             resources,
-            Features::unconstrained(),
+            Features::nothing_stated(),
             NoCapabilities,
         ));
         assert_eq!(

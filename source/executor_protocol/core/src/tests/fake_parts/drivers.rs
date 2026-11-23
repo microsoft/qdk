@@ -233,7 +233,7 @@ impl Program {
             beyond_its_set: None,
             sends: *coin_gates(),
             resources: batches_of(u32::try_from(longest).expect("a short program")),
-            features: Features::unconstrained(),
+            features: Features::nothing_stated(),
             ends_its_shots: true,
             checked: vec![false; texts.len()],
         }

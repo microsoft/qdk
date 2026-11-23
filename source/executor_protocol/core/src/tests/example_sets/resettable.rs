@@ -33,8 +33,8 @@ pub(crate) struct QubitsAndReset {
 /// resources and features.
 pub(crate) fn qubits_and_reset(qubits: u32, reset: bool) -> Capabilities<Resettable> {
     Capabilities::new(
-        Resources::unconstrained(),
-        Features::unconstrained(),
+        Resources::nothing_stated(),
+        Features::nothing_stated(),
         QubitsAndReset { qubits, reset },
     )
 }

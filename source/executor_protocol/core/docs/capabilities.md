@@ -14,12 +14,13 @@ needs it holds; a provision, for the requirements it takes. What arrives
 fits a provision when the first set is inside the second: every need
 it holds is within the limits.
 
-| Value                                                                                                     | As a requirement                                                           | As a provision                                                                |
-| --------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `None`                                                                                                    | not one: a requirement is always a value                                   | no limit, which every requirement fits: a part's default `provides`           |
-| nothing stated: `Resources::unconstrained()`, `Features::unconstrained()` and the set's `needs_nothing()` | no need, which fits every provision: what arrives before any run says more | never one: its set's part would read as the tightest limits, such as no qubit |
-| a stated value                                                                                            | the needs it states, such as 3 qubits a shot                               | the limits it states, such as at most 8 qubits a shot                         |
-| a field left unstated, inside a stated value                                                              | no need of that field                                                      | no limit on that field                                                        |
+| Value                                                                       | As a requirement                                                           | As a provision                                                                |
+| --------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `None`                                                                      | not one: a requirement is always a value                                   | no limit, which every requirement fits: a part's default `provides`           |
+| nothing stated: `Resources::nothing_stated()`, `Features::nothing_stated()` | no need of any resource or feature                                         | no limit on any resource or feature                                           |
+| the requirement of nothing: these, with the set's `needs_nothing()`         | no need, which fits every provision: what arrives before any run says more | never one: its set's part would read as the tightest limits, such as no qubit |
+| a stated value                                                              | the needs it states, such as 3 qubits a shot                               | the limits it states, such as at most 8 qubits a shot                         |
+| a field left unstated, inside a stated value                                | no need of that field                                                      | no limit on that field                                                        |
 
 One requirement **requires no more than** another when it fits every
 provision the other fits, as [`Capabilities`](../src/capabilities.rs)
@@ -69,7 +70,7 @@ executor that takes smaller ones, and its batches are refused as it runs.
 - **Capabilities** ([`Capabilities`](../src/capabilities.rs)): amounts
   ([`Resources`](../src/capabilities/resources.rs)) and yes-or-no features
   ([`Features`](../src/capabilities/features.rs)), which every chain
-  states, each built from its `unconstrained()`, which states no field; and
+  states, each built from its `nothing_stated()`, which states no field; and
   the instruction set's own capabilities, such as the qubits a shot holds
   (`set_capabilities()`, of the set's `SetCapabilities` type), as
   [Instruction sets](instruction-sets.md) says. `Capabilities::new` takes
@@ -152,8 +153,8 @@ fn requires(&self, run: &RunRequirement) -> Capabilities<CoinGates> {
 
 ```rust
 provides: Capabilities::new(
-    Resources::unconstrained().with_shots(1000),
-    Features::unconstrained(),
+    Resources::nothing_stated().with_shots(1000),
+    Features::nothing_stated(),
     Qubits(64),
 ),
 ```
@@ -180,7 +181,7 @@ interleaver falls short, and over bits taking 4 the chain composes (from
 [`src/tests/composition/driver_joins.rs`](../src/tests/composition/driver_joins.rs)):
 
 ```rust
-let d = program(2, Features::unconstrained());
+let d = program(2, Features::nothing_stated());
 let a = Stating::interleaving(3, &log);
 let e = bits_over(bits, &log);
 ```

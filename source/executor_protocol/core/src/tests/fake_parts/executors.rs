@@ -49,7 +49,7 @@ impl Bits {
         Self {
             runs: set,
             accepts: set,
-            provides: capabilities(batches_of(64), Features::unconstrained()),
+            provides: capabilities(batches_of(64), Features::nothing_stated()),
             shots: BTreeMap::new(),
             busy: None,
             loses: false,

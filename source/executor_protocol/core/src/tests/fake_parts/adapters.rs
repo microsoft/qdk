@@ -357,7 +357,7 @@ impl StatesLimits<Spread> {
     /// takes at most `n`, and requires `k` instructions below for each
     /// that arrives.
     pub(crate) fn built_for(mut self, n: u32) -> Self {
-        self.part.provides = Some(capabilities(batches_of(n), Features::unconstrained()));
+        self.part.provides = Some(capabilities(batches_of(n), Features::nothing_stated()));
         self.part.built = true;
         self
     }
@@ -496,15 +496,15 @@ impl Stating {
     pub(crate) fn queue(most: u32, log: &Log) -> StatesLimits<Self> {
         Self::providing(
             log,
-            Resources::unconstrained().with_shots(most),
-            Features::unconstrained(),
+            Resources::nothing_stated().with_shots(most),
+            Features::nothing_stated(),
         )
     }
 
     /// A toy cap that takes batches of at most `n` instructions, as a
     /// decoder built for that many does.
     pub(crate) fn capping(n: u32, log: &Log) -> StatesLimits<Self> {
-        Self::providing(log, batches_of(n), Features::unconstrained())
+        Self::providing(log, batches_of(n), Features::nothing_stated())
     }
 
     /// A toy replayer that keeps each shot's readouts and gives them back
@@ -522,8 +522,8 @@ impl Stating {
         Self::new(
             log,
             Some(capabilities(
-                Resources::unconstrained(),
-                Features::unconstrained().with_replay(false),
+                Resources::nothing_stated(),
+                Features::nothing_stated().with_replay(false),
             )),
             |above| (above.clone()).map_features(|features| features.with_seeded_runs(false)),
         )

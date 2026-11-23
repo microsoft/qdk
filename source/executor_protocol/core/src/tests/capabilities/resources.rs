@@ -10,8 +10,8 @@ use crate::{BoundaryCompatible, Features, ResourceMismatch, Resources};
 /// Each amount `required` states above what `provided` states, as
 /// [`Capabilities`](crate::Capabilities)' fit lists them.
 fn fit(required: Resources, provided: Resources) -> Vec<ResourceMismatch> {
-    let fit = capabilities(required, Features::unconstrained())
-        .fits(&capabilities(provided, Features::unconstrained()));
+    let fit = capabilities(required, Features::nothing_stated())
+        .fits(&capabilities(provided, Features::nothing_stated()));
     fit.map_or_else(|mismatch| mismatch.resources, |()| Vec::new())
 }
 
@@ -26,7 +26,7 @@ fn fit(required: Resources, provided: Resources) -> Vec<ResourceMismatch> {
 /// "every larger amount".
 #[test]
 fn a_required_amount_fits_unless_a_stated_provided_amount_is_smaller() {
-    let none = Resources::unconstrained();
+    let none = Resources::nothing_stated();
     let shots = |n| none.with_shots(n);
     for (row, required, provided, expected) in [
         (

@@ -10,8 +10,8 @@ use crate::{BoundaryCompatible, FeatureMismatch, Features, Resources};
 /// Each feature `required` uses that `provided` states it lacks, as
 /// [`Capabilities`](crate::Capabilities)' fit lists them.
 fn fit(required: Features, provided: Features) -> Vec<FeatureMismatch> {
-    let fit = capabilities(Resources::unconstrained(), required)
-        .fits(&capabilities(Resources::unconstrained(), provided));
+    let fit = capabilities(Resources::nothing_stated(), required)
+        .fits(&capabilities(Resources::nothing_stated(), provided));
     fit.map_or_else(|mismatch| mismatch.features, |()| Vec::new())
 }
 
@@ -24,7 +24,7 @@ fn fit(required: Features, provided: Features) -> Vec<FeatureMismatch> {
 /// the first fails "every feature lacking".
 #[test]
 fn a_used_feature_fits_unless_the_provider_states_it_lacking() {
-    let none = Features::unconstrained();
+    let none = Features::nothing_stated();
     let replay = |yes| Features {
         replay: Some(yes),
         ..none
@@ -70,13 +70,13 @@ fn a_used_feature_fits_unless_the_provider_states_it_lacking() {
 /// last.
 #[test]
 fn replay_requires_seeded_runs() {
-    let replay = || Features::unconstrained().with_replay(true);
+    let replay = || Features::nothing_stated().with_replay(true);
     let both = vec![FeatureMismatch::Replay, FeatureMismatch::SeededRuns];
     for (row, required, provided, expected) in [
         (
             "replay over runs without seeded runs",
             replay(),
-            Features::unconstrained().with_seeded_runs(false),
+            Features::nothing_stated().with_seeded_runs(false),
             both.clone(),
         ),
         (
@@ -88,7 +88,7 @@ fn replay_requires_seeded_runs() {
         (
             "no seeded runs, then replay, stated by a provider",
             replay(),
-            Features::unconstrained()
+            Features::nothing_stated()
                 .with_seeded_runs(false)
                 .with_replay(true),
             vec![],

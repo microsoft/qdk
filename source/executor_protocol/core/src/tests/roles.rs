@@ -17,7 +17,7 @@ use crate::{Capabilities, Features, Resources};
 /// changing any field differs from it.
 fn every_field_stated() -> Capabilities<QubitLimited> {
     Capabilities::new(
-        Resources::unconstrained()
+        Resources::nothing_stated()
             .with_shots(100)
             .with_instructions_per_batch(50),
         Features {

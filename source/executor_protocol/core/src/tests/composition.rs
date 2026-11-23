@@ -712,7 +712,7 @@ fn every_part_gets_ready_on_every_run_for_what_arrives_at_it() {
             let counted = Rc::new(Cell::new(0));
             let d = program_of(5);
             let a = Profiler::new(&counted, &log);
-            let e = Bits::new(&log).with_resources(Resources::unconstrained());
+            let e = Bits::new(&log).with_resources(Resources::nothing_stated());
         },
         |chain, brackets| assert_eq!(
             logged_over_two_runs(chain, &log, "Bits ready"),
@@ -738,9 +738,9 @@ fn every_part_gets_ready_on_every_run_for_what_arrives_at_it() {
 /// What a run of `shots` shots requires, as its driver gets it: that many
 /// shots, and seeded runs if `seeded`, its seed being fixed.
 fn run_of(shots: u32, seeded: bool) -> RunRequirement {
-    let features = Features::unconstrained();
+    let features = Features::nothing_stated();
     RunRequirement {
-        resources: Resources::unconstrained().with_shots(shots),
+        resources: Resources::nothing_stated().with_shots(shots),
         features: if seeded {
             features.with_seeded_runs(true)
         } else {

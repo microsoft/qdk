@@ -29,10 +29,10 @@ impl RunRequirement {
     /// Nothing required: what [`on`](crate::DriverJoins::on) checks a
     /// chain with, before any run.
     #[must_use]
-    pub const fn unconstrained() -> Self {
+    pub const fn needs_nothing() -> Self {
         Self {
-            resources: Resources::unconstrained(),
-            features: Features::unconstrained(),
+            resources: Resources::nothing_stated(),
+            features: Features::nothing_stated(),
         }
     }
 }

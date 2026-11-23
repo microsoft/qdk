@@ -16,7 +16,7 @@ use std::fmt;
 /// cannot take shots or runs that use it, and `Some(true)` that it can. A
 /// part that does not state one (`None`) neither needs nor limits it.
 ///
-/// Built from [`unconstrained`](Self::unconstrained), which states
+/// Built from [`nothing_stated`](Self::nothing_stated), which states
 /// nothing, with the builders below, which keep replay and seeded runs
 /// consistent, or by setting its fields.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -33,7 +33,7 @@ impl Features {
     /// chain on: a part that uses replay or seeded runs is joined with
     /// this one all the same.
     #[must_use]
-    pub const fn unconstrained() -> Self {
+    pub const fn nothing_stated() -> Self {
         Self {
             replay: None,
             seeded_runs: None,

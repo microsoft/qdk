@@ -63,7 +63,7 @@ pub trait DriverJoins: Driver + Sized {
         executor: E,
     ) -> Result<Runner<Self, E>, CompositionFaults> {
         let mut parts = DeclaredParts::listing_faults();
-        let required = self.declare(&RunRequirement::unconstrained(), &mut parts);
+        let required = self.declare(&RunRequirement::needs_nothing(), &mut parts);
         let executor_at = parts.len();
         executor.declare(&required, &mut parts);
         let ids = parts.ids();

@@ -129,7 +129,7 @@ pub(super) fn program(n: u32, features: Features) -> StatesLimits<Program> {
 
 /// Replay, required or provided, and the seeded runs it states.
 fn replay() -> Features {
-    Features::unconstrained().with_replay(true)
+    Features::nothing_stated().with_replay(true)
 }
 
 /// Bits taking batches of `n` instructions.
@@ -322,7 +322,7 @@ fn a_requirement_passed_unchanged_is_checked_at_each_part_below_naming_its_requi
         "batches through a logger",
         [d, a, e] from {
             let log = Log::default();
-            let d = program(5, Features::unconstrained());
+            let d = program(5, Features::nothing_stated());
             let a = Profiler::new(&counted, &log);
             let e = bits_over(4, &log);
         },
@@ -332,7 +332,7 @@ fn a_requirement_passed_unchanged_is_checked_at_each_part_below_naming_its_requi
         "batches through an interleaver, more than its least",
         [d, a, e] from {
             let log = Log::default();
-            let d = program(5, Features::unconstrained());
+            let d = program(5, Features::nothing_stated());
             let a = Stating::interleaving(3, &log);
             let e = bits_over(4, &log);
         },
@@ -342,7 +342,7 @@ fn a_requirement_passed_unchanged_is_checked_at_each_part_below_naming_its_requi
         "batches over a decoder's limit",
         [d, a, e] from {
             let log = Log::default();
-            let d = program(5, Features::unconstrained());
+            let d = program(5, Features::nothing_stated());
             let a = Stating::capping(4, &log);
             let e = bits_over(10, &log);
         },
@@ -352,7 +352,7 @@ fn a_requirement_passed_unchanged_is_checked_at_each_part_below_naming_its_requi
         "batches through a decoder's larger limit",
         [d, a, e] from {
             let log = Log::default();
-            let d = program(9, Features::unconstrained());
+            let d = program(9, Features::nothing_stated());
             let a = Stating::capping(64, &log);
             let e = bits_over(8, &log);
         },
@@ -362,7 +362,7 @@ fn a_requirement_passed_unchanged_is_checked_at_each_part_below_naming_its_requi
         "batches through an interleaver and a decoder's larger limit",
         [d, i, c, e] from {
             let log = Log::default();
-            let d = program(5, Features::unconstrained());
+            let d = program(5, Features::nothing_stated());
             let i = Stating::interleaving(3, &log);
             let c = Stating::capping(10, &log);
             let e = bits_over(4, &log);
@@ -370,7 +370,7 @@ fn a_requirement_passed_unchanged_is_checked_at_each_part_below_naming_its_requi
         vec![fault(part::<Program>(0), part::<Bits>(3), short_batches(5, 4))],
     );
     let shots =
-        |n| program(1, Features::unconstrained()).with_resources(batches_of(1).with_shots(n));
+        |n| program(1, Features::nothing_stated()).with_resources(batches_of(1).with_shots(n));
     let bits_of_3_shots = |log: &Log| Bits::new(log).with_resources(batches_of(64).with_shots(3));
     faults_in_each_bracketing!(
         "shots short at a queue and below it",
@@ -385,7 +385,7 @@ fn a_requirement_passed_unchanged_is_checked_at_each_part_below_naming_its_requi
             fault(part::<Program>(0), part::<Bits>(2), short_shots(12, 3)),
         ],
     );
-    let not_replayable = || Features::unconstrained().with_replay(false);
+    let not_replayable = || Features::nothing_stated().with_replay(false);
     faults_in_each_bracketing!(
         "seeded runs through a replayer",
         [d, a, e] from {
@@ -514,7 +514,7 @@ fn a_requirement_passed_unchanged_is_checked_at_each_part_below_naming_its_requi
             row,
             [d, p, c, e] from {
                 let log = Log::default();
-                let d = program(5, Features::unconstrained());
+                let d = program(5, Features::nothing_stated());
                 let p = Profiler::new(&counted, &log);
                 let c = Stating::capping(limit, &log);
                 let e = StatesNoLimits(bits_over(4, &log));
@@ -544,7 +544,7 @@ fn what_a_part_requires_of_what_arrives_is_checked_below_naming_it() {
             format!("an interleaver of 3 over bits taking {bits}, under 2"),
             [d, a, e] from {
                 let log = Log::default();
-                let d = program(2, Features::unconstrained());
+                let d = program(2, Features::nothing_stated());
                 let a = Stating::interleaving(3, &log);
                 let e = bits_over(bits, &log);
             },
@@ -559,7 +559,7 @@ fn what_a_part_requires_of_what_arrives_is_checked_below_naming_it() {
             },
         );
     }
-    let not_replayable = || Features::unconstrained().with_replay(false);
+    let not_replayable = || Features::nothing_stated().with_replay(false);
     faults_in_each_bracketing!(
         "a replayer over shots not replayable",
         [d, a, e] from {
@@ -574,7 +574,7 @@ fn what_a_part_requires_of_what_arrives_is_checked_below_naming_it() {
         "a decoder's limit above an ancilla's reservation",
         [d, c, a, e] from {
             let log = Log::default();
-            let d = program(6, Features::unconstrained());
+            let d = program(6, Features::nothing_stated());
             let c = Stating::capping(4, &log);
             let a = Stating::reserving_ancillas(1, &log);
             let e = bits_over(5, &log);
@@ -682,7 +682,7 @@ fn every_fault_is_listed_by_requirer_then_by_provider() {
         "a set and batches at one pair",
         [d, a, e] from {
             let log = Log::default();
-            let d = program(8, Features::unconstrained());
+            let d = program(8, Features::nothing_stated());
             let a = Stating::reserving_ancillas(1, &log);
             let e = Bits::accepting(NO_X, &log).with_resources(batches_of(8));
         },
@@ -700,7 +700,7 @@ fn every_fault_is_listed_by_requirer_then_by_provider() {
         [d, p, e] from {
             let log = Log::default();
             let counted = Rc::new(Cell::new(0));
-            let d = program(9, Features::unconstrained());
+            let d = program(9, Features::nothing_stated());
             let p = Profiler::new(&counted, &log);
             let e = Bits::accepting(NO_X, &log).with_resources(batches_of(8));
         },
@@ -725,12 +725,12 @@ fn inserting_a_profiler_changes_only_the_positions_of_the_faults() {
     let profiler = || Profiler::new(&counted, &log);
     let ancilla = || Stating::reserving_ancillas(1, &log);
     let without = faults(
-        program(9, Features::unconstrained())
+        program(9, Features::nothing_stated())
             .through(ancilla())
             .on(bits_over(9, &log)),
     );
     let with = faults(
-        program(9, Features::unconstrained())
+        program(9, Features::nothing_stated())
             .through(profiler())
             .through(ancilla())
             .through(profiler())
@@ -778,7 +778,7 @@ fn a_joined_part_requires_its_parts_requirements_in_turn_and_provides_its_top_pa
             "a driver through an encoding",
             read(Some(&DriverReadings::required(
                 &program(2, replay()).through(Spread::new(7, &log).built_for(2)),
-                &RunRequirement::unconstrained(),
+                &RunRequirement::needs_nothing(),
             ))),
             Some((batches_of(14), replay())),
         ),
@@ -790,7 +790,7 @@ fn a_joined_part_requires_its_parts_requirements_in_turn_and_provides_its_top_pa
                     .through(Profiler::new(&counted, &log)),
                 &batches_of_two,
             ))),
-            Some((batches_of(14), Features::unconstrained())),
+            Some((batches_of(14), Features::nothing_stated())),
         ),
         (
             "a profiler through an encoding, providing",
@@ -803,10 +803,10 @@ fn a_joined_part_requires_its_parts_requirements_in_turn_and_provides_its_top_pa
         (
             "a driver through an interleaver",
             read(Some(&DriverReadings::required(
-                &program(2, Features::unconstrained()).through(Stating::interleaving(3, &log)),
-                &RunRequirement::unconstrained(),
+                &program(2, Features::nothing_stated()).through(Stating::interleaving(3, &log)),
+                &RunRequirement::needs_nothing(),
             ))),
-            Some((batches_of(3), Features::unconstrained())),
+            Some((batches_of(3), Features::nothing_stated())),
         ),
         // The queue's 4 shots, not the bits' batches of 8.
         (
@@ -815,8 +815,8 @@ fn a_joined_part_requires_its_parts_requirements_in_turn_and_provides_its_top_pa
                 Bits::new(&log).with_resources(batches_of(8).with_shots(8)),
             ))),
             Some((
-                Resources::unconstrained().with_shots(4),
-                Features::unconstrained(),
+                Resources::nothing_stated().with_shots(4),
+                Features::nothing_stated(),
             )),
         ),
         // The decoder's batches of 64, not the queue's 4 shots.
@@ -825,7 +825,7 @@ fn a_joined_part_requires_its_parts_requirements_in_turn_and_provides_its_top_pa
             read(TranslatingAdapter::provides(
                 &Stating::capping(64, &log).through(Stating::queue(4, &log)),
             )),
-            Some((batches_of(64), Features::unconstrained())),
+            Some((batches_of(64), Features::nothing_stated())),
         ),
     ];
     for (row, read, expected) in rows {
@@ -851,7 +851,7 @@ fn a_wrapped_joined_part_requires_what_its_parts_require() {
     assert_eq!(
         listed(
             faults(
-                program(2, Features::unconstrained())
+                program(2, Features::nothing_stated())
                     .through(wrapped)
                     .on(bits_over(2, &log))
             )
@@ -873,7 +873,7 @@ fn a_wrapped_joined_part_requires_what_its_parts_require() {
 #[test]
 fn two_parts_of_one_type_are_told_apart_by_position() {
     let log = Log::default();
-    let composed = program(1, Features::unconstrained())
+    let composed = program(1, Features::nothing_stated())
         .through(Spread::new(2, &log).built_for(1))
         .through(Spread::new(2, &log).built_for(1))
         .on(bits_over(64, &log));

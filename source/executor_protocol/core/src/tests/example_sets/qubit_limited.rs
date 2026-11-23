@@ -31,8 +31,8 @@ pub(crate) struct Qubits(pub(crate) u32);
 /// The capabilities of `n` qubits, and any resources and features.
 pub(crate) fn on_qubits<S: InstructionSet<SetCapabilities = Qubits>>(n: u32) -> Capabilities<S> {
     Capabilities::new(
-        Resources::unconstrained(),
-        Features::unconstrained(),
+        Resources::nothing_stated(),
+        Features::nothing_stated(),
         Qubits(n),
     )
 }

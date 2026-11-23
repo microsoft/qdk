@@ -50,14 +50,14 @@ fn a_composition_fault_names_its_parts_and_every_mismatch() {
         (
             "batches",
             said(faults(
-                program(9, Features::unconstrained()).on(bits_over(8, &log)),
+                program(9, Features::nothing_stated()).on(bits_over(8, &log)),
             )),
             vec![(part::<Program>(0), part::<Bits>(1))],
             vec![&nine_over_eight],
         ),
         (
             "a set and batches at one pair",
-            said(faults(program(9, Features::unconstrained()).on(
+            said(faults(program(9, Features::nothing_stated()).on(
                 Bits::accepting(NO_X, &log).with_resources(batches_of(8)),
             ))),
             vec![(part::<Program>(0), part::<Bits>(1))],
@@ -66,7 +66,7 @@ fn a_composition_fault_names_its_parts_and_every_mismatch() {
         (
             "parts built at run time",
             said(faults(
-                Renamed::new(program(9, Features::unconstrained()), "h2 program")
+                Renamed::new(program(9, Features::nothing_stated()), "h2 program")
                     .through(Renamed::new(Stating::capping(4, &log), "decoder"))
                     .on(Renamed::new(bits_over(8, &log), "device runtime")),
             )),

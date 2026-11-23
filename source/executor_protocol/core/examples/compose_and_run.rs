@@ -489,8 +489,8 @@ impl Bits {
     fn new() -> Self {
         Self {
             provides: Capabilities::new(
-                Resources::unconstrained().with_shots(1000),
-                Features::unconstrained(),
+                Resources::nothing_stated().with_shots(1000),
+                Features::nothing_stated(),
                 Qubits(64),
             ),
             qubits: 0,

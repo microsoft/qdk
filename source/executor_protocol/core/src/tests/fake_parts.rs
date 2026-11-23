@@ -173,7 +173,7 @@ pub(crate) fn capabilities(resources: Resources, features: Features) -> Capabili
 
 /// Batches of at most `n` instructions, and no other resource.
 pub(crate) fn batches_of(n: u32) -> Resources {
-    Resources::unconstrained().with_instructions_per_batch(n)
+    Resources::nothing_stated().with_instructions_per_batch(n)
 }
 
 /// What `part` logs once ready for `above`: the instructions a batch it

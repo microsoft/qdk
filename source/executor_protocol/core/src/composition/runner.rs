@@ -256,12 +256,12 @@ fn run_requirement(shots: usize, seeded: bool) -> RunRequirement {
     // shots, the most a part can state.
     let shots = u32::try_from(shots).unwrap_or(u32::MAX);
     let features = if seeded {
-        Features::unconstrained().with_seeded_runs(true)
+        Features::nothing_stated().with_seeded_runs(true)
     } else {
-        Features::unconstrained()
+        Features::nothing_stated()
     };
     RunRequirement {
-        resources: Resources::unconstrained().with_shots(shots),
+        resources: Resources::nothing_stated().with_shots(shots),
         features,
     }
 }

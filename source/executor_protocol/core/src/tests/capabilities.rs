@@ -27,17 +27,17 @@ use crate::{
 /// of 1, and no feature.
 fn every_kind_short() -> (Capabilities<QubitLimited>, Capabilities<QubitLimited>) {
     let required = Capabilities::new(
-        Resources::unconstrained()
+        Resources::nothing_stated()
             .with_shots(10)
             .with_instructions_per_batch(4),
-        Features::unconstrained().with_replay(true),
+        Features::nothing_stated().with_replay(true),
         Qubits(9),
     );
     let provided = Capabilities::new(
-        Resources::unconstrained()
+        Resources::nothing_stated()
             .with_shots(5)
             .with_instructions_per_batch(1),
-        Features::unconstrained().with_seeded_runs(false),
+        Features::nothing_stated().with_seeded_runs(false),
         Qubits(8),
     );
     (required, provided)
@@ -93,8 +93,8 @@ fn every_mismatch_of_each_kind_is_listed_at_once_in_order() {
 #[test]
 fn capabilities_fit_only_when_every_kind_fits() {
     let required = Capabilities::<QubitLimited>::new(
-        Resources::unconstrained().with_shots(9),
-        Features::unconstrained().with_replay(true),
+        Resources::nothing_stated().with_shots(9),
+        Features::nothing_stated().with_replay(true),
         Qubits(9),
     );
     let fitting = || required.clone();

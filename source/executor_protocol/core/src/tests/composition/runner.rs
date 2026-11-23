@@ -1092,7 +1092,7 @@ fn a_run_the_chain_does_not_provide_is_refused_before_any_part_runs() {
         refused_before_any_part_runs(&row, runner(chain), ShotsBeyond(4), &log);
     });
     let bits_without_seeded_runs =
-        || Bits::new(&log).with_features(Features::unconstrained().with_seeded_runs(false));
+        || Bits::new(&log).with_features(Features::nothing_stated().with_seeded_runs(false));
     // An executor without seeded runs.
     let alone = runner(CoinCopy::new().on(bits_without_seeded_runs()));
     refused_before_any_part_runs("the executor alone, seeded", alone, Seed(4), &log);

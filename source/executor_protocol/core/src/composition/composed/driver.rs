@@ -60,7 +60,7 @@ impl<U: Driver, L: TranslatingAdapter<Accepts = U::Sends>> Driver for Composed<U
     /// what arrives.
     async fn ready(&mut self) -> Result<(), NotReady> {
         let (lower, ..) = self.start_run(
-            |upper| upper.required(&RunRequirement::unconstrained()),
+            |upper| upper.required(&RunRequirement::needs_nothing()),
             ChainPosition::UNKNOWN,
         )?;
         await_part(lower.ready_alone(Sealed(()))).await?;

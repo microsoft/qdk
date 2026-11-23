@@ -98,7 +98,7 @@ impl<S: InstructionSet> Capabilities<S> {
     /// [`needs_nothing`](InstructionSet::needs_nothing). What arrives from
     /// a part above that states nothing, before any run says more.
     pub(crate) fn needs_nothing() -> Self {
-        Self::from_run(&RunRequirement::unconstrained())
+        Self::from_run(&RunRequirement::needs_nothing())
     }
 
     /// Whether `self`, what arrives at a part, fits `limits`, the part's:
