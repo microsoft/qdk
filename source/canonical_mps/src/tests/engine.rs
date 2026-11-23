@@ -5,10 +5,11 @@
 //! of the engine's own promises, on the CPU algebra, [`CpuAlgebra`].
 //! This file holds what several areas share: the engine with and without
 //! fusion, gates and observables (with those of `engine::conformance`), and a
-//! circuit run on the engine and on the exact reference. Two stand-ins
-//! wrap [`CpuAlgebra`] for the tests that need more than its answers: the
-//! spy [`SpyAlgebra`] counts the engine's calls and records its uploads,
-//! and the fake [`FailingFakeAlgebra`] fails the call a test chooses.
+//! circuit run on the engine and on the exact reference. Stand-ins wrap
+//! [`CpuAlgebra`] for the tests that need more than its answers: the spy
+//! [`SpyAlgebra`] counts the engine's calls and records its uploads, the
+//! fake [`FailingFakeAlgebra`] fails the call a test chooses, and the fake
+//! [`NanReadingFakeAlgebra`] reads NaN.
 
 mod centre_moves;
 mod conformance;
@@ -32,6 +33,7 @@ use crate::{
 };
 use num_complex::Complex64;
 use stand_ins::failing_fake_algebra::FailingFakeAlgebra;
+use stand_ins::nan_reading_fake_algebra::NanReadingFakeAlgebra;
 use stand_ins::spy_algebra::{SpiedCalls, SpyAlgebra};
 use std::rc::Rc;
 use tensornet::{

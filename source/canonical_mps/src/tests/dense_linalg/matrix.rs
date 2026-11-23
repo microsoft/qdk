@@ -69,10 +69,11 @@ fn an_overflowing_element_count_is_refused() {
     }
 }
 
-/// The product of two matrices is the naive product, to rounding, on tall,
-/// wide, square and single-row shapes.
+/// The product of two matrices sums each row of the first times each column
+/// of the second, as the naive product does, to rounding, on tall, wide,
+/// square and single-row shapes.
 #[test]
-fn a_product_is_the_naive_product() {
+fn a_product_sums_rows_times_columns() {
     for (seed, &(rows, cols)) in (1..).zip(&SHAPES) {
         let a = matrix(rows, cols, seed);
         let b = matrix(cols, 3, seed + 10);

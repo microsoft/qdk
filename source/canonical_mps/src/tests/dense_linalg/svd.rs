@@ -24,7 +24,7 @@ mod decomposition {
     /// circuits are. The SVD gives back each, with orthonormal U and V and
     /// nonincreasing values, one per column of the smaller side.
     #[test]
-    fn decomposes_by_svd() {
+    fn gives_back_every_shape_with_orthonormal_factors() {
         let larger = [(128, 128), (64, 128), (96, 48), (48, 96), (2, 2)];
         let mut cases: Vec<Matrix> = (1..)
             .zip(SHAPES.iter().chain(&larger))
@@ -51,7 +51,7 @@ mod decomposition {
     /// `R` that the pivoting leaves at rounding's size. The zero matrix
     /// gives one value, exactly 0: the trim would keep none of its rows.
     #[test]
-    fn decomposes_rank_deficient_matrices_by_svd() {
+    fn gives_back_a_rank_deficient_matrix_with_exactly_its_rank_values() {
         for (rows, cols) in [(4, 3), (3, 4)] {
             let zero = Matrix::from_fn(rows, cols, |_, _| Complex64::new(0.0, 0.0));
             assert_eq!(check_svd(&zero), [0.0], "{rows} × {cols}");

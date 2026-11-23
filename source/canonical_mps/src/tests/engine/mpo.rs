@@ -139,10 +139,6 @@ fn x_string(sites: &[usize]) -> PauliSum {
 /// 0.01 at each of two of its splits, and ends near 0.98.
 #[test]
 fn an_mpo_truncates_only_at_the_callers_cuts() {
-    // COMPATIBILITY NOTE: the earlier rule for distant sites, the route by
-    // SWAPs `swap-back-2x` (`docs/distant_sites.md`), kept a retained weight of
-    // 0.979974491787900 here, which its test pinned. The 0.02 it lost was the
-    // route's artefact, not the state's, hence we keep the MPO's whole weight.
     let cutoff = 0.015;
     let half_turn = ry(std::f64::consts::FRAC_PI_2);
     let uneven = ry(2.0 * 0.98_f64.sqrt().acos());

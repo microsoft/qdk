@@ -63,13 +63,12 @@ a projection.
 
 ## Compared with routing by SWAPs
 
-Routing by SWAPs, as the crate's earlier rule `swap-back-2x` did, moves
-the site at `high` down to `low + 1` by adjacent SWAPs, applies the gate
-to the pair at `low`, and moves the site back: $2(d - 1) + 1$ splits for
-sites $d$ apart, against $d$ splits and $d - 1$ moves of the centre for
-an MPO, and one window per gate, since a route acts on a pair at a time.
-Its outbound splits factor the state at cuts that are not the caller's,
-which an MPO never does:
+Routing by SWAPs moves the site at `high` down to `low + 1` by adjacent
+SWAPs, applies the gate to the pair at `low`, and moves the site back:
+$2(d - 1) + 1$ splits for sites $d$ apart, against $d$ splits and
+$d - 1$ moves of the centre for an MPO, and one window per gate, since a
+route acts on a pair at a time. Its outbound splits factor the state at
+cuts that are not the caller's, which an MPO never does:
 
 - there they drop a tail below the cutoff that no cut of the caller's
   order holds (the case is in

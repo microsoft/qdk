@@ -339,7 +339,9 @@ fakes):
   operation on seeded inputs, from a pair whose extents are all one ($\theta$ of
   2 × 2) to a gated pair of 64 × 64, and compares what it returns with the
   contract's formulas, never with another algebra. It returns every case the
-  algebra fails, each naming the pair and the setting at fault. A truncated
+  algebra fails, each naming the pair, the setting at fault and the kit seed
+  that repeats it; `check_with_seed` draws the inputs from another seed, so
+  that a backend is not fitted to one set of inputs. A truncated
   split is checked by the Eckart–Young theorem, since its factors are not
   unique; the latitude the contract leaves (a bond larger than the cutoff needs,
   the side of a tie) is not checked.
