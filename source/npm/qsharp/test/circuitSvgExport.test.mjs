@@ -15,7 +15,7 @@ const exportCoverageCircuit = JSON.parse(
   readFileSync(new URL("./svg-export.qsc", import.meta.url), "utf8"),
 );
 
-test("renderer exports the full mounted SVG without changing its geometry or zoom", async () => {
+test("renderer export draws the view's geometry without changing the view or its zoom", async () => {
   await withDom(async (document) => {
     const circuit = representativeCircuit();
     const before = JSON.stringify(circuit);
@@ -75,43 +75,60 @@ test("renderer exports the full mounted SVG without changing its geometry or zoo
   });
 });
 
-test("renderer export removes editor controls and source links only from the copy", async () => {
+test("renderer export leaves out source links, expand buttons and editor hooks", async () => {
   await withDom(async (document) => {
-    const { renderer, container } = drawCircuit(document, groupedCircuit());
+    const circuit = groupedCircuit();
+    const source = { file: "Main.qs", line: 0, column: 0 };
+    circuit.qubits[0].declarations = [source];
+    circuit.componentGrid[1].components[0].metadata = { source };
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const renderer = draw({ version: 2, circuits: [circuit] }, container, {
+      renderLocations: () => ({
+        title: "Main.qs:1:1",
+        href: "command:qsharp-vscode.open-source",
+      }),
+    });
     const svg = container.querySelector("svg.qviz");
-    const namespace = "http://www.w3.org/2000/svg";
-    const overlay = document.createElementNS(namespace, "g");
-    overlay.classList.add("editor-overlay");
-    overlay.appendChild(document.createElementNS(namespace, "rect"));
-    svg.appendChild(overlay);
-    const link = document.createElementNS(namespace, "a");
-    link.setAttribute("href", "command:qsharp-vscode.open-source");
-    const input = svg.firstElementChild;
-    svg.prepend(link);
-    link.appendChild(input);
+    for (const selector of ["a", ".gate-control", "[data-location]"]) {
+      assert.ok(svg.querySelector(selector), selector);
+    }
     const before = container.innerHTML;
 
-    const parsed = parseSvg(renderer.exportSvg());
-    assert.equal(parsed.querySelector("a,.editor-overlay,.gate-control"), null);
+    const exported = renderer.exportSvg();
+    const parsed = parseSvg(exported);
+    assert.equal(parsed.querySelector("a,.gate-control"), null);
+    assert.equal(parsed.querySelectorAll("title").length, 1);
+    assert.doesNotMatch(exported, /\sdata-[\w-]+=/);
     assert.deepEqual(geometry(parsed), geometry(svg));
     assert.equal(container.innerHTML, before);
   });
 });
 
-test("renderer export leaves out the circuit editor's add-qubit row", async () => {
+test("renderer export leaves out the editor's add-qubit row without editing the circuit", async () => {
   await withDom(async (document) => {
-    const { renderer: viewer } = drawCircuit(document, representativeCircuit());
+    // The editor drops the unused last qubit from its model after drawing it. The export still
+    // shows the circuit as drawn.
+    const circuit = () => {
+      const circuit = representativeCircuit();
+      circuit.qubits.push({ id: 2 });
+      return circuit;
+    };
+    const { renderer: viewer } = drawCircuit(document, circuit());
     const container = document.createElement("div");
     document.body.appendChild(container);
-    const editor = draw(
-      { version: 2, circuits: [representativeCircuit()] },
-      container,
-      { editor: { editCallback: () => {} } },
-    );
+    let edits = 0;
+    const editor = draw({ version: 2, circuits: [circuit()] }, container, {
+      editor: { editCallback: () => edits++ },
+    });
     const mounted = container.querySelector("svg.qviz");
+    const editsBeforeExport = edits;
     const expected = parseSvg(viewer.exportSvg());
     const exported = parseSvg(editor.exportSvg());
 
+    assert.equal(edits, editsBeforeExport);
+    assert.equal(exported.querySelector(".editor-overlay"), null);
+    assert.equal(exported.querySelectorAll(".qs-qubit-label").length, 3);
     assert.ok(
       Number(mounted?.getAttribute("height")) >
         Number(expected.getAttribute("height")),
@@ -336,25 +353,6 @@ test("renderer export collapses label white space like browsers", async () => {
       label?.parentElement?.querySelectorAll("use").length,
       "loop:0..n-1".length,
     );
-  });
-});
-
-test("renderer export rejects invalid dimensions instead of producing a broken SVG", async () => {
-  await withDom(async (document) => {
-    for (const dimension of ["width", "height"]) {
-      for (const value of ["-1", "NaN", "Infinity"]) {
-        const { renderer, container } = drawCircuit(
-          document,
-          representativeCircuit(),
-        );
-        container.querySelector("svg.qviz").setAttribute(dimension, value);
-        assert.throws(
-          () => renderer.exportSvg(),
-          new RegExp(`invalid ${dimension}`),
-        );
-        container.remove();
-      }
-    }
   });
 });
 

@@ -12,7 +12,8 @@ export type CircuitRenderer = {
    */
   updateCircuit: (circuitGroup: CircuitGroup) => void;
   /**
-   * Serialize the exact circuit owned by this renderer as a standalone SVG.
+   * Draw the circuit as a standalone SVG file, with the same layout and expanded groups as the
+   * rendered view.
    */
   exportSvg: (options?: CircuitRendererSvgOptions) => string;
 };

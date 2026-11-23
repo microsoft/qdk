@@ -10,7 +10,16 @@ import {
   KATEX_MATH_ITALIC_GLYPHS,
   type CircuitSvgGlyphFont,
 } from "./circuitSvgGlyphs.js";
-import { svgNS } from "./constants.js";
+import { createSvgElement } from "./formatters/formatUtils.js";
+import {
+  formatLabel,
+  labelClasses,
+  labelStyles,
+  type LabelKind,
+  type LabelRenderData,
+  type LabelRun,
+} from "./formatters/labelFormatter.js";
+import type { RenderTarget } from "./renderTarget.js";
 
 export interface CircuitRendererSvgOptions {
   title?: string;
@@ -30,18 +39,15 @@ const GLYPH_FONTS = {
   main: KATEX_MAIN_REGULAR_GLYPHS,
   math: KATEX_MATH_ITALIC_GLYPHS,
 };
-// Label markup the renderer emits. Labels with any other markup keep their text.
-const TEXT_ATTRIBUTES =
-  /^(?:class|dominant-baseline|font-size|style|text-anchor|x|y)$/;
-const TSPAN_ATTRIBUTES = /^(?:baseline-shift|class|dx|dy|font-size|style)$/;
-
-type LabelRun = {
-  text: string;
-  font: keyof typeof GLYPH_FONTS;
-  size: number;
-  shift: number;
-  dx: number;
-  dy: number;
+// The light-theme color of each kind of label, as buildStyle colors labels kept as text.
+const LABEL_FILLS: Record<LabelKind, string> = {
+  gate: GATE_TEXT_COLOR,
+  argument: GATE_TEXT_COLOR,
+  ket: KET_TEXT_COLOR,
+  basis: MEASURE_TEXT_COLOR,
+  group: "currentColor",
+  control: "currentColor",
+  qubit: "currentColor",
 };
 
 type LabelGlyph = {
@@ -52,83 +58,116 @@ type LabelGlyph = {
   y: number;
 };
 
-export function createStandaloneCircuitSvg(
-  rendered: SVGElement,
-  options: CircuitRendererSvgOptions = {},
-  circuitHeight?: number,
-): string {
-  if (rendered.tagName !== "svg" || !rendered.classList.contains("qviz")) {
-    throw new Error("Expected an SVG produced by the QDK circuit renderer.");
-  }
+/**
+ * Draws a circuit for a standalone SVG file. Labels become outlines of their KaTeX glyphs, so the
+ * file looks the same without the fonts. A label with a character the fonts lack stays text, and
+ * the file then embeds the fonts. Nothing interactive is drawn.
+ */
+export class CircuitSvgExport implements RenderTarget {
+  readonly interactive = false;
+  /** Path of each glyph the labels use, by element id, in the order first used. */
+  private readonly glyphs = new Map<string, string>();
+  /** Code points that kept labels as text. */
+  private readonly unsupported = new Set<string>();
 
-  const source = rendered.cloneNode(true) as SVGElement;
-  source
-    .querySelectorAll(".gate-control, .editor-overlay, title")
-    .forEach((element) => element.remove());
-  source.querySelectorAll("a").forEach((link) => {
-    link.replaceWith(...Array.from(link.childNodes));
-  });
-  for (const element of [source, ...Array.from(source.querySelectorAll("*"))]) {
-    for (const attribute of Array.from(element.attributes)) {
-      if (attribute.name.startsWith("data-")) {
-        element.removeAttribute(attribute.name);
-      }
+  drawLabel(label: LabelRenderData): SVGElement {
+    const layout = layoutLabel(label, this.unsupported);
+    if (layout === undefined) {
+      return formatLabel(label);
     }
-  }
-  source.removeAttribute("style");
-  // Argument labels lose qs-maintext when the renderer replaces their class list, and
-  // measurement basis labels get the KaTeX font from their own CSS rule. Export both in
-  // the same KaTeX font as the other labels.
-  source
-    .querySelectorAll("text.arg-button, text.measurement-basis")
-    .forEach((text) => text.classList.add("qs-maintext"));
-  // The circuit editor makes the SVG taller for its add-qubit row, which was removed above with
-  // the other editor controls. When given, export only the circuit's own height.
-  if (circuitHeight !== undefined) {
-    source.setAttribute("height", String(circuitHeight));
-  }
 
-  const width = readDimension(source, "width");
-  const height = readDimension(source, "height");
-  const titleText = options.title?.trim() || DEFAULT_TITLE;
-  const descriptionText = options.description?.trim() || DEFAULT_DESCRIPTION;
-  const titleId = "qdk-circuit-title";
-  const descriptionId = "qdk-circuit-description";
-
-  source.classList.add(EXPORT_CLASS);
-  source.setAttribute("version", "1.1");
-  source.setAttribute("viewBox", `0 0 ${width} ${height}`);
-  source.setAttribute("preserveAspectRatio", "xMinYMin meet");
-  source.setAttribute("role", "img");
-  source.setAttribute("aria-labelledby", `${titleId} ${descriptionId}`);
-
-  const document = source.ownerDocument;
-  const title = document.createElementNS(svgNS, "title");
-  title.id = titleId;
-  title.textContent = titleText;
-  const description = document.createElementNS(svgNS, "desc");
-  description.id = descriptionId;
-  description.textContent = descriptionText;
-  const style = document.createElementNS(svgNS, "style");
-  source.prepend(title, description, style);
-
-  const invalidCharacter = source.textContent?.match(
-    /[^\t\n\r\u0020-\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]/u,
-  )?.[0];
-  if (invalidCharacter !== undefined) {
-    throw new Error(
-      `Cannot export SVG: invalid XML character U+${invalidCharacter.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0")}.`,
-    );
+    const outline = createSvgElement("g", {
+      class: labelClasses[label.kind],
+      fill: LABEL_FILLS[label.kind],
+    });
+    const description = createSvgElement("desc");
+    description.textContent = layout.text;
+    outline.appendChild(description);
+    for (const glyph of layout.glyphs) {
+      if (glyph.path === "") {
+        continue;
+      }
+      this.glyphs.set(glyph.id, glyph.path);
+      const use = createSvgElement("use");
+      use.setAttributeNS(XLINK_NS, "xlink:href", `#${glyph.id}`);
+      const scale = formatNumber(glyph.scale, 5);
+      use.setAttribute(
+        "transform",
+        `matrix(${scale} 0 0 ${scale} ${formatNumber(glyph.x, 3)} ${formatNumber(glyph.y, 3)})`,
+      );
+      outline.appendChild(use);
+    }
+    return outline;
   }
 
-  const fallbackCharacters = outlineLabels(source, style);
-  const keepsText = source.querySelector("text") !== null;
-  if (keepsText) {
-    source.setAttribute(TEXT_FALLBACK_ATTRIBUTE, fallbackCharacters.join(" "));
-  }
-  style.textContent = buildStyle(keepsText);
+  /**
+   * Wraps the elements drawn with this target in a standalone SVG document.
+   *
+   * @param width    Width of the circuit.
+   * @param height   Height of the circuit.
+   * @param elements Elements of the circuit, drawn with this target.
+   * @param options  Accessible title and description of the image.
+   *
+   * @returns Contents of the SVG file.
+   */
+  toSvg(
+    width: number,
+    height: number,
+    elements: SVGElement[],
+    options: CircuitRendererSvgOptions = {},
+  ): string {
+    const titleId = "qdk-circuit-title";
+    const descriptionId = "qdk-circuit-description";
+    const svg = createSvgElement("svg", {
+      class: `qviz ${EXPORT_CLASS}`,
+      width: String(width),
+      height: String(height),
+      viewBox: `0 0 ${width} ${height}`,
+      version: "1.1",
+      preserveAspectRatio: "xMinYMin meet",
+      role: "img",
+      "aria-labelledby": `${titleId} ${descriptionId}`,
+    });
+    const title = createSvgElement("title", { id: titleId });
+    title.textContent = options.title?.trim() || DEFAULT_TITLE;
+    const description = createSvgElement("desc", { id: descriptionId });
+    description.textContent =
+      options.description?.trim() || DEFAULT_DESCRIPTION;
+    const keepsText = this.unsupported.size > 0;
+    const style = createSvgElement("style");
+    style.textContent = buildStyle(keepsText);
+    svg.append(title, description, style);
+    if (this.glyphs.size > 0) {
+      svg.setAttributeNS(
+        "http://www.w3.org/2000/xmlns/",
+        "xmlns:xlink",
+        XLINK_NS,
+      );
+      const defs = createSvgElement("defs");
+      for (const [id, d] of this.glyphs) {
+        defs.appendChild(createSvgElement("path", { id, d }));
+      }
+      svg.appendChild(defs);
+    }
+    svg.append(...elements);
+    if (keepsText) {
+      svg.setAttribute(
+        TEXT_FALLBACK_ATTRIBUTE,
+        Array.from(this.unsupported).sort().join(" "),
+      );
+    }
 
-  return `<?xml version="1.0" encoding="UTF-8"?>\n${new XMLSerializer().serializeToString(source)}\n`;
+    const invalidCharacter = svg.textContent?.match(
+      /[^\t\n\r\u0020-\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]/u,
+    )?.[0];
+    if (invalidCharacter !== undefined) {
+      throw new Error(
+        `Cannot export SVG: invalid XML character U+${invalidCharacter.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0")}.`,
+      );
+    }
+
+    return `<?xml version="1.0" encoding="UTF-8"?>\n${new XMLSerializer().serializeToString(svg)}\n`;
+  }
 }
 
 /**
@@ -142,109 +181,19 @@ export function readCircuitSvgTextFallback(svg: string): string[] | undefined {
   return value === undefined ? undefined : value.split(" ").filter(Boolean);
 }
 
-// Replaces each label with outlines of its KaTeX glyphs so the SVG renders the same
-// without fonts. Labels the fonts cannot reproduce keep their complete text, and the
-// returned code points explain why.
-function outlineLabels(svg: SVGElement, style: SVGElement): string[] {
-  const document = svg.ownerDocument;
-  const defs = document.createElementNS(svgNS, "defs");
-  const defined = new Set<string>();
-  const unsupported = new Set<string>();
-  for (const text of Array.from(svg.querySelectorAll("text"))) {
-    const layout = layoutLabel(text, unsupported);
-    if (layout === undefined) {
-      continue;
-    }
-
-    const label = document.createElementNS(svgNS, "g");
-    label.setAttribute("class", text.getAttribute("class") ?? "");
-    label.setAttribute("fill", labelFill(text));
-    const description = document.createElementNS(svgNS, "desc");
-    description.textContent = layout.label;
-    label.appendChild(description);
-    for (const glyph of layout.glyphs) {
-      if (glyph.path === "") {
-        continue;
-      }
-      if (!defined.has(glyph.id)) {
-        const path = document.createElementNS(svgNS, "path");
-        path.setAttribute("id", glyph.id);
-        path.setAttribute("d", glyph.path);
-        defs.appendChild(path);
-        defined.add(glyph.id);
-      }
-      const use = document.createElementNS(svgNS, "use");
-      use.setAttributeNS(XLINK_NS, "xlink:href", `#${glyph.id}`);
-      const scale = formatNumber(glyph.scale, 5);
-      use.setAttribute(
-        "transform",
-        `matrix(${scale} 0 0 ${scale} ${formatNumber(glyph.x, 3)} ${formatNumber(glyph.y, 3)})`,
-      );
-      label.appendChild(use);
-    }
-    text.replaceWith(label);
-  }
-
-  if (defs.hasChildNodes()) {
-    svg.setAttributeNS(
-      "http://www.w3.org/2000/xmlns/",
-      "xmlns:xlink",
-      XLINK_NS,
-    );
-    style.after(defs);
-  }
-  return Array.from(unsupported).sort();
-}
-
-// Positions glyphs the way Chromium renders the label with the export stylesheet: KaTeX
-// advances without kerning, middle baselines, `sub` baseline shifts, the renderer's dagger
-// offsets, and browser white-space collapsing.
+// Positions glyphs the way Chromium renders the label on screen: KaTeX advances without kerning,
+// middle baselines, `sub` baseline shifts, the dagger's offsets, and browser white-space
+// collapsing. Returns `undefined`, and records why, when the fonts lack a character.
 function layoutLabel(
-  text: Element,
+  label: LabelRenderData,
   unsupported: Set<string>,
-): { label: string; glyphs: LabelGlyph[] } | undefined {
-  const size = readNumber(text, "font-size");
-  const x = readNumber(text, "x");
-  const y = readNumber(text, "y");
-  const style = text.getAttribute("style")?.trim();
-  if (
-    !text.classList.contains("qs-maintext") ||
-    !hasOnlyAttributes(text, TEXT_ATTRIBUTES) ||
-    (style !== undefined && !/^pointer-events:\s*[a-z]+;?$/.test(style)) ||
-    ![size, x, y].every(Number.isFinite)
-  ) {
-    return undefined;
-  }
-
-  const runs: LabelRun[] = [];
-  for (const child of Array.from(text.childNodes)) {
-    if (child.nodeType === child.TEXT_NODE) {
-      runs.push({
-        text: child.nodeValue ?? "",
-        font: "main",
-        size,
-        shift: 0,
-        dx: 0,
-        dy: 0,
-      });
-    } else if (
-      child.nodeType === child.ELEMENT_NODE &&
-      (child as Element).localName === "tspan"
-    ) {
-      const run = readTspan(child as Element, size);
-      if (run === undefined) {
-        return undefined;
-      }
-      runs.push(run);
-    } else if (child.nodeType !== child.COMMENT_NODE) {
-      return undefined;
-    }
-  }
+): { text: string; glyphs: LabelGlyph[] } | undefined {
+  const { x, y, fontSize } = label;
 
   // Browsers render CR, LF and tab in SVG text as spaces, collapse runs of spaces, and
   // trim them from both ends.
   const characters: { character: string; run: LabelRun }[] = [];
-  for (const run of runs) {
+  for (const run of label.runs) {
     for (const character of run.text.replace(/[\t\n\r]/g, " ")) {
       const previous = characters.at(-1)?.character;
       if (character !== " " || (previous !== undefined && previous !== " ")) {
@@ -256,20 +205,19 @@ function layoutLabel(
     characters.pop();
   }
 
-  const anchorStart =
-    text.classList.contains("qs-group-label") && text.closest(".gate") !== null;
-  const wordSpacing = text.classList.contains("arg-button") ? -0.2 * size : 0;
+  const wordSpacing = label.kind === "argument" ? -0.2 * fontSize : 0;
   const glyphs: LabelGlyph[] = [];
   const adjusted = new Set<LabelRun>();
   let advance = 0;
   let dy = 0;
   let supported = true;
   for (const { character, run } of characters) {
-    // KaTeX has no U+3009, which the circuit builder writes in ket labels such as
-    // "|1〉", so draw the mathematical bracket U+27E9 instead.
+    // KaTeX has no U+3009, which the circuit builder writes in ket labels such as "|1〉", so draw
+    // the mathematical bracket U+27E9 instead.
     const codePoint =
       character === "\u3009" ? 0x27e9 : (character.codePointAt(0) ?? 0);
-    const font = GLYPH_FONTS[run.font];
+    const style = labelStyles[run.style];
+    const font = GLYPH_FONTS[style.font];
     const glyph: readonly [number, string] | undefined = font.glyphs[codePoint];
     if (glyph === undefined) {
       unsupported.add(
@@ -279,18 +227,20 @@ function layoutLabel(
       continue;
     }
     if (!adjusted.has(run)) {
-      // A tspan's dx and dy apply before its first rendered character.
+      // A run's offset applies before its first rendered character.
       adjusted.add(run);
-      advance += run.dx;
-      dy += run.dy;
+      advance += style.dx;
+      dy += style.dy;
     }
-    const scale = run.size / 1000;
+    const size = fontSize * style.scale;
+    const scale = size / 1000;
+    const shift = run.style === "subscript" ? subscriptShift(font, size) : 0;
     glyphs.push({
-      id: `qdk-glyph-${run.font}-${codePoint.toString(16)}`,
+      id: `qdk-glyph-${style.font}-${codePoint.toString(16)}`,
       path: glyph[1],
       scale,
       x: advance,
-      y: y + dy - run.shift + (font.xHeight * scale) / 2,
+      y: y + dy - shift + (font.xHeight * scale) / 2,
     });
     advance +=
       glyph[0] * scale +
@@ -300,59 +250,15 @@ function layoutLabel(
     return undefined;
   }
 
-  const left = anchorStart ? x : x - advance / 2;
+  // As on screen, where the circuit stylesheet centers every label except group labels.
+  const left = label.kind === "group" ? x : x - advance / 2;
   for (const glyph of glyphs) {
     glyph.x += left;
   }
   return {
-    label: characters.map(({ character }) => character).join(""),
+    text: characters.map(({ character }) => character).join(""),
     glyphs,
   };
-}
-
-function readTspan(tspan: Element, parentSize: number): LabelRun | undefined {
-  if (
-    tspan.childElementCount > 0 ||
-    !hasOnlyAttributes(tspan, TSPAN_ATTRIBUTES)
-  ) {
-    return undefined;
-  }
-
-  // The dagger is sized by an inline style, which overrides a font-size attribute.
-  let size = parentSize;
-  const style = tspan.getAttribute("style");
-  const fontSize = tspan.getAttribute("font-size");
-  if (style !== null) {
-    const em = /^font-size:\s*([\d.]+)em;?$/.exec(style.trim());
-    if (em === null) {
-      return undefined;
-    }
-    size = parentSize * Number(em[1]);
-  } else if (fontSize !== null) {
-    const percent = /^([\d.]+)%$/.exec(fontSize);
-    if (percent === null) {
-      return undefined;
-    }
-    size = (parentSize * Number(percent[1])) / 100;
-  }
-
-  const font = tspan.classList.contains("qs-mathtext") ? "math" : "main";
-  const baselineShift = tspan.getAttribute("baseline-shift");
-  if (baselineShift !== null && baselineShift !== "sub") {
-    return undefined;
-  }
-  const run: LabelRun = {
-    text: tspan.textContent ?? "",
-    font,
-    size,
-    shift:
-      baselineShift === "sub" ? subscriptShift(GLYPH_FONTS[font], size) : 0,
-    dx: readNumber(tspan, "dx", 0),
-    dy: readNumber(tspan, "dy", 0),
-  };
-  return [run.size, run.shift, run.dx, run.dy].every(Number.isFinite)
-    ? run
-    : undefined;
 }
 
 // Chromium lowers `baseline-shift: sub` by half the font's ascent plus descent, each
@@ -364,45 +270,8 @@ function subscriptShift(font: CircuitSvgGlyphFont, size: number): number {
   );
 }
 
-// Mirrors the label fills in buildStyle, which apply only to text elements.
-function labelFill(text: Element): string {
-  if (text.classList.contains("ket-text")) {
-    return KET_TEXT_COLOR;
-  }
-  if (text.classList.contains("measurement-basis")) {
-    return MEASURE_TEXT_COLOR;
-  }
-  if (
-    text.classList.contains("qs-group-label") ||
-    text.closest(".classically-controlled-btn") !== null
-  ) {
-    return "currentColor";
-  }
-  return text.closest(".gate") !== null ? GATE_TEXT_COLOR : "currentColor";
-}
-
-function hasOnlyAttributes(element: Element, allowed: RegExp): boolean {
-  return Array.from(element.attributes).every((attribute) =>
-    allowed.test(attribute.name),
-  );
-}
-
-function readNumber(element: Element, name: string, missing = Number.NaN) {
-  const value = element.getAttribute(name);
-  return value === null ? missing : Number(value);
-}
-
 function formatNumber(value: number, digits: number): string {
   return String(Number(value.toFixed(digits)));
-}
-
-function readDimension(source: SVGElement, name: "width" | "height"): number {
-  const raw = source.getAttribute(name);
-  const value = raw === null ? Number.NaN : Number(raw);
-  if (!Number.isFinite(value) || value < 0) {
-    throw new Error(`Circuit SVG has an invalid ${name} "${raw ?? ""}".`);
-  }
-  return value;
 }
 
 function buildStyle(includeFonts: boolean): string {
@@ -418,8 +287,8 @@ function buildStyle(includeFonts: boolean): string {
     fontFaces +
     `.${EXPORT_CLASS}{color:#222}` +
     `.${EXPORT_CLASS} line,.${EXPORT_CLASS} circle,.${EXPORT_CLASS} rect{stroke:currentColor;stroke-width:1}` +
-    `.${EXPORT_CLASS} text{fill:currentColor;text-anchor:middle;dominant-baseline:middle}` +
-    `.${EXPORT_CLASS} .qs-maintext{font-family:${mainFont};font-style:normal;font-weight:400}` +
+    // Every label kept as text uses the KaTeX fonts, whatever classes it has on screen.
+    `.${EXPORT_CLASS} text{fill:currentColor;text-anchor:middle;dominant-baseline:middle;font-family:${mainFont};font-style:normal;font-weight:400}` +
     `.${EXPORT_CLASS} .qs-mathtext{font-family:${mathFont};font-style:italic;font-weight:400}` +
     `.${EXPORT_CLASS} .hidden{display:none}` +
     `.${EXPORT_CLASS} .register-classical{stroke-width:.5}` +
@@ -438,6 +307,6 @@ function buildStyle(includeFonts: boolean): string {
     `.${EXPORT_CLASS} text.ket-text{fill:${KET_TEXT_COLOR};stroke:none}` +
     `.${EXPORT_CLASS} text.measurement-basis{fill:${MEASURE_TEXT_COLOR};stroke:none}` +
     `.${EXPORT_CLASS} .classically-controlled-btn circle{fill:#fff;stroke-width:1}` +
-    `.${EXPORT_CLASS} .classically-controlled-btn text{font-family:${mainFont};fill:currentColor;stroke:none}`
+    `.${EXPORT_CLASS} .classically-controlled-btn text{fill:currentColor;stroke:none}`
   );
 }

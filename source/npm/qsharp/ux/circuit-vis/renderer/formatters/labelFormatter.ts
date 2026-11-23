@@ -52,7 +52,7 @@ export interface LabelRenderData {
 }
 
 /** Classes the circuit stylesheet uses to style each kind of label. */
-const labelClasses: Record<LabelKind, string> = {
+export const labelClasses: Record<LabelKind, string> = {
   gate: "qs-maintext",
   // Without qs-maintext, upright argument text uses the page font on screen.
   argument: "arg-button",
@@ -63,14 +63,37 @@ const labelClasses: Record<LabelKind, string> = {
   qubit: "qs-maintext qs-qubit-label",
 };
 
+/**
+ * Font, size and offset of each style, relative to the font size and position of the label. A
+ * subscript is also lowered to the subscript position of its font.
+ */
+export const labelStyles: Record<
+  LabelStyle,
+  { font: "main" | "math"; scale: number; dx: number; dy: number }
+> = {
+  plain: { font: "main", scale: 1, dx: 0, dy: 0 },
+  italic: { font: "math", scale: 1, dx: 0, dy: 0 },
+  subscript: { font: "main", scale: 0.65, dx: 0, dy: 0 },
+  dagger: { font: "main", scale: 0.8, dx: 2, dy: -3 },
+};
+
+const { subscript, dagger } = labelStyles;
+
 /** Attributes of the tspan that draws each style other than `plain`. */
 const runAttributes: Record<
   Exclude<LabelStyle, "plain">,
   { [attr: string]: string }
 > = {
   italic: { class: "qs-mathtext" },
-  subscript: { "baseline-shift": "sub", "font-size": "65%" },
-  dagger: { dx: "2", dy: "-3", style: "font-size: 0.8em;" },
+  subscript: {
+    "baseline-shift": "sub",
+    "font-size": `${subscript.scale * 100}%`,
+  },
+  dagger: {
+    dx: `${dagger.dx}`,
+    dy: `${dagger.dy}`,
+    style: `font-size: ${dagger.scale}em;`,
+  },
 };
 
 /**

@@ -17,7 +17,8 @@ import {
   gatePadding,
 } from "../constants.js";
 import { createSvgElement, group } from "./formatUtils.js";
-import { formatLabel, type LabelRun } from "./labelFormatter.js";
+import { type LabelRun } from "./labelFormatter.js";
+import { screenTarget, type RenderTarget } from "../renderTarget.js";
 import { mathChars } from "../../utils.js";
 
 /**
@@ -25,6 +26,7 @@ import { mathChars } from "../../utils.js";
  * and a mapping from register IDs to register rendering data.
  *
  * @param qubits List of declared qubits.
+ * @param target Where the qubit labels are drawn.
  *
  * @returns returns the SVG string of formatted qubit wires, a mapping from registers to y coord and
  *   total SVG height.
@@ -40,6 +42,7 @@ const formatInputs = (
     };
   },
   renderLocations?: (s: SourceLocation[]) => { title: string; href: string },
+  target: RenderTarget = screenTarget,
 ): { qubitLabels: SVGElement; registers: RegisterMap; svgHeight: number } => {
   const qubitLabels: SVGElement[] = [];
   const registers: RegisterMap = {};
@@ -104,7 +107,9 @@ const formatInputs = (
     }
 
     // Add qubit wire to list of qubit wires
-    qubitLabels.push(qubitInput(currY, wireIndex, id.toString(), link.link));
+    qubitLabels.push(
+      qubitInput(currY, wireIndex, id.toString(), link.link, target),
+    );
 
     // Create qubit register
     registers[id] = {
@@ -205,6 +210,7 @@ const formatInputs = (
  * Generate the SVG text component for the input qubit register.
  *
  * @param y y coord of input wire to render in SVG.
+ * @param target Where the label is drawn.
  *
  * @returns SVG text component for the input register.
  */
@@ -213,6 +219,7 @@ const qubitInput = (
   wireIndex: number,
   subscript?: string,
   link?: { href: string; title: string },
+  target: RenderTarget = screenTarget,
 ): SVGElement => {
   const runs: LabelRun[] = [
     { text: "|", style: "plain" },
@@ -222,13 +229,15 @@ const qubitInput = (
     runs.push({ text: subscript, style: "subscript" });
   }
   runs.push({ text: mathChars.rangle, style: "plain" });
-  const el: SVGElement = formatLabel({
+  const el: SVGElement = target.drawLabel({
     kind: "qubit",
     x: leftPadding,
     y,
     fontSize: 16,
     runs,
-    dataAttributes: { wire: wireIndex.toString() },
+    dataAttributes: target.interactive
+      ? { wire: wireIndex.toString() }
+      : undefined,
   });
 
   if (link) {
