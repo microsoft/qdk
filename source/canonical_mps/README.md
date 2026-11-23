@@ -33,11 +33,12 @@ host's memory, and its products, QR and SVD are the crate's
 [dense linear algebra](#the-dense-linear-algebra)'s, on the calling
 thread. It is also the reference a GPU backend is checked against, and,
 since CI has no GPU, the backend on which CI runs the engine's tests and
-the conformance kit and circuits. A backend on a GPU library goes in a crate of its own, which runs
-it on an NVIDIA GPU, for the chemistry instances that are slow on the CPU,
-such as benzene, or N₂ at a large bond dimension. The engine keeps the
-cost low by deferring and sharing work: it fuses gates into one
-application, and reads an observable's sites once for all its terms.
+the conformance kit and circuits. A backend on a GPU library goes in a
+crate of its own, which runs it on an NVIDIA GPU, for the chemistry
+instances that are slow on the CPU, such as benzene, or N₂ at a large
+bond dimension. The engine keeps the cost low by deferring and sharing
+work: it fuses gates into one application, and reads an observable's
+sites once for all its terms.
 
 Today the crate holds:
 
@@ -316,9 +317,9 @@ is for.
 [`GateSplitCall`](src/site_algebra/gate_split.rs) and
 [`QrMoveCall`](src/site_algebra/qr_move.rs) define each operation's inputs
 exactly, and [`GateSplitOutcome`](src/site_algebra/gate_split.rs) and
-[`QrMoveOutcome`](src/site_algebra/qr_move.rs) its outputs. `gate_split` and `qr_move` leave their input tensors
-unchanged, since the caller may still hold them, as the sites of a state
-it forked.
+[`QrMoveOutcome`](src/site_algebra/qr_move.rs) its outputs. `gate_split`
+and `qr_move` leave their input tensors unchanged, since the caller may
+still hold them, as the sites of a state it forked.
 
 ### The layout
 
@@ -381,9 +382,10 @@ assert_truncated_circuit_stays_within_its_truncation_bound(CpuAlgebra);
 
 [`CpuAlgebra`](src/site_algebra/cpu_algebra.rs), exported at the crate's root,
 is the contract on the host CPU. Each operation is computed directly from
-its contract; it passes the [conformance kit](#conformance-the-kit-and-the-engines-circuits), and
-the engine's tests run on it. It needs no device, so it runs wherever the
-QDK runs, and it is the reference a GPU backend's tests compare with.
+its contract; it passes the
+[conformance kit](#conformance-the-kit-and-the-engines-circuits), and the
+engine's tests run on it. It needs no device, so it runs wherever the QDK
+runs, and it is the reference a GPU backend's tests compare with.
 
 `CpuAlgebra` holds each site in a `Vec<Complex64>`, in the contract's
 layout, which is the column-major order of the dense linear algebra's
