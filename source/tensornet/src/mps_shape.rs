@@ -209,8 +209,9 @@ impl MpsShape {
 
 /// Why a list of site extents is not the shape of a matrix product state.
 ///
-/// Every variant describes a shape that contradicts the chain structure
-/// itself, so none of them mention an engine, a buffer or a memory layout.
+/// Every variant describes the chain alone: a shape that contradicts the
+/// chain structure, or a site with more elements than a machine word
+/// counts. None of them mention an engine, a buffer or a memory layout.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum MpsShapeError {
     /// A chain with no sites. A matrix product state factorizes something,

@@ -177,7 +177,9 @@ fn the_default_conditional_probability_runs_the_checks() {
 /// projection on the second value refuses it, and the default passes its
 /// refusal on. On a state whose norm is NaN or zero, every probability is
 /// NaN, and with no condition nothing is projected: the default refuses the
-/// empty condition itself, as the reference does for such a norm.
+/// empty condition itself, as the reference does for such a norm. A NaN
+/// outside the states a condition selects still makes the norm NaN, so the
+/// default refuses that condition too, where the reference answers 0.
 #[test]
 fn the_default_conditional_probability_refuses_a_condition_of_probability_zero_or_nan() {
     let capacity = MpsShape::qubit_chain(3, usize::MAX).expect("three sites form a chain");
@@ -204,6 +206,18 @@ fn the_default_conditional_probability_refuses_a_condition_of_probability_zero_o
             "{amplitudes:?}"
         );
     }
+    // Site 1 Zero selects basis states 0 and 1, both finite; the NaN is on
+    // basis state 2, so the formula's answer is 0, which the reference gives.
+    let nan_elsewhere =
+        ReferenceState::from_amplitudes(&[c(1.0, 0.0), zero, c(f64::NAN, 0.0), zero]);
+    assert_eq!(
+        REFERENCE.conditional_probability_of_one(&nan_elsewhere, 0, &[(1, false)]),
+        Ok(0.0)
+    );
+    assert_eq!(
+        conditional(&nan_elsewhere, 0, &[(1, false)]),
+        Err(Some(Refusal::ZeroProbabilityOutcome))
+    );
 }
 
 /// An engine with no sampler of its own draws from its conditional

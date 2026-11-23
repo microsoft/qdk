@@ -222,8 +222,8 @@ impl ReferenceState {
     }
 }
 
-/// Why the reference did not do an operation: refused, or a state larger
-/// than it holds.
+/// Why the reference did not do an operation: refused, a state larger than
+/// it holds, or a sample with more values than memory holds.
 #[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum ReferenceError {
     /// The call's arguments break the contract.

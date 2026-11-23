@@ -164,8 +164,12 @@ pub trait MpsEngine {
     /// from [`shape`](Self::shape)), then forks the state and
     /// [`project`](Self::project)s the fork on each condition in order, as a
     /// split would, passing on the projection's refusal of a value of
-    /// probability zero, and refuses itself an answer of NaN, which an
-    /// empty `given` gives on a state whose norm is zero or NaN. It reads
+    /// probability zero or NaN, and refuses itself an answer of NaN, which
+    /// an empty `given` gives on a state whose norm is zero or NaN. Each
+    /// projection divides by the whole state's norm, so on a state whose
+    /// norm is NaN the default refuses every `given`, even one for which
+    /// the formula above, over the states `given` selects, is finite; an
+    /// override may return that finite answer. It reads
     /// [`shape`](Self::shape) only for the site count, so an engine whose
     /// `shape` costs a synchronization or a contraction should override
     /// this method.
