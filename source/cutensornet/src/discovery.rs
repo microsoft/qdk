@@ -121,7 +121,7 @@ pub fn discover() -> Result<Availability, AvailabilityError> {
 ///
 /// As [`discover`].
 pub fn discover_with(packaged: &PackagedLibraries) -> Result<Availability, AvailabilityError> {
-    discover_with_guides(packaged).0
+    discover_with_guides(packaged).availability
 }
 
 /// What [`discover_with`] finds, with the setup guide of each library
@@ -136,13 +136,20 @@ pub(crate) fn discover_with_guides(_packaged: &PackagedLibraries) -> Discovered 
     let unsupported = AvailabilityError::UnsupportedPlatform {
         platform: format!("{} {}", std::env::consts::OS, std::env::consts::ARCH),
     };
-    (Err(unsupported), Vec::new())
+    Discovered {
+        availability: Err(unsupported),
+        guides: Vec::new(),
+    }
 }
 
-/// What discovery found, with the setup guide of each library it opened,
-/// in the order opened: the libraries the setup check shows and advises
-/// about.
-pub(crate) type Discovered = (Result<Availability, AvailabilityError>, Vec<SetupGuide>);
+/// What discovery found, with the setup guide of each library it opened:
+/// the libraries the setup check shows and advises about.
+pub(crate) struct Discovered {
+    /// The libraries, loaded and checked, or why they cannot be used.
+    pub(crate) availability: Result<Availability, AvailabilityError>,
+    /// The setup guide of each library opened, in the order opened.
+    pub(crate) guides: Vec<SetupGuide>,
+}
 
 /// Discovery, with the override variables read by `read_variable` and the
 /// packaged files `packaged`.
@@ -173,5 +180,8 @@ pub(crate) fn availability_of<C: CheckLibrary>(checker: C) -> Discovered {
         }),
         None => Err(AvailabilityError::Unusable(report)),
     };
-    (availability, guides)
+    Discovered {
+        availability,
+        guides,
+    }
 }

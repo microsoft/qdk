@@ -110,7 +110,13 @@ impl GpuSetup {
     }
 
     /// The steps after discovery, run on what `discovered` found.
-    fn from_discovery((availability, guides): Discovered, packaged: &PackagedLibraries) -> Self {
+    fn from_discovery(
+        Discovered {
+            availability,
+            guides,
+        }: Discovered,
+        packaged: &PackagedLibraries,
+    ) -> Self {
         let loaded = availability.map(|availability| LoadedSetup {
             devices: device_report(&availability),
             trial_run: trial_run(&availability),
