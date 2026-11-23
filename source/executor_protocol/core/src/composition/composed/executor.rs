@@ -56,7 +56,9 @@ impl<U: TranslatingAdapter, L: Executor<Accepts = U::Sends>> Executor for Compos
             ChainPosition::UNKNOWN,
         )?;
         await_part(Executor::ready(lower)).await?;
-        await_part(self.upper.ready_alone(Sealed(()))).await
+        await_part(self.upper.ready_alone(Sealed(()))).await?;
+        self.readied = true;
+        Ok(())
     }
 
     async fn execute(
@@ -112,6 +114,8 @@ impl<U: TranslatingAdapter, L: Executor<Accepts = U::Sends>> Executor for Compos
         await_part(lower.ready_at(below_required, below))
             .await
             .map_err(|not_ready| not_ready.answered_by(part))?;
-        await_part(self.upper.ready_at(above, at)).await
+        await_part(self.upper.ready_at(above, at)).await?;
+        self.readied = true;
+        Ok(())
     }
 }

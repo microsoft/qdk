@@ -37,12 +37,13 @@ use crate::tests::example_sets::{BitReadout, CliffordT, Measuring, ToffoliGate};
 use crate::tests::fake_parts::{
     BitFlip, Bits, CczDecomposition, CliffordTPassThrough, CliffordTRegister, CoinCopy, FromThread,
     GateForGate, Later, Log, NamesBelow, Profiler, Program, Renamed, Splitter, Spread, Stating,
-    ToffoliProgram, Trap, Values, batches_of, coin_gate, in_each_bracketing,
+    ToffoliProgram, Trap, Values, Zeros, batches_of, coin_gate, in_each_bracketing,
 };
 use crate::tests::runner;
 use crate::{
-    Batch, BatchReadouts, CompositionFaults, DriveError, Failure, Features, PartId, Resources,
-    RunError, RunRefusal, RunRequirement, Runner, Seed, ShotSet, StatesLimits, TranslatingAdapter,
+    Batch, BatchReadouts, CompositionFaults, DriveError, Failure, Features, NotReady, PartId,
+    Resources, RunError, RunRefusal, RunRequirement, Runner, Seed, ShotSet, StatesLimits,
+    TranslatingAdapter,
 };
 
 const SEED: u64 = 7;
@@ -578,43 +579,76 @@ fn a_joined_part_is_named_for_its_top_part() {
     }
 }
 
-/// An encoding joined on bits, used by a user's code as an executor and
-/// sent a batch before a run got it ready: once polled, its `execute`
-/// panics, saying that each run gets a part ready before calling it. It
-/// does whether its halves fit, where no run has yet given its boundary
-/// the limits each batch is checked against, or do not, where each run's
-/// `ready` refuses them, even once one has.
+/// A joined part of each role, used by a user's code and called before a
+/// run got it ready: before any `ready`, after one that a half refused, or
+/// after one that succeeded and a later one refused. Once polled, its
+/// `execute`, `drive` or `adapt` panics before either half is called, so
+/// that its upper half does no work, saying that each run gets a part
+/// ready before calling it; whether its halves fit or not, and whether its
+/// upper half would send anything below or answer by itself, as a trap
+/// does.
 #[test]
 fn a_joined_part_called_before_a_run_got_it_ready_panics() {
     let log = Log::default();
+    let counted = Rc::new(Cell::new(0));
+    let profiler = || Profiler::new(&counted, &log);
+    let fit = || Zeros::new(Measuring::new(&["h", "x", "mz"]));
+    let unfit = || Zeros::new(Measuring::new(&["x", "mz"]));
     let shots = ShotSet::ids(0..1);
     let instructions = [coin_gate("h", 0)];
-    let unfit = || Spread::new(1, &log).on(Bits::accepting(Measuring::new(&["x", "mz"]), &log));
-    for (row, mut joined, readied_first) in [
+    let batches = [Batch::new(&shots, &instructions, 0)];
+    let rows: [(&str, Call<'_>); 8] = [
         (
-            "fit halves",
-            Spread::new(1, &log).on(Bits::new(&log)),
-            false,
+            "a profiler on an executor, before any ready",
+            Box::new(|| executed_after(profiler().on(fit()), &[], &batches)),
         ),
-        ("unfit halves", unfit(), false),
-        ("unfit halves, after a refused ready", unfit(), true),
-    ] {
-        if readied_first {
-            let ready = pin!(joined.ready()).poll(&mut Context::from_waker(Waker::noop()));
-            assert!(
-                matches!(ready, Poll::Ready(Err(_))),
-                "{row}: ready refuses halves that do not fit"
-            );
-        }
-        let batches = [Batch::new(&shots, &instructions, 0)];
-        let mut readouts = [BatchReadouts::new(1, 0)];
-        let panic = catch_unwind(AssertUnwindSafe(|| {
-            let mut execute = pin!(joined.execute(&batches, Seed::new(SEED), &mut readouts));
-            let _ = execute
-                .as_mut()
-                .poll(&mut Context::from_waker(Waker::noop()));
-        }))
-        .expect_err(row);
+        (
+            "a trap on an executor, answering by itself, before any ready",
+            Box::new(|| executed_after(Trap::on(0).on(fit()), &[], &batches)),
+        ),
+        (
+            "unfit halves, before any ready",
+            Box::new(|| executed_after(profiler().on(unfit()), &[], &batches)),
+        ),
+        (
+            "unfit halves, after a refused ready",
+            Box::new(|| executed_after(profiler().on(unfit()), &[REFUSED], &batches)),
+        ),
+        (
+            "fit halves, after a ready its upper half refused",
+            Box::new(|| {
+                let joined = profiler().busy("calibrating").on(fit());
+                executed_after(joined, &[REFUSED], &batches);
+            }),
+        ),
+        (
+            "fit halves, readied, then refused",
+            Box::new(|| {
+                let joined = profiler().busy_once_ready("taken").on(fit());
+                executed_after(joined, &[READY, REFUSED], &batches);
+            }),
+        ),
+        (
+            "a driver through a profiler, after a ready its driver refused",
+            Box::new(|| {
+                let mut joined = CoinCopy::new().busy("calibrating").through(profiler());
+                assert_eq!(answer(Driver::ready(&mut joined)), REFUSED, "the driver");
+                let _ = polled_once(joined.drive(&shots, Seed::new(SEED), &mut fit()));
+            }),
+        ),
+        (
+            "a profiler through a profiler, before any ready",
+            Box::new(|| {
+                let mut joined = profiler().through(profiler());
+                let (seed, below) = (Seed::new(SEED), &mut fit());
+                let readouts = &mut [BatchReadouts::new(1, 0)];
+                let adapt = TranslatingAdapter::adapt(&mut joined, &batches, seed, below, readouts);
+                let _ = polled_once(adapt);
+            }),
+        ),
+    ];
+    for (row, call) in rows {
+        let panic = catch_unwind(AssertUnwindSafe(call)).expect_err(row);
         let message = (panic.downcast_ref::<String>().map(String::as_str))
             .or_else(|| panic.downcast_ref::<&str>().copied())
             .unwrap_or_else(|| panic!("{row}: the panic has a message"));
@@ -622,7 +656,43 @@ fn a_joined_part_called_before_a_run_got_it_ready_panics() {
             message.contains("ready"),
             "{row}: {message:?} says a run gets a part ready before calling it"
         );
+        assert_eq!(counted.get(), 0, "{row}: the upper half did no work");
     }
+}
+
+/// A row's call of a part, expected to panic.
+type Call<'a> = Box<dyn FnOnce() + 'a>;
+
+/// A `ready` that answered `Ok`, at its first poll.
+const READY: bool = true;
+/// A `ready` that refused, at its first poll.
+const REFUSED: bool = false;
+
+/// Whether `ready` answered `Ok` at its first poll.
+fn answer(ready: impl Future<Output = Result<(), NotReady>>) -> bool {
+    match polled_once(ready) {
+        Poll::Ready(answer) => answer.is_ok(),
+        Poll::Pending => panic!("ready answers at its first poll"),
+    }
+}
+
+/// Gets `executor` ready once per answer in `readies`, each answering as
+/// stated, then polls its `execute` of `batches` once.
+fn executed_after(
+    mut executor: impl Executor<Accepts = Measuring>,
+    readies: &[bool],
+    batches: &[Batch<'_, Measuring>],
+) {
+    for (i, &expected) in readies.iter().enumerate() {
+        assert_eq!(answer(executor.ready()), expected, "ready number {i}");
+    }
+    let readouts = &mut [BatchReadouts::new(1, 0)];
+    let _ = polled_once(executor.execute(batches, Seed::new(SEED), readouts));
+}
+
+/// The answer of `future` at its first poll.
+fn polled_once<T>(future: impl Future<Output = T>) -> Poll<T> {
+    pin!(future).poll(&mut Context::from_waker(Waker::noop()))
 }
 
 // ------------------------------------------------- what each run is told

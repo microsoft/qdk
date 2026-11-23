@@ -127,6 +127,9 @@ pub(crate) struct Profiler {
     below: Option<Vec<u32>>,
     instructions: Rc<Cell<usize>>,
     busy: Option<&'static str>,
+    /// Why it refuses every run in `ready` once it has got ready once, if
+    /// it does.
+    busy_once_ready: Option<&'static str>,
     log: Log,
 }
 
@@ -144,6 +147,7 @@ impl Profiler {
             below: None,
             instructions: Rc::clone(instructions),
             busy: None,
+            busy_once_ready: None,
             log: log.clone(),
         }
     }
@@ -151,6 +155,14 @@ impl Profiler {
     /// This profiler, refusing every run in `ready`, for `why`.
     pub(crate) fn busy(mut self, why: &'static str) -> Self {
         self.busy = Some(why);
+        self
+    }
+
+    /// This profiler, getting ready for its first run, then refusing every
+    /// run in `ready`, for `why`, as a part whose device another user
+    /// takes between runs.
+    pub(crate) fn busy_once_ready(mut self, why: &'static str) -> Self {
+        self.busy_once_ready = Some(why);
         self
     }
 }
@@ -172,10 +184,14 @@ impl Adapter for Profiler {
 
     async fn ready(&mut self) -> Result<(), NotReady> {
         self.log.push("Profiler ready");
-        match self.busy {
+        let answer = match self.busy {
             Some(why) => Err(NotReady::new(why)),
             None => Ok(()),
+        };
+        if let Some(why) = self.busy_once_ready.take() {
+            self.busy = Some(why);
         }
+        answer
     }
 
     async fn adapt(

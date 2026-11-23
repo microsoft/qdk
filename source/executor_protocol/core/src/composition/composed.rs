@@ -50,6 +50,10 @@
 //! the same outputs, and a part stating limits refuses the run, naming
 //! itself ([`StatesLimits`](crate::StatesLimits)), rather than run with
 //! its limits unread.
+//!
+//! However it is readied, a `Composed` runs its role's calls only once the
+//! last `ready` started on it got both halves ready; otherwise each call
+//! panics before either half is called.
 
 mod adapter;
 mod driver;
@@ -90,6 +94,10 @@ pub struct Composed<U, L, S: InstructionSet> {
     /// `count_parts`, which asks no part what it requires): how far below
     /// this part's position the lower half's is.
     upper_parts: usize,
+    /// Whether the last `ready` started on this part got both halves
+    /// ready: cleared as each starts, set once its upper half, the last
+    /// asked, answers `Ok`. Its role's calls run only when it is set.
+    readied: bool,
 }
 
 /// What [`Composed::start_run`] gives: the lower half, what arrives at it,
@@ -114,10 +122,12 @@ impl<U, L, S: InstructionSet> Composed<U, L, S> {
             lower,
             fit,
             upper_parts,
+            readied: false,
         }
     }
 
-    /// Starts a run, at `ready`, of this part at `at`: refuses it if the
+    /// Starts a run, at `ready`, of this part at `at`: marks it not ready
+    /// until both halves are, then refuses the run if the
     /// halves' sets do not fit, or if what arrives at the lower
     /// half on this run, `required` of the upper half, does not fit what
     /// the lower half provides, with every mismatch at their boundary.
@@ -129,11 +139,13 @@ impl<U, L, S: InstructionSet> Composed<U, L, S> {
         required: impl FnOnce(&U) -> Capabilities<S>,
         at: ChainPosition<'p>,
     ) -> Result<LowerHalfRun<'_, 'p, L, S>, NotReady> {
+        self.readied = false;
         let Self {
             upper,
             lower,
             fit,
             upper_parts,
+            readied: _,
         } = self;
         let boundary = match fit {
             Ok(boundary) => boundary,
@@ -151,12 +163,20 @@ impl<U, L, S: InstructionSet> Composed<U, L, S> {
         Ok((lower, &boundary.required, below, boundary.part.as_ref()))
     }
 
-    /// The halves, and their boundary on this run.
+    /// The halves, and their boundary on this run: what each call of its
+    /// role, `drive`, `adapt` or `execute`, starts with.
+    ///
+    /// # Panics
+    ///
+    /// Unless the last `ready` started on this part got both halves
+    /// ready, before either half is called: a part is called only once a
+    /// run got it ready, as its role says, and every run's `ready` refuses
+    /// halves that do not fit.
     fn halves(&mut self) -> (&mut U, &mut L, &Boundary<S>) {
-        let Ok(boundary) = &self.fit else {
-            panic!("{READY_FIRST}")
-        };
-        (&mut self.upper, &mut self.lower, boundary)
+        match &self.fit {
+            Ok(boundary) if self.readied => (&mut self.upper, &mut self.lower, boundary),
+            _ => panic!("{READY_FIRST}"),
+        }
     }
 }
 
