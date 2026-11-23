@@ -8,7 +8,7 @@
 //! A batch runs its instructions on each of its shots, which has no answer
 //! for a shot named twice (run it twice, or once?), nor for no shot at all.
 //! So a set is checked once, where it is made, and no part that receives it
-//! checks it again; a part that splits a set ([`ShotSet::select`]) gets sets
+//! checks it again; a part that splits a set ([`ShotSet::subset`]) gets sets
 //! that are sound by construction. A set keeps the caller's order, because a
 //! batch's readouts come back as a row per shot, in that order.
 //!
@@ -29,7 +29,7 @@ use smallvec::SmallVec;
 /// run, or of a batch.
 ///
 /// Made by [`ShotSet::ids`], or [`ShotSet::try_ids`], which returns the fault
-/// instead of panicking; a part splits one with [`ShotSet::select`]. Two sets
+/// instead of panicking; a part splits one with [`ShotSet::subset`]. Two sets
 /// are equal when they hold the same shots in the same order.
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct ShotSet(SmallVec<[ShotId; 1]>);
@@ -105,12 +105,12 @@ impl ShotSet {
     /// index out of a slice's bounds is.
     #[must_use]
     #[track_caller]
-    pub fn select(&self, positions: &[usize]) -> Option<Self> {
+    pub fn subset(&self, positions: &[usize]) -> Option<Self> {
         if positions.is_empty() {
             return None;
         }
         if let Some(twice) = first_repeat(positions) {
-            panic!("position {twice} is selected twice, which would name its shot twice");
+            panic!("position {twice} is given twice to `subset`, which would name its shot twice");
         }
         for &position in positions {
             assert!(

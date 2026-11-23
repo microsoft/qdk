@@ -135,13 +135,13 @@ pub trait Adapter {
 
     // Protocol hooks: sealed and hidden, as `Driver`'s are. Through them the
     // protocol reads the limits of a part that states them (`AdapterLimits`,
-    // on a `Limited` part), as the `TranslatingAdapter` every adapter is.
+    // on a `StatesLimits` part), as the `TranslatingAdapter` every adapter is.
 
     /// What it provides, as a
     /// [`TranslatingAdapter`](crate::TranslatingAdapter): by default
     /// nothing stated, its set's
     /// [`unconstrained`](InstructionSet::unconstrained). Only the crate
-    /// overrides it, to answer a [`Limited`](crate::Limited) part's
+    /// overrides it, to answer a [`StatesLimits`](crate::StatesLimits) part's
     /// [`AdapterLimits::provides`].
     #[doc(hidden)]
     fn provision(&self, sealed: Sealed) -> &Capabilities<Self::Set> {
@@ -152,7 +152,8 @@ pub trait Adapter {
     /// What it requires of the part below, given `above`, as a
     /// [`TranslatingAdapter`](crate::TranslatingAdapter): by default
     /// `above` itself. Only the crate overrides it, to answer a
-    /// [`Limited`](crate::Limited) part's [`AdapterLimits::requires`].
+    /// [`StatesLimits`](crate::StatesLimits) part's
+    /// [`AdapterLimits::requires`].
     #[doc(hidden)]
     fn requirement(
         &self,
@@ -166,7 +167,7 @@ pub trait Adapter {
     /// Gets it ready for `above`, what arrives at it, as a
     /// [`TranslatingAdapter`](crate::TranslatingAdapter), at `at` in its
     /// chain: by default [`ready`](Self::ready). Only the crate overrides
-    /// it, to answer a [`Limited`](crate::Limited) part's
+    /// it, to answer a [`StatesLimits`](crate::StatesLimits) part's
     /// [`AdapterLimits::ready_for`].
     #[doc(hidden)]
     fn ready_at(

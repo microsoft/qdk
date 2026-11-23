@@ -14,7 +14,10 @@ use crate::{ExecutorLimits, ExecutorReadings, InstructionSet};
 #[test]
 fn by_default_provides_limits_nothing() {
     let executor = StatesNoLimits(QubitRegister::new(8, &Log::default()));
-    assert_eq!(executor.limited().provided(), QubitLimited::unconstrained());
+    assert_eq!(
+        executor.stating_limits().provided(),
+        QubitLimited::unconstrained()
+    );
     let executor = StatesNoLimits(QubitRegister::new(8, &Log::default()));
     assert_eq!(executor.provided(), QubitLimited::unconstrained());
 }

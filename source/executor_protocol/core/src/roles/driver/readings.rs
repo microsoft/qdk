@@ -12,9 +12,10 @@ use crate::{Capabilities, Driver, NotReady, RunRequirement};
 /// ready for the run.
 ///
 /// A part that wraps a driver forwards them, as its own
-/// [`DriverLimits`](crate::DriverLimits). A driver that states nothing
-/// answers [`Capabilities::from_run`] and its [`ready`](Driver::ready); a
-/// [`Limited`](crate::Limited) one, its limits; a joined one, its parts'.
+/// [`DriverRequirements`](crate::DriverRequirements). A driver that states
+/// nothing answers [`Capabilities::from_run`] and its
+/// [`ready`](Driver::ready); a [`StatesLimits`](crate::StatesLimits) one,
+/// its limits; a joined one, its parts'.
 pub trait DriverReadings: Driver {
     /// What it requires of the parts below on a run that requires `run`.
     fn required(&self, run: &RunRequirement) -> Capabilities<Self::Sends>;

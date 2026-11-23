@@ -9,8 +9,8 @@ use std::task::{Context, Poll};
 
 use crate::prelude::*;
 use crate::{
-    Batch, BatchReadouts, Binding, Capabilities, DriveError, ExecuteError, Limited, NotReady,
-    RunRequirement, Seed, ShotSet, TranslatingAdapter,
+    Batch, BatchReadouts, Binding, Capabilities, DriveError, ExecuteError, NotReady,
+    RunRequirement, Seed, ShotSet, StatesLimits, TranslatingAdapter,
 };
 
 /// `part`, named as `part` is, whose futures of `drive`, `adapt` or
@@ -44,31 +44,31 @@ enum Breaks {
 }
 
 impl<P> PanicsInDrop<P> {
-    pub(crate) fn new(part: P, armed: bool) -> Limited<Self> {
+    pub(crate) fn new(part: P, armed: bool) -> StatesLimits<Self> {
         Self::breaking(part, armed, Breaks::WhenDropped)
     }
 
     /// `part`, whose futures, when `armed`, panic when polled, and again
     /// when dropped.
-    pub(crate) fn polled_too(part: P, armed: bool) -> Limited<Self> {
+    pub(crate) fn polled_too(part: P, armed: bool) -> StatesLimits<Self> {
         Self::breaking(part, armed, Breaks::WhenPolled)
     }
 
     /// `part`, whose future of `ready`, when `armed`, panics when polled,
     /// and again when dropped; its other futures do not panic.
-    pub(crate) fn in_ready(part: P, armed: bool) -> Limited<Self> {
+    pub(crate) fn in_ready(part: P, armed: bool) -> StatesLimits<Self> {
         Self::breaking(part, armed, Breaks::InReady)
     }
 
     /// `part`, whose future of `ready`, when `armed`, is pending at its
     /// first poll, as a device's still calibrating, and panics if dropped
     /// then; its other futures do not panic.
-    pub(crate) fn pending_in_ready(part: P, armed: bool) -> Limited<Self> {
+    pub(crate) fn pending_in_ready(part: P, armed: bool) -> StatesLimits<Self> {
         Self::breaking(part, armed, Breaks::PendingInReady)
     }
 
-    fn breaking(part: P, armed: bool, breaks: Breaks) -> Limited<Self> {
-        Limited {
+    fn breaking(part: P, armed: bool, breaks: Breaks) -> StatesLimits<Self> {
+        StatesLimits {
             part: Self {
                 part,
                 breaks: if armed { breaks } else { Breaks::Never },
@@ -128,7 +128,7 @@ impl<F> Drop for Dropping<F> {
     }
 }
 
-impl<P: Driver> DriverLimits for PanicsInDrop<P> {
+impl<P: Driver> DriverRequirements for PanicsInDrop<P> {
     fn requires(&self, run: &RunRequirement) -> Capabilities<P::Sends> {
         self.part.required(run)
     }
@@ -171,9 +171,9 @@ impl<P: Driver> Driver for PanicsInDrop<P> {
 }
 
 /// A translating adapter states its limits itself, so one whose futures
-/// panic needs no [`AdapterLimits`]: it is the `Limited` its constructor
+/// panic needs no [`AdapterLimits`]: it is the `StatesLimits` its constructor
 /// returns that takes the role, as for a driver and an executor.
-impl<P: TranslatingAdapter> TranslatingAdapter for Limited<PanicsInDrop<P>> {
+impl<P: TranslatingAdapter> TranslatingAdapter for StatesLimits<PanicsInDrop<P>> {
     type Accepts = P::Accepts;
     type Sends = P::Sends;
 

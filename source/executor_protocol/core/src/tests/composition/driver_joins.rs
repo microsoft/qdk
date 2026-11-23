@@ -20,8 +20,8 @@ use crate::tests::fake_parts::{
 };
 use crate::{
     Batch, BatchReadouts, BoundaryCompatible, BoundaryMismatch, Capabilities, CapabilitiesMismatch,
-    CompositionFault, CompositionFaults, ExecuteError, FeatureMismatch, Features, Limited, PartId,
-    ResourceMismatch, Resources, RunRequirement, Seed, TranslatingAdapter,
+    CompositionFault, CompositionFaults, ExecuteError, FeatureMismatch, Features, PartId,
+    ResourceMismatch, Resources, RunRequirement, Seed, StatesLimits, TranslatingAdapter,
 };
 
 /// `h`, `x` and `mz` without `x`.
@@ -104,7 +104,7 @@ fn missing(feature: FeatureMismatch) -> BoundaryMismatch {
 
 /// The program measuring qubit 0, requiring batches of `n` instructions
 /// and `features`.
-pub(super) fn program(n: u32, features: Features) -> Limited<Program> {
+pub(super) fn program(n: u32, features: Features) -> StatesLimits<Program> {
     Program::new(&[("mz", 0)])
         .with_resources(batches_of(n))
         .with_features(features)
@@ -116,7 +116,7 @@ fn replay() -> Features {
 }
 
 /// Bits taking batches of `n` instructions.
-pub(super) fn bits_over(n: u32, log: &Log) -> Limited<Bits> {
+pub(super) fn bits_over(n: u32, log: &Log) -> StatesLimits<Bits> {
     Bits::new(log).with_resources(batches_of(n))
 }
 

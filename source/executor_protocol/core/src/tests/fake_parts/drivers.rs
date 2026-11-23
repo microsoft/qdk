@@ -8,8 +8,8 @@ use crate::prelude::*;
 use crate::tests::example_sets::{BitReadout, ShotFlags};
 use crate::tests::example_sets::{Gate, Measuring};
 use crate::{
-    Batch, Binding, Capabilities, DriveError, Features, Limited, NotReady, Readouts, Resources,
-    RunRequirement, Seed, ShotSet,
+    Batch, Binding, Capabilities, DriveError, Features, NotReady, Readouts, Resources,
+    RunRequirement, Seed, ShotSet, StatesLimits,
 };
 
 /// A coin tossed on qubit 0, copied onto qubit 1: a toss for every shot in
@@ -26,7 +26,7 @@ pub(crate) struct CoinCopy {
 }
 
 impl CoinCopy {
-    pub(crate) fn new() -> Limited<Self> {
+    pub(crate) fn new() -> StatesLimits<Self> {
         let sequences = [
             vec![coin_gate("h", 0), coin_gate("mz", 0)],
             vec![coin_gate("x", 1), coin_gate("mz", 1)],
@@ -41,7 +41,7 @@ impl CoinCopy {
             log: None,
             busy: None,
         }
-        .limited()
+        .stating_limits()
     }
 
     /// What it logs when it gets ready for a run that requires `run`.
@@ -50,7 +50,7 @@ impl CoinCopy {
     }
 }
 
-impl Limited<CoinCopy> {
+impl StatesLimits<CoinCopy> {
     /// This driver, logging to `log` when it gets ready, as
     /// [`CoinCopy::ready_for`] the run it gets.
     pub(crate) fn logging(mut self, log: &Log) -> Self {
@@ -65,7 +65,7 @@ impl Limited<CoinCopy> {
     }
 }
 
-impl DriverLimits for CoinCopy {
+impl DriverRequirements for CoinCopy {
     /// The run's, in batches of 2 instructions, its longest.
     fn requires(&self, run: &RunRequirement) -> Capabilities<Measuring> {
         Capabilities::from_run(run)
@@ -124,7 +124,7 @@ impl Driver for CoinCopy {
         .filter_map(|(positions, sequence, slots)| {
             Some((
                 positions.as_slice(),
-                shots.select(positions)?,
+                shots.subset(positions)?,
                 sequence.as_slice(),
                 slots,
             ))
@@ -151,7 +151,7 @@ impl Driver for CoinCopy {
 /// arrives, stating nothing of its own; it does as `D` does otherwise.
 pub(crate) struct PassesTheRun<D>(pub(crate) D);
 
-impl<D: Driver> DriverLimits for PassesTheRun<D> {
+impl<D: Driver> DriverRequirements for PassesTheRun<D> {
     fn ready_for(&mut self, run: &RunRequirement) -> impl Future<Output = Result<(), NotReady>> {
         self.0.ready_given(run)
     }
@@ -208,14 +208,14 @@ pub(crate) struct Program {
 impl Program {
     /// The instructions `text`, each a gate of [`coin_gates`] and its
     /// qubit, requiring batches of as many instructions.
-    pub(crate) fn new(text: &[(&str, u32)]) -> Limited<Self> {
-        Self::of(&[text]).limited()
+    pub(crate) fn new(text: &[(&str, u32)]) -> StatesLimits<Self> {
+        Self::of(&[text]).stating_limits()
     }
 
     /// `first` on the first half of the shots, rounded down, and `second`
     /// on the others, as two batches of one `execute`.
-    pub(crate) fn halves(first: &[(&str, u32)], second: &[(&str, u32)]) -> Limited<Self> {
-        Self::of(&[first, second]).limited()
+    pub(crate) fn halves(first: &[(&str, u32)], second: &[(&str, u32)]) -> StatesLimits<Self> {
+        Self::of(&[first, second]).stating_limits()
     }
 
     fn of(texts: &[&[(&str, u32)]]) -> Self {
@@ -240,7 +240,7 @@ impl Program {
     }
 }
 
-impl Limited<Program> {
+impl StatesLimits<Program> {
     /// This program, requiring `resources` in place of its own.
     pub(crate) fn with_resources(mut self, resources: Resources) -> Self {
         self.part.resources = resources;
@@ -286,7 +286,7 @@ impl Limited<Program> {
     }
 }
 
-impl DriverLimits for Program {
+impl DriverRequirements for Program {
     /// Its own resources and features, with the run's shots, and seeded
     /// runs if the run's seed is fixed.
     fn requires(&self, run: &RunRequirement) -> Capabilities<Measuring> {
@@ -338,7 +338,7 @@ impl Driver for Program {
                 .into_iter()
                 .map(|positions| {
                     let positions: Vec<usize> = positions.collect();
-                    shots.select(&positions).expect("a half holds a shot")
+                    shots.subset(&positions).expect("a half holds a shot")
                 })
                 .collect()
         };

@@ -29,8 +29,8 @@ use std::fmt;
 
 use executor_protocol_core::prelude::*;
 use executor_protocol_core::{
-    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, Features, Limited, NotReady,
-    ReadoutSlots, Readouts, Resources, RunRequirement, Runner, Seed, ShotId, ShotSet,
+    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, Features, NotReady, ReadoutSlots,
+    Readouts, Resources, RunRequirement, Runner, Seed, ShotId, ShotSet, StatesLimits,
 };
 
 /// The seed of the runs: the same seed gives the same values.
@@ -39,15 +39,16 @@ const SEED: u64 = 1;
 // ------------------------------------------------------------------ the run
 
 /// The three parts, joined: `coin`, under 20% bit-flip noise, on `bits`
-/// (a limited [`Bits`], or a borrow of one, to read what it counted after
-/// a run). The coin and the bits state their limits, so each is joined as
-/// a [`Limited`] part; the noise states none, and is joined as it is.
+/// ([`Bits`] stating their limits, or a borrow of them, to read what they
+/// counted after a run). The coin and the bits state their limits, so each
+/// is joined as a [`StatesLimits`] part; the noise states none, and is
+/// joined as it is.
 ///
 /// After each run, the protocol ends every shot of the run on every part, so
 /// the parts free its state and a rerun with the same seed starts it
 /// afresh; the driver need not end them.
 fn coin_runner<E: Executor<Accepts = CoinGates>>(
-    coin: Limited<CoinCopy>,
+    coin: StatesLimits<CoinCopy>,
     bits: E,
 ) -> Runner<impl Driver<Sends = CoinGates, Output = Vec<Option<bool>>>, E> {
     // `through` joins the driver and the adapter into one driver, and `on`
@@ -61,7 +62,10 @@ fn coin_runner<E: Executor<Accepts = CoinGates>>(
 }
 
 fn main() {
-    let mut runner = coin_runner(CoinCopy::new().limited(), Bits::new().limited());
+    let mut runner = coin_runner(
+        CoinCopy::new().stating_limits(),
+        Bits::new().stating_limits(),
+    );
 
     let shots = ShotSet::ids(0..12);
     let values = runner.run(&shots, SEED).expect("the chain runs 12 shots");
@@ -81,9 +85,12 @@ fn main() {
 
     // While a part of the chain is developed, the driver may send every
     // batch checked: each boundary checks it before it runs, at a cost.
-    let checked = coin_runner(CoinCopy::new().checked().limited(), Bits::new().limited())
-        .run(&shots, SEED)
-        .expect("the chain runs 12 checked shots");
+    let checked = coin_runner(
+        CoinCopy::new().checked().stating_limits(),
+        Bits::new().stating_limits(),
+    )
+    .run(&shots, SEED)
+    .expect("the chain runs 12 checked shots");
     let same = checked == values;
     println!("\nThe 12 shots again, every batch checked: the same values? {same}");
 
@@ -283,7 +290,7 @@ impl CoinCopy {
     }
 }
 
-impl DriverLimits for CoinCopy {
+impl DriverRequirements for CoinCopy {
     /// What the run requires, on 2 qubits.
     fn requires(&self, run: &RunRequirement) -> Capabilities<CoinGates> {
         Capabilities::new(run.resources, run.features, Qubits(2))
@@ -332,7 +339,7 @@ impl Driver for CoinCopy {
             (heads, &self.sequences[1], self.slots[1]),
             (tails, &self.sequences[2], self.slots[2]),
         ] {
-            if let Some(side) = shots.select(&positions) {
+            if let Some(side) = shots.subset(&positions) {
                 sides.push((positions, side, sequence, slots));
             }
         }
@@ -425,7 +432,7 @@ impl Adapter for BitFlip {
                     }
                     gates.push(gate);
                 }
-                let shot = batch.shots.select(&[j]).expect("a position of the batch");
+                let shot = batch.shots.subset(&[j]).expect("a position of the batch");
                 sent.push((shot, gates, batch.readout_slots(), batch.is_checked()));
             }
         }
@@ -590,7 +597,10 @@ mod tests {
     /// draws included.
     #[test]
     fn a_shot_run_again_alone_with_the_seed_gets_its_values() {
-        let mut runner = coin_runner(CoinCopy::new().limited(), Bits::new().limited());
+        let mut runner = coin_runner(
+            CoinCopy::new().stating_limits(),
+            Bits::new().stating_limits(),
+        );
         let values = runner
             .run(&ShotSet::ids(0..12), SEED)
             .expect("the chain runs 12 shots");
@@ -608,8 +618,11 @@ mod tests {
     /// run is refused, naming both counts.
     #[test]
     fn a_run_of_more_shots_than_the_executor_runs_is_refused() {
-        let refused = coin_runner(CoinCopy::new().limited(), Bits::new().limited())
-            .run(&ShotSet::ids(0..2000), SEED);
+        let refused = coin_runner(
+            CoinCopy::new().stating_limits(),
+            Bits::new().stating_limits(),
+        )
+        .run(&ShotSet::ids(0..2000), SEED);
         let Err(RunError::Refused(RunRefusal::NotProvided(faults))) = refused else {
             panic!("a refused run, not {refused:?}");
         };
@@ -633,7 +646,7 @@ mod tests {
     fn checked_batches_reach_the_executor_checked_and_change_no_value() {
         let shots = ShotSet::ids(0..12);
         let run = |coin| {
-            let mut bits = Bits::new().limited();
+            let mut bits = Bits::new().stating_limits();
             let values = coin_runner(coin, &mut bits)
                 .run(&shots, SEED)
                 .expect("the chain runs 12 shots");
@@ -643,10 +656,10 @@ mod tests {
                 bits.part.unchecked_batches,
             )
         };
-        let (unchecked, checked_got, unchecked_got) = run(CoinCopy::new().limited());
+        let (unchecked, checked_got, unchecked_got) = run(CoinCopy::new().stating_limits());
         assert_eq!(checked_got, 0, "an unchecked run sends no checked batch");
         assert!(unchecked_got > 0, "the executor received the batches");
-        let (checked, checked_got, unchecked_got) = run(CoinCopy::new().checked().limited());
+        let (checked, checked_got, unchecked_got) = run(CoinCopy::new().checked().stating_limits());
         assert_eq!(
             unchecked_got, 0,
             "the noise forwards the check to each batch it sends"

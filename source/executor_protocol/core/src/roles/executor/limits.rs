@@ -3,16 +3,16 @@
 
 //! The limits an executor may state, [`ExecutorLimits`].
 
-use crate::{Capabilities, Executor, InstructionSet, Limited, NotReady};
+use crate::{Capabilities, Executor, InstructionSet, NotReady, StatesLimits};
 
 /// The limits of an executor that has them: what it provides to the part
 /// above, and how it gets ready for what arrives from it.
 ///
-/// An executor with no limits implements [`Executor`] alone and states
-/// nothing. One with limits implements this trait too, and is joined
-/// [`limited`](Self::limited): the protocol reads them, at the joins and
-/// at each run's start, only through that [`Limited`] part. Every method
-/// has a default, so a part implements only what it states.
+/// An executor with no limits implements [`Executor`] alone and states nothing.
+/// One with limits implements this trait too, and is joined
+/// [`stating_limits`](Self::stating_limits): the protocol reads them, at the
+/// joins and at each run's start, only through that [`StatesLimits`] part.
+/// Every method has a default, so a part implements only what it states.
 pub trait ExecutorLimits: Executor {
     /// Its fixed limits on what arrives from above, such as its most shots
     /// in a run, whether a run may fix its seed, or what its set's
@@ -46,10 +46,10 @@ pub trait ExecutorLimits: Executor {
     }
 
     /// This part, as the part the protocol reads these limits of.
-    fn limited(self) -> Limited<Self>
+    fn stating_limits(self) -> StatesLimits<Self>
     where
         Self: Sized,
     {
-        Limited { part: self }
+        StatesLimits { part: self }
     }
 }

@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 //! A shot set is never empty, names no shot twice, keeps the caller's order,
-//! and holds one shot inline; `select` splits one into sound sets.
+//! and holds one shot inline; `subset` splits one into sound sets.
 
 use crate::tests::allocations;
 use crate::{ShotId, ShotSet, ShotSetFault};
@@ -66,54 +66,54 @@ fn a_set_keeps_the_callers_order() {
 #[test]
 fn sets_are_equal_by_their_shots_in_order() {
     let all = ShotSet::ids([3, 1, 4]);
-    let selected = ShotSet::ids([8, 3, 1, 4])
-        .select(&[1, 2, 3])
-        .expect("three positions select three shots");
-    assert_eq!(selected, all);
+    let subset = ShotSet::ids([8, 3, 1, 4])
+        .subset(&[1, 2, 3])
+        .expect("three positions give three shots");
+    assert_eq!(subset, all);
     assert_ne!(ShotSet::ids([1, 3, 4]), all);
 }
 
-/// `select` takes the shots at the positions given, in the positions'
+/// `subset` takes the shots at the positions given, in the positions'
 /// order, so a driver can split a batch by its readouts in any order.
 #[test]
-fn select_takes_the_shots_at_the_positions_in_their_order() {
+fn subset_takes_the_shots_at_the_positions_in_their_order() {
     let set = ShotSet::ids([10, 20, 30, 40]);
     let part = set
-        .select(&[3, 0, 2])
-        .expect("three positions select three shots");
+        .subset(&[3, 0, 2])
+        .expect("three positions give three shots");
     assert_eq!(ids_of(&part), [40, 10, 30]);
 }
 
-/// Selecting no position gives no set, since a set is never empty.
+/// A subset of no position is no set, since a set is never empty.
 #[test]
-fn select_of_no_position_is_none() {
-    assert_eq!(ShotSet::ids([1, 2]).select(&[]), None);
+fn subset_of_no_position_is_none() {
+    assert_eq!(ShotSet::ids([1, 2]).subset(&[]), None);
 }
 
 /// A position given twice would name its shot twice, which a set refuses:
 /// the panic names the position.
 #[test]
 #[should_panic(expected = "position 1")]
-fn select_panics_on_a_position_given_twice() {
-    let _ = ShotSet::ids([1, 2, 3]).select(&[1, 0, 1]);
+fn subset_panics_on_a_position_given_twice() {
+    let _ = ShotSet::ids([1, 2, 3]).subset(&[1, 0, 1]);
 }
 
 /// A position beyond the set names no shot: the panic names it.
 #[test]
 #[should_panic(expected = "position 2")]
-fn select_panics_on_a_position_beyond_the_set() {
-    let _ = ShotSet::ids([1, 2]).select(&[0, 2]);
+fn subset_panics_on_a_position_beyond_the_set() {
+    let _ = ShotSet::ids([1, 2]).subset(&[0, 2]);
 }
 
 /// Adaptive programs send many batches of one shot: such a set, made from
-/// ids or selected from a larger one, allocates nothing.
+/// ids or taken as a subset of a larger one, allocates nothing.
 #[test]
 fn a_one_shot_set_allocates_nothing() {
     let set = ShotSet::ids([1, 2, 3]);
     let count = allocations(|| {
         let one = ShotSet::ids([7]);
-        let selected = set.select(&[2]);
-        drop((one, selected));
+        let subset = set.subset(&[2]);
+        drop((one, subset));
     });
     assert_eq!(count, 0);
 }

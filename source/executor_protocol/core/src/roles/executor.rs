@@ -199,12 +199,12 @@ pub trait Executor {
 
     // Protocol hooks: sealed and hidden, as `Driver`'s are. Through them the
     // protocol reads the limits of a part that states them
-    // (`ExecutorLimits`, on a `Limited` part), and of the parts it joins.
+    // (`ExecutorLimits`, on a `StatesLimits` part), and of the parts it joins.
 
     /// What it provides ([`ExecutorReadings::provided`]): by default
     /// nothing stated, its set's
     /// [`unconstrained`](InstructionSet::unconstrained). Only the crate
-    /// overrides it, to answer a [`Limited`](crate::Limited) part's
+    /// overrides it, to answer a [`StatesLimits`](crate::StatesLimits) part's
     /// [`ExecutorLimits::provides`], or a part it joins.
     #[doc(hidden)]
     fn provision(&self, sealed: Sealed) -> &Capabilities<Self::Accepts> {
@@ -225,7 +225,7 @@ pub trait Executor {
     /// Gets this part ready for `above`, what arrives at it
     /// ([`ExecutorReadings::ready_given`]), at `at` in its chain: by
     /// default [`ready`](Self::ready). Only the crate overrides it, to
-    /// answer a [`Limited`](crate::Limited) part's
+    /// answer a [`StatesLimits`](crate::StatesLimits) part's
     /// [`ExecutorLimits::ready_for`], or to name a refusal of a part it
     /// holds by that part's position.
     #[doc(hidden)]

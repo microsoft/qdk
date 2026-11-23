@@ -28,8 +28,8 @@ use crate::tests::fake_parts::{
 };
 use crate::{
     BoundaryCompatible, BoundaryMismatch, CapabilitiesMismatch, CompositionFault, DriveError,
-    Failure, FeatureMismatch, Features, Limited, Lowered, ResourceMismatch, RunError, RunRefusal,
-    Runner, ShotSet,
+    Failure, FeatureMismatch, Features, Lowered, ResourceMismatch, RunError, RunRefusal, Runner,
+    ShotSet, StatesLimits,
 };
 
 pub(super) const SEED: u64 = 7;
@@ -48,7 +48,7 @@ pub(super) fn runner<D: Driver, E: Executor<Accepts = D::Sends>>(
 }
 
 /// [`CoinCopy`] on bits alone.
-fn coin_copy(log: &Log) -> Runner<Limited<CoinCopy>, Limited<Bits>> {
+fn coin_copy(log: &Log) -> Runner<StatesLimits<CoinCopy>, StatesLimits<Bits>> {
     runner(CoinCopy::new().on(Bits::new(log)))
 }
 
@@ -533,7 +533,7 @@ fn a_rerun_after_an_unfinished_run_gives_a_new_chains_records() {
     let mut left = runner(
         coin_copy()
             .through(noise(&log))
-            .on(Later(Bits::new(&log)).limited()),
+            .on(Later(Bits::new(&log)).stating_limits()),
     );
     drop_unfinished(&mut left, &shots, &log);
     reruns.push((
@@ -541,7 +541,7 @@ fn a_rerun_after_an_unfinished_run_gives_a_new_chains_records() {
         left.run(&shots, SEED),
     ));
     let log = Log::default();
-    let mut right = runner(coin_copy().on(noise(&log).on(Later(Bits::new(&log)).limited())));
+    let mut right = runner(coin_copy().on(noise(&log).on(Later(Bits::new(&log)).stating_limits())));
     drop_unfinished(&mut right, &shots, &log);
     reruns.push((
         "dropped, the noise with the bits".to_owned(),
@@ -596,7 +596,7 @@ fn is_send<T: Send>(_: &T) {}
 #[test]
 fn a_runs_future_is_send_when_every_part_and_its_future_are() {
     let shots = ShotSet::ids(0..2);
-    let driver = || Panics(PanicsWhen::Polled).limited();
+    let driver = || Panics(PanicsWhen::Polled).stating_limits();
     let splitter = || Splitter::new();
     let executor = || Panics(PanicsWhen::Polled);
     let mut joined = runner(driver().on(executor()));

@@ -15,8 +15,8 @@ use crate::tests::example_sets::{
     CliffordT, Qubits, ToffoliGate, WithToffoli, WithoutToffoli, on_qubits,
 };
 use crate::{
-    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, Limited, NotReady, Resources,
-    RunRequirement, Seed, ShotSet,
+    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, NotReady, Resources,
+    RunRequirement, Seed, ShotSet, StatesLimits,
 };
 
 /// A driver sending `gates`, one batch of every shot, checked if
@@ -29,17 +29,17 @@ pub(crate) struct ToffoliProgram {
 }
 
 impl ToffoliProgram {
-    pub(crate) fn new(gates: &[ToffoliGate], qubits: u32) -> Limited<Self> {
+    pub(crate) fn new(gates: &[ToffoliGate], qubits: u32) -> StatesLimits<Self> {
         Self {
             gates: gates.to_vec(),
             qubits,
             checked: false,
         }
-        .limited()
+        .stating_limits()
     }
 }
 
-impl Limited<ToffoliProgram> {
+impl StatesLimits<ToffoliProgram> {
     /// This program, its batch checked if `checked`.
     pub(crate) fn checked_if(mut self, checked: bool) -> Self {
         self.part.checked = checked;
@@ -47,7 +47,7 @@ impl Limited<ToffoliProgram> {
     }
 }
 
-impl DriverLimits for ToffoliProgram {
+impl DriverRequirements for ToffoliProgram {
     /// The run's, on `qubits` qubits, in batches of its gates' count.
     fn requires(&self, run: &RunRequirement) -> Capabilities<WithToffoli> {
         let gates = u32::try_from(self.gates.len()).expect("fewer than 2^32 gates");
@@ -102,7 +102,7 @@ pub(crate) struct CliffordTRegister {
 
 impl CliffordTRegister {
     /// The register writing `reading` into every row.
-    pub(crate) fn new(qubits: u32, reading: &[BitReadout], log: &Log) -> Limited<Self> {
+    pub(crate) fn new(qubits: u32, reading: &[BitReadout], log: &Log) -> StatesLimits<Self> {
         Self::with_readings(qubits, &[reading], log)
     }
 
@@ -113,17 +113,17 @@ impl CliffordTRegister {
         qubits: u32,
         readings: &[&[BitReadout]],
         log: &Log,
-    ) -> Limited<Self> {
+    ) -> StatesLimits<Self> {
         Self {
             provides: on_qubits(qubits),
             readings: readings.iter().map(|reading| reading.to_vec()).collect(),
             log: log.clone(),
         }
-        .limited()
+        .stating_limits()
     }
 }
 
-impl Limited<CliffordTRegister> {
+impl StatesLimits<CliffordTRegister> {
     /// This register, taking batches of at most `n` instructions.
     pub(crate) fn taking(mut self, n: u32) -> Self {
         self.part.provides = (self.part.provides)

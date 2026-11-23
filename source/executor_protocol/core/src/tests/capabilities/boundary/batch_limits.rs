@@ -35,7 +35,7 @@ struct Literal<S: InstructionSet> {
     mark: Mark<S>,
 }
 
-impl<S: InstructionSet> DriverLimits for Literal<S> {
+impl<S: InstructionSet> DriverRequirements for Literal<S> {
     fn requires(&self, _run: &RunRequirement) -> Capabilities<S> {
         self.requires.clone()
     }
@@ -118,7 +118,7 @@ fn run<S: InstructionSet<Readout = BitReadout>>(
         accepts: driver.sends.clone(),
         provides: provided,
     };
-    let Ok(mut runner) = driver.limited().on(executor.limited()) else {
+    let Ok(mut runner) = driver.stating_limits().on(executor.stating_limits()) else {
         panic!("the chain composes");
     };
     match runner.run(&ShotSet::ids(0..2), 7) {

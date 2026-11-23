@@ -15,7 +15,7 @@ use crate::{Capabilities, Executor, NotReady};
 /// [`ExecutorLimits`](crate::ExecutorLimits).
 /// An executor that states no limits answers its set's
 /// [`unconstrained`](crate::InstructionSet::unconstrained) and its
-/// [`ready`](Executor::ready); a [`Limited`](crate::Limited) one, its
+/// [`ready`](Executor::ready); a [`StatesLimits`](crate::StatesLimits) one, its
 /// limits; a joined one, its parts'.
 pub trait ExecutorReadings: Executor {
     /// What it provides to the part above.

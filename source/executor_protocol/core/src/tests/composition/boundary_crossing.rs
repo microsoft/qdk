@@ -33,7 +33,8 @@ use crate::tests::fake_parts::{
 };
 use crate::{
     Batch, BatchFault, BatchReadouts, Capabilities, CompositionFaults, DriveError, ExecuteError,
-    ExecuteRefusal, Failure, Limited, NotReady, PartId, Readouts, Runner, Seed, ShotId, ShotSet,
+    ExecuteRefusal, Failure, NotReady, PartId, Readouts, Runner, Seed, ShotId, ShotSet,
+    StatesLimits,
 };
 
 use BitReadout::{One, Zero};
@@ -88,7 +89,7 @@ fn failed_run<D: Driver<Output: std::fmt::Debug>, E: Executor<Accepts = D::Sends
 
 /// Measures qubit 0 after flipping it: one checked batch of two
 /// instructions, needing one qubit.
-fn flip_and_measure() -> Limited<Program> {
+fn flip_and_measure() -> StatesLimits<Program> {
     Program::new(&[("x", 0), ("mz", 0)]).with_checked_batches()
 }
 
@@ -407,7 +408,7 @@ impl Parts {
         }
     }
 
-    fn d(&self) -> Limited<Program> {
+    fn d(&self) -> StatesLimits<Program> {
         let program = if self.faulty == 0 {
             Program::new(&[("mz", 0)]).ending_beyond_its_set(0)
         } else {
@@ -429,7 +430,7 @@ impl Parts {
         }
     }
 
-    fn e(&self) -> Limited<Bits> {
+    fn e(&self) -> StatesLimits<Bits> {
         Bits::new(&self.log)
     }
 
@@ -820,8 +821,8 @@ impl Driver for TwoBatches {
         below: &mut impl Executor<Accepts = Measuring>,
     ) -> Result<Vec<()>, DriveError> {
         let parts = [
-            shots.select(&[0, 1]).expect("shots 0 and 1"),
-            shots.select(&[2]).expect("shot 2"),
+            shots.subset(&[0, 1]).expect("shots 0 and 1"),
+            shots.subset(&[2]).expect("shot 2"),
         ];
         let batches = [
             Batch::new(&parts[0], &self.instructions[0], self.stated[0]),
@@ -865,7 +866,7 @@ fn read_stating<D: Driver, E: Executor<Accepts = D::Sends>>(
 /// then lets [`Bits`] fill them, or, if it has none, leaves them as they
 /// are.
 struct RecordsWhatItFinds(
-    Option<Limited<Bits>>,
+    Option<StatesLimits<Bits>>,
     Rc<RefCell<Vec<BatchReadouts<Measuring>>>>,
 );
 
@@ -930,7 +931,7 @@ fn each_batchs_readouts_come_shaped_as_the_batch_prefilled() {
     let found: [Rc<RefCell<Vec<BatchReadouts<Measuring>>>>; 6] = Default::default();
     let executor = |row: usize, writes: bool| {
         let bits = writes.then(|| Bits::new(&log));
-        RecordsWhatItFinds(bits, Rc::clone(&found[row])).limited()
+        RecordsWhatItFinds(bits, Rc::clone(&found[row])).stating_limits()
     };
     let profiler = || Profiler::new(&counted, &log);
     for (chain, read, found, shaped, expected) in [
@@ -984,7 +985,7 @@ fn each_batchs_readouts_come_shaped_as_the_batch_prefilled() {
 
 /// [`Bits`] that, at its first `execute`, fills the readouts, then rejects
 /// every shot and fails.
-struct FailsFirst(Limited<Bits>, bool);
+struct FailsFirst(StatesLimits<Bits>, bool);
 
 impl ExecutorLimits for FailsFirst {
     fn provides(&self) -> &Capabilities<Measuring> {
@@ -1077,7 +1078,7 @@ fn an_execute_sent_again_after_a_failure_gets_its_readouts_shaped_again() {
     let read = read_on(|driver| {
         driver
             .through(RetriesAfterAFailure(Profiler::new(&counted, &log)))
-            .on(FailsFirst(Bits::new(&log), true).limited())
+            .on(FailsFirst(Bits::new(&log), true).stating_limits())
     });
     let mut expected = vec![BatchReadouts::new(2, 2), BatchReadouts::new(1, 0)];
     for position in 0..2 {
@@ -1215,7 +1216,7 @@ impl Driver for RoundsIntoItsReadouts {
         below: &mut impl Executor<Accepts = Measuring>,
     ) -> Result<Vec<()>, DriveError> {
         let each = (0..shots.len())
-            .map(|at| shots.select(&[at]).expect("a shot of the run"))
+            .map(|at| shots.subset(&[at]).expect("a shot of the run"))
             .collect::<Vec<_>>();
         let batches = each
             .iter()

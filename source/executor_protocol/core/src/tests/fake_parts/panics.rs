@@ -28,7 +28,7 @@ fn broken<T>() -> T {
     panic!("the part broke while it was polled")
 }
 
-impl DriverLimits for Panics {
+impl DriverRequirements for Panics {
     /// The run's, in batches of 1 instruction.
     fn requires(&self, run: &RunRequirement) -> Capabilities<Measuring> {
         Capabilities::from_run(run)

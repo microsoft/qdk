@@ -17,8 +17,8 @@ use super::{
 use crate::prelude::*;
 use crate::tests::example_sets::{BitReadout, Gate, Measuring, ShotFlags};
 use crate::{
-    Batch, BatchReadouts, Capabilities, ExecuteError, Failure, Features, Limited, NotReady,
-    Readouts, Resources, Seed, ShotId, ShotSet,
+    Batch, BatchReadouts, Capabilities, ExecuteError, Failure, Features, NotReady, Readouts,
+    Resources, Seed, ShotId, ShotSet, StatesLimits,
 };
 
 /// A toy bit-flip noise: after each `x`, another `x` with probability
@@ -84,7 +84,7 @@ impl Adapter for BitFlip {
                     }
                 }
                 sent.push((
-                    batch.shots.select(&[j]).expect("a position of the batch"),
+                    batch.shots.subset(&[j]).expect("a position of the batch"),
                     instructions,
                     batch.readout_slots(),
                     batch.is_checked(),
@@ -259,8 +259,8 @@ pub(crate) struct Splitter {
 }
 
 impl Splitter {
-    pub(crate) fn new() -> Limited<Self> {
-        Self { below: None }.limited()
+    pub(crate) fn new() -> StatesLimits<Self> {
+        Self { below: None }.stating_limits()
     }
 }
 
@@ -340,7 +340,7 @@ pub(crate) struct Spread {
 }
 
 impl Spread {
-    pub(crate) fn new(k: u32, log: &Log) -> Limited<Self> {
+    pub(crate) fn new(k: u32, log: &Log) -> StatesLimits<Self> {
         Self {
             k,
             provides: unconstrained(),
@@ -348,11 +348,11 @@ impl Spread {
             below: None,
             log: log.clone(),
         }
-        .limited()
+        .stating_limits()
     }
 }
 
-impl Limited<Spread> {
+impl StatesLimits<Spread> {
     /// This encoding, built for batches of `n` instructions above: it
     /// takes at most `n`, and requires `k` instructions below for each
     /// that arrives.
@@ -427,7 +427,7 @@ type Requiring = Box<dyn Fn(&Capabilities<Measuring>) -> Capabilities<Measuring>
 /// ([`AdapterLimits::requires`]). At run time it passes instructions
 /// through, as a [`Spread`] of 1.
 pub(crate) struct Stating {
-    spread: Limited<Spread>,
+    spread: StatesLimits<Spread>,
     provides: Capabilities<Measuring>,
     requires: Requiring,
 }
@@ -439,25 +439,25 @@ impl Stating {
         log: &Log,
         provides: Capabilities<Measuring>,
         requires: impl Fn(&Capabilities<Measuring>) -> Capabilities<Measuring> + 'static,
-    ) -> Limited<Self> {
+    ) -> StatesLimits<Self> {
         Self {
             spread: Spread::new(1, log),
             provides,
             requires: Box::new(requires),
         }
-        .limited()
+        .stating_limits()
     }
 
     /// A toy taking `resources` and `features`, and passing what arrives
     /// below.
-    fn providing(log: &Log, resources: Resources, features: Features) -> Limited<Self> {
+    fn providing(log: &Log, resources: Resources, features: Features) -> StatesLimits<Self> {
         Self::new(log, capabilities(resources, features), Clone::clone)
     }
 
     /// A toy interleaver, sending batches of `least` instructions at
     /// least: it requires the instructions a batch that arrive, or
     /// `least` if fewer arrive.
-    pub(crate) fn interleaving(least: u32, log: &Log) -> Limited<Self> {
+    pub(crate) fn interleaving(least: u32, log: &Log) -> StatesLimits<Self> {
         Self::new(log, unconstrained(), move |above| {
             in_batches_of(above, instructions_of(above).max(least))
         })
@@ -465,7 +465,7 @@ impl Stating {
 
     /// A toy part adding `k` ancilla resets to each batch: it requires `k`
     /// instructions a batch more than arrive.
-    pub(crate) fn reserving_ancillas(k: u32, log: &Log) -> Limited<Self> {
+    pub(crate) fn reserving_ancillas(k: u32, log: &Log) -> StatesLimits<Self> {
         Self::new(log, unconstrained(), move |above| {
             in_batches_of(above, instructions_of(above) + k)
         })
@@ -474,7 +474,7 @@ impl Stating {
     /// A toy job splitter, which splits each run into runs of `shots`: it
     /// requires runs of `shots` below, whatever arrives. A declaration
     /// fake: it passes each run below whole, splitting none.
-    pub(crate) fn splitting_runs(shots: u32, log: &Log) -> Limited<Self> {
+    pub(crate) fn splitting_runs(shots: u32, log: &Log) -> StatesLimits<Self> {
         Self::new(log, unconstrained(), move |above| {
             (above.clone()).map_resources(|resources| resources.with_shots(shots))
         })
@@ -484,7 +484,7 @@ impl Stating {
     /// requires `times` as many shots below as arrive, and does not state
     /// shots if none arrive. A declaration fake: it passes each run below
     /// as it is.
-    pub(crate) fn repeating_shots(times: u32, log: &Log) -> Limited<Self> {
+    pub(crate) fn repeating_shots(times: u32, log: &Log) -> StatesLimits<Self> {
         Self::new(log, unconstrained(), move |above| {
             match above.resources().shots {
                 Some(shots) => (above.clone())
@@ -495,7 +495,7 @@ impl Stating {
     }
 
     /// A toy job queue that takes at most `most` shots a run.
-    pub(crate) fn queue(most: u32, log: &Log) -> Limited<Self> {
+    pub(crate) fn queue(most: u32, log: &Log) -> StatesLimits<Self> {
         Self::providing(
             log,
             Resources::unconstrained().with_shots(most),
@@ -505,13 +505,13 @@ impl Stating {
 
     /// A toy cap that takes batches of at most `n` instructions, as a
     /// decoder built for that many does.
-    pub(crate) fn capping(n: u32, log: &Log) -> Limited<Self> {
+    pub(crate) fn capping(n: u32, log: &Log) -> StatesLimits<Self> {
         Self::providing(log, batches_of(n), Features::unconstrained())
     }
 
     /// A toy replayer that keeps each shot's readouts and gives them back
     /// on replay: it requires no replay below, and passes seeded runs.
-    pub(crate) fn replaying(log: &Log) -> Limited<Self> {
+    pub(crate) fn replaying(log: &Log) -> StatesLimits<Self> {
         Self::new(log, unconstrained(), |above| {
             (above.clone()).map_features(|features| features.with_replay(false))
         })
@@ -520,7 +520,7 @@ impl Stating {
     /// A toy sampler that draws its shots' readouts together, from counts
     /// it takes below with its run's seed: it takes no replay, and
     /// requires no seeded runs below.
-    pub(crate) fn seeding_itself(log: &Log) -> Limited<Self> {
+    pub(crate) fn seeding_itself(log: &Log) -> StatesLimits<Self> {
         Self::new(
             log,
             capabilities(
@@ -576,7 +576,7 @@ impl Adapter for Stating {
 /// drops that future unfinished, then asks below again, into the same
 /// readouts, and waits. At run time it passes instructions through, as a
 /// [`Spread`] of 1.
-pub(crate) struct Impatient(Limited<Spread>);
+pub(crate) struct Impatient(StatesLimits<Spread>);
 
 impl Impatient {
     pub(crate) fn new(log: &Log) -> Self {
@@ -831,7 +831,7 @@ pub(crate) struct PanicsEnding {
     /// Whether it panics in its first `end_shots` only.
     once: bool,
     panicked: bool,
-    pass_through: Limited<Spread>,
+    pass_through: StatesLimits<Spread>,
 }
 
 impl PanicsEnding {
@@ -899,7 +899,7 @@ impl Adapter for PanicsEnding {
 /// once their answer is in, as an adapter freeing state below early
 /// would. At run time it passes instructions through, as a [`Spread`] of
 /// 1.
-pub(crate) struct EndsBelow(Limited<Spread>);
+pub(crate) struct EndsBelow(StatesLimits<Spread>);
 
 impl EndsBelow {
     pub(crate) fn new(log: &Log) -> Self {

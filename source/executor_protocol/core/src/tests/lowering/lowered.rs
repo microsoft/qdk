@@ -25,8 +25,8 @@ use crate::tests::fake_parts::{
 };
 use crate::{
     Batch, BatchFault, BatchReadouts, Capabilities, CompositionFaults, DriveError, ExecuteError,
-    ExecuteRefusal, Failure, Limited, Lowered, PartId, Readouts, ResourceMismatch, RunError,
-    RunRefusal, RunRequirement, Runner, Seed, ShotId, ShotSet,
+    ExecuteRefusal, Failure, Lowered, PartId, Readouts, ResourceMismatch, RunError, RunRefusal,
+    RunRequirement, Runner, Seed, ShotId, ShotSet, StatesLimits,
 };
 
 use BitReadout::{One, Zero};
@@ -36,7 +36,7 @@ use ToffoliGate::{Ccz, H, Mz};
 /// `lowering`, over a register of 3 qubits writing `reading` into each
 /// row; and the register's log.
 fn run<L: Lowering<From = WithToffoli, To = WithoutToffoli> + 'static>(
-    program: Limited<ToffoliProgram>,
+    program: StatesLimits<ToffoliProgram>,
     lowering: L,
     reading: &[BitReadout],
     shots: &ShotSet,
@@ -148,7 +148,7 @@ fn a_lowering_reads_each_instructions_readouts() {
     let second_round = [(vec![Mz(2)], vec![0, 1, 2, 3])];
     let log = Log::default();
     let Ok(mut runner) = ToffoliBatches(vec![first_round.to_vec(), second_round.to_vec()])
-        .limited()
+        .stating_limits()
         .through(Lowered::new(ReadThrice))
         .on(CliffordTRegister::with_readings(
             3,
@@ -200,7 +200,7 @@ fn a_lowering_reads_each_instructions_readouts() {
 /// run's. Each shot's output is its readouts and conditions in each round.
 struct ToffoliBatches(Vec<Vec<(Vec<ToffoliGate>, Vec<usize>)>>);
 
-impl DriverLimits for ToffoliBatches {
+impl DriverRequirements for ToffoliBatches {
     fn requires(&self, run: &RunRequirement) -> Capabilities<WithToffoli> {
         Capabilities::new(run.resources, run.features, Qubits(3))
     }
@@ -227,7 +227,7 @@ impl Driver for ToffoliBatches {
         for round in &self.0 {
             let selected = round
                 .iter()
-                .map(|(_, positions)| shots.select(positions).expect("shots of the run"))
+                .map(|(_, positions)| shots.subset(positions).expect("shots of the run"))
                 .collect::<Vec<_>>();
             let batches = round
                 .iter()
@@ -568,7 +568,7 @@ impl Driver for RoundsOfToffoli {
             .map(|gate| WithToffoli.readout_slots(gate))
             .sum();
         let each = (0..shots.len())
-            .map(|at| shots.select(&[at]).expect("a shot of the run"))
+            .map(|at| shots.subset(&[at]).expect("a shot of the run"))
             .collect::<Vec<_>>();
         let batches = each
             .iter()

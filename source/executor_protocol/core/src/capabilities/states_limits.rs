@@ -1,28 +1,29 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! A part whose limits the protocol reads, [`Limited`].
+//! A part whose limits the protocol reads, [`StatesLimits`].
 
 use crate::composition::DeclaredParts;
 use crate::part_id::ChainPosition;
 use crate::roles::Sealed;
 use crate::{
     Adapter, AdapterLimits, Batch, BatchReadouts, Binding, Capabilities, DriveError, Driver,
-    DriverLimits, ExecuteError, Executor, ExecutorLimits, NotReady, RunRequirement, Seed, ShotSet,
+    DriverRequirements, ExecuteError, Executor, ExecutorLimits, NotReady, RunRequirement, Seed,
+    ShotSet,
 };
 
 /// A part that states its limits, in the same role: what it provides,
 /// what it requires, and how it gets ready for what arrives, as its
-/// [`ExecutorLimits`], [`AdapterLimits`] or [`DriverLimits`] say.
+/// [`ExecutorLimits`], [`AdapterLimits`] or [`DriverRequirements`] say.
 ///
-/// A part with limits is joined as this, made by its `limited()`, so that
-/// a part with none never sees them: the protocol reads a part's limits
-/// only through this wrapper. Every other method is the part's own.
+/// A part with limits is joined as this, made by its `stating_limits()`,
+/// so that a part with none never sees them: the protocol reads a part's
+/// limits only through this wrapper. Every other method is the part's own.
 #[derive(Clone, Debug)]
-pub struct Limited<P> {
+pub struct StatesLimits<P> {
     /// The part, reachable to read what it holds after a run, and to wrap
-    /// a part stating limits in several roles, whose `limited()` would be
-    /// ambiguous.
+    /// a part stating limits in several roles, whose `stating_limits()`
+    /// would be ambiguous.
     pub part: P,
 }
 
@@ -30,7 +31,7 @@ pub struct Limited<P> {
 // limits; the lint fails the build if a new method falls back to its
 // default instead.
 #[deny(clippy::missing_trait_methods)]
-impl<E: ExecutorLimits> Executor for Limited<E> {
+impl<E: ExecutorLimits> Executor for StatesLimits<E> {
     type Accepts = E::Accepts;
 
     fn name(&self) -> &str {
@@ -79,7 +80,7 @@ impl<E: ExecutorLimits> Executor for Limited<E> {
 }
 
 #[deny(clippy::missing_trait_methods)]
-impl<A: AdapterLimits> Adapter for Limited<A> {
+impl<A: AdapterLimits> Adapter for StatesLimits<A> {
     type Set = A::Set;
 
     fn name(&self) -> &str {
@@ -137,7 +138,7 @@ impl<A: AdapterLimits> Adapter for Limited<A> {
 }
 
 #[deny(clippy::missing_trait_methods)]
-impl<D: DriverLimits> Driver for Limited<D> {
+impl<D: DriverRequirements> Driver for StatesLimits<D> {
     type Output = D::Output;
     type Sends = D::Sends;
 
@@ -168,7 +169,7 @@ impl<D: DriverLimits> Driver for Limited<D> {
 
     fn requirement(&self, run: &RunRequirement, sealed: Sealed) -> Capabilities<D::Sends> {
         let _ = sealed;
-        DriverLimits::requires(&self.part, run)
+        DriverRequirements::requires(&self.part, run)
     }
 
     fn declare<'a>(
@@ -192,6 +193,6 @@ impl<D: DriverLimits> Driver for Limited<D> {
         at: ChainPosition<'_>,
     ) -> impl Future<Output = Result<(), NotReady>> {
         let _ = at;
-        DriverLimits::ready_for(&mut self.part, run)
+        DriverRequirements::ready_for(&mut self.part, run)
     }
 }

@@ -15,8 +15,8 @@ use crate::prelude::*;
 use crate::tests::example_sets::Measuring;
 use crate::tests::example_sets::{BitReadout, ShotFlags};
 use crate::{
-    Batch, BatchReadouts, Capabilities, ExecuteError, Features, Limited, NotReady, Resources, Seed,
-    ShotId, ShotSet,
+    Batch, BatchReadouts, Capabilities, ExecuteError, Features, NotReady, Resources, Seed, ShotId,
+    ShotSet, StatesLimits,
 };
 
 /// A toy executor on classical bits, as many as its instructions name:
@@ -40,12 +40,12 @@ pub(crate) struct Bits {
 impl Bits {
     /// Bits accepting [`coin_gates`], providing batches of 64
     /// instructions, logging to `log`.
-    pub(crate) fn new(log: &Log) -> Limited<Self> {
+    pub(crate) fn new(log: &Log) -> StatesLimits<Self> {
         Self::accepting(*coin_gates(), log)
     }
 
     /// Bits accepting `set`, which may lack some of `h`, `x` and `mz`.
-    pub(crate) fn accepting(set: Measuring, log: &Log) -> Limited<Self> {
+    pub(crate) fn accepting(set: Measuring, log: &Log) -> StatesLimits<Self> {
         Self {
             runs: set,
             accepts: set,
@@ -57,11 +57,11 @@ impl Bits {
             set_once_ready: None,
             log: log.clone(),
         }
-        .limited()
+        .stating_limits()
     }
 }
 
-impl Limited<Bits> {
+impl StatesLimits<Bits> {
     /// These bits, providing `resources` in place of their batches of 64.
     pub(crate) fn with_resources(mut self, resources: Resources) -> Self {
         self.part.provides = self.part.provides.map_resources(|_| resources);
@@ -267,8 +267,8 @@ pub(crate) struct FromThread<E> {
 impl<E> FromThread<E> {
     /// `inner`, answering from a thread after `delay`, stating the limits
     /// `inner` states.
-    pub(crate) fn new(inner: E, delay: Duration) -> Limited<Self> {
-        Limited {
+    pub(crate) fn new(inner: E, delay: Duration) -> StatesLimits<Self> {
+        StatesLimits {
             part: Self {
                 inner,
                 delay,
@@ -278,7 +278,7 @@ impl<E> FromThread<E> {
     }
 }
 
-impl<E> Limited<FromThread<E>> {
+impl<E> StatesLimits<FromThread<E>> {
     /// This executor, whose first answer waits for `gate`.
     pub(crate) fn gated(mut self, gate: mpsc::Receiver<()>) -> Self {
         self.part.gate = Some(gate);

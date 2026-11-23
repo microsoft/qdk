@@ -7,8 +7,8 @@
 use crate::prelude::*;
 use crate::tests::fake_parts::Log;
 use crate::{
-    Batch, BatchReadouts, Binding, Capabilities, DriveError, ExecuteError, Limited, NotReady,
-    RunRequirement, Seed, ShotId, ShotSet, TranslatingAdapter,
+    Batch, BatchReadouts, Binding, Capabilities, DriveError, ExecuteError, NotReady,
+    RunRequirement, Seed, ShotId, ShotSet, StatesLimits, TranslatingAdapter,
 };
 
 /// `part`, which logs `"{label} got seed {stream}"` for each `drive`,
@@ -23,8 +23,8 @@ pub(crate) struct SeesSeeds<P> {
 }
 
 impl<P> SeesSeeds<P> {
-    pub(crate) fn new(part: P, label: &'static str, log: &Log) -> Limited<Self> {
-        Limited {
+    pub(crate) fn new(part: P, label: &'static str, log: &Log) -> StatesLimits<Self> {
+        StatesLimits {
             part: Self {
                 part,
                 label,
@@ -42,7 +42,7 @@ impl<P> SeesSeeds<P> {
     }
 }
 
-impl<P: Driver> DriverLimits for SeesSeeds<P> {
+impl<P: Driver> DriverRequirements for SeesSeeds<P> {
     fn requires(&self, run: &RunRequirement) -> Capabilities<P::Sends> {
         self.part.required(run)
     }
@@ -81,9 +81,9 @@ impl<P: Driver> Driver for SeesSeeds<P> {
 }
 
 /// A translating adapter states its limits itself, so one that sees seeds
-/// needs no [`AdapterLimits`]: it is the `Limited` its constructor returns
+/// needs no [`AdapterLimits`]: it is the `StatesLimits` its constructor returns
 /// that takes the role, as for a driver and an executor.
-impl<P: TranslatingAdapter> TranslatingAdapter for Limited<SeesSeeds<P>> {
+impl<P: TranslatingAdapter> TranslatingAdapter for StatesLimits<SeesSeeds<P>> {
     type Accepts = P::Accepts;
     type Sends = P::Sends;
 

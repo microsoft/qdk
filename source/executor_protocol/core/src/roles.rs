@@ -36,7 +36,7 @@ mod not_ready;
 mod translating_adapter;
 
 pub use adapter::{Adapter, AdapterLimits};
-pub use driver::{DriveError, Driver, DriverLimits, DriverReadings};
+pub use driver::{DriveError, Driver, DriverReadings, DriverRequirements};
 pub use executor::{ExecuteError, ExecuteRefusal, Executor, ExecutorLimits, ExecutorReadings};
 pub use failure::Failure;
 pub use not_ready::NotReady;

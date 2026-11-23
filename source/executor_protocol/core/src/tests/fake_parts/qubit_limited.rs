@@ -10,8 +10,8 @@ use super::Log;
 use crate::prelude::*;
 use crate::tests::example_sets::{OnQubit, QubitLimited, Qubits, on_qubits};
 use crate::{
-    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, Limited, NotReady,
-    RunRequirement, Seed, ShotSet,
+    Batch, BatchReadouts, Capabilities, DriveError, ExecuteError, NotReady, RunRequirement, Seed,
+    ShotSet, StatesLimits,
 };
 
 /// What `part` logs once ready for `above`: the qubits it states.
@@ -28,16 +28,16 @@ pub(crate) struct QubitProgram {
 }
 
 impl QubitProgram {
-    pub(crate) fn new(gates: &[u32], qubits: u32) -> Limited<Self> {
+    pub(crate) fn new(gates: &[u32], qubits: u32) -> StatesLimits<Self> {
         Self {
             gates: gates.iter().copied().map(OnQubit).collect(),
             qubits,
         }
-        .limited()
+        .stating_limits()
     }
 }
 
-impl DriverLimits for QubitProgram {
+impl DriverRequirements for QubitProgram {
     /// The run's, on `qubits` qubits.
     fn requires(&self, run: &RunRequirement) -> Capabilities<QubitLimited> {
         Capabilities::new(run.resources, run.features, Qubits(self.qubits))
@@ -75,8 +75,8 @@ pub(crate) struct QubitPassThrough {
 }
 
 impl QubitPassThrough {
-    pub(crate) fn new(log: &Log) -> Limited<Self> {
-        Self { log: log.clone() }.limited()
+    pub(crate) fn new(log: &Log) -> StatesLimits<Self> {
+        Self { log: log.clone() }.stating_limits()
     }
 }
 
@@ -119,8 +119,8 @@ pub(crate) struct QubitNarrowing {
 }
 
 impl QubitNarrowing {
-    pub(crate) fn to(qubits: u32) -> Limited<Self> {
-        Self { qubits }.limited()
+    pub(crate) fn to(qubits: u32) -> StatesLimits<Self> {
+        Self { qubits }.stating_limits()
     }
 }
 
@@ -163,12 +163,12 @@ pub(crate) struct QubitRegister {
 }
 
 impl QubitRegister {
-    pub(crate) fn new(qubits: u32, log: &Log) -> Limited<Self> {
+    pub(crate) fn new(qubits: u32, log: &Log) -> StatesLimits<Self> {
         Self {
             provides: on_qubits(qubits),
             log: log.clone(),
         }
-        .limited()
+        .stating_limits()
     }
 }
 

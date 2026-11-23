@@ -3,18 +3,18 @@
 
 //! The limits an adapter may state, [`AdapterLimits`].
 
-use crate::{Adapter, Capabilities, InstructionSet, Limited, NotReady};
+use crate::{Adapter, Capabilities, InstructionSet, NotReady, StatesLimits};
 
 /// The limits of an adapter that has them: what it provides to the part
 /// above, what it requires of the part below, and how it gets ready for
 /// what arrives from above.
 ///
-/// An adapter with no limits implements [`Adapter`] alone: it states
-/// nothing, and passes what arrives below unchanged. One with limits
-/// implements this trait too, and is joined [`limited`](Self::limited):
-/// the protocol reads them, at the joins and at each run's start, only
-/// through that [`Limited`] part. Every method has a default, so a part
-/// implements only what it states.
+/// An adapter with no limits implements [`Adapter`] alone: it states nothing,
+/// and passes what arrives below unchanged. One with limits implements this
+/// trait too, and is joined [`stating_limits`](Self::stating_limits): the
+/// protocol reads them, at the joins and at each run's start, only through that
+/// [`StatesLimits`] part. Every method has a default, so a part implements only
+/// what it states.
 pub trait AdapterLimits: Adapter {
     /// Its fixed limits on what arrives from above, such as a job queue's
     /// most shots, or what its set's capabilities say it takes: what
@@ -62,10 +62,10 @@ pub trait AdapterLimits: Adapter {
     }
 
     /// This part, as the part the protocol reads these limits of.
-    fn limited(self) -> Limited<Self>
+    fn stating_limits(self) -> StatesLimits<Self>
     where
         Self: Sized,
     {
-        Limited { part: self }
+        StatesLimits { part: self }
     }
 }

@@ -2,20 +2,19 @@
 // Licensed under the MIT License.
 
 //! What a driver may state of its own of what it requires below,
-//! [`DriverLimits`].
+//! [`DriverRequirements`].
 
-use crate::{Capabilities, Driver, Limited, NotReady, RunRequirement};
+use crate::{Capabilities, Driver, NotReady, RunRequirement, StatesLimits};
 
 /// What a driver that states anything of its own requires of the parts
 /// below, and how it gets ready for what the run requires.
 ///
-/// A driver that states nothing implements [`Driver`] alone: it passes
-/// the run below as it arrives. One that states more implements this
-/// trait too, and is joined [`limited`](Self::limited): the protocol reads
-/// it, at the joins and at each run's start, only through that [`Limited`]
-/// part. Every method has a default, so a part implements only what it
-/// states.
-pub trait DriverLimits: Driver {
+/// A driver that states nothing implements [`Driver`] alone: it passes the run
+/// below as it arrives. One that states more implements this trait too, and is
+/// joined [`stating_limits`](Self::stating_limits): the protocol reads it, at
+/// the joins and at each run's start, only through that [`StatesLimits`] part.
+/// Every method has a default, so a part implements only what it states.
+pub trait DriverRequirements: Driver {
     /// What it requires of the parts below on a run that requires `run`:
     /// the run's shots, and seeded runs when its seed is fixed, which the
     /// runner states, with what its shots use of its set. The part below
@@ -53,10 +52,10 @@ pub trait DriverLimits: Driver {
     }
 
     /// This part, as the part the protocol reads these limits of.
-    fn limited(self) -> Limited<Self>
+    fn stating_limits(self) -> StatesLimits<Self>
     where
         Self: Sized,
     {
-        Limited { part: self }
+        StatesLimits { part: self }
     }
 }

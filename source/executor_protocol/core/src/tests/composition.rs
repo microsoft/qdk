@@ -28,7 +28,7 @@ use crate::tests::fake_parts::{
     Renamed, Splitter, Spread, Stating, Trap, Values, batches_of, coin_gate, in_each_bracketing,
 };
 use crate::{
-    CompositionFaults, Features, Limited, Lowered, Resources, RunRequirement, Runner, ShotSet,
+    CompositionFaults, Features, Lowered, Resources, RunRequirement, Runner, ShotSet, StatesLimits,
     TranslatingAdapter,
 };
 
@@ -96,7 +96,7 @@ fn one_driver_runs_on_every_chain_it_fits() {
     let expected = plain(&shots);
     let driver = CoinCopy::new;
     assert_eq!(
-        records(driver().on(Later(Bits::new(&log)).limited()), &shots),
+        records(driver().on(Later(Bits::new(&log)).stating_limits()), &shots),
         expected,
         "answering later"
     );
@@ -192,11 +192,11 @@ where
 fn a_joined_part_runs_the_same_held_by_a_part_forwarding_its_role() {
     struct Parts {
         log: Log,
-        d: Limited<CoinCopy>,
-        a: Limited<Spread>,
+        d: StatesLimits<CoinCopy>,
+        a: StatesLimits<Spread>,
         b: Trap,
-        c: Limited<Spread>,
-        e: Limited<Bits>,
+        c: StatesLimits<Spread>,
+        e: StatesLimits<Bits>,
     }
     let parts = || {
         let log = Log::default();

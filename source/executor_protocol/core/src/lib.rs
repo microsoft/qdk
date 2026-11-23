@@ -33,8 +33,8 @@ pub use batch::{
 pub use boundary_compatible::BoundaryCompatible;
 pub(crate) use capabilities::Boundary;
 pub use capabilities::{
-    BatchFault, Capabilities, CapabilitiesMismatch, FeatureMismatch, Features, Limited,
-    ResourceMismatch, Resources, RunRequirement,
+    BatchFault, Capabilities, CapabilitiesMismatch, FeatureMismatch, Features, ResourceMismatch,
+    Resources, RunRequirement, StatesLimits,
 };
 pub use composition::{
     AdapterJoins, BoundaryMismatch, CompositionFault, CompositionFaults, DriverJoins, RunError,
@@ -44,7 +44,7 @@ pub use instruction_set::{Binding, InstructionSet};
 pub use lowering::{Lowered, Lowering};
 pub use part_id::PartId;
 pub use roles::{
-    Adapter, AdapterLimits, DriveError, Driver, DriverLimits, DriverReadings, ExecuteError,
+    Adapter, AdapterLimits, DriveError, Driver, DriverReadings, DriverRequirements, ExecuteError,
     ExecuteRefusal, Executor, ExecutorLimits, ExecutorReadings, Failure, NotReady,
     TranslatingAdapter,
 };

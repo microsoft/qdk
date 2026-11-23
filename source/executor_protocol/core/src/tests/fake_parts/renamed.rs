@@ -5,8 +5,8 @@
 
 use crate::prelude::*;
 use crate::{
-    Batch, BatchReadouts, Binding, Capabilities, DriveError, ExecuteError, Limited, NotReady,
-    RunRequirement, Seed, ShotSet, TranslatingAdapter,
+    Batch, BatchReadouts, Binding, Capabilities, DriveError, ExecuteError, NotReady,
+    RunRequirement, Seed, ShotSet, StatesLimits, TranslatingAdapter,
 };
 
 /// `part`, named `name`, as a part built at run time is named by what it
@@ -21,8 +21,8 @@ pub(crate) struct Renamed<P> {
 }
 
 impl<P> Renamed<P> {
-    pub(crate) fn new(part: P, name: &'static str) -> Limited<Self> {
-        Limited {
+    pub(crate) fn new(part: P, name: &'static str) -> StatesLimits<Self> {
+        StatesLimits {
             part: Self {
                 part,
                 name,
@@ -32,7 +32,7 @@ impl<P> Renamed<P> {
     }
 }
 
-impl<P> Limited<Renamed<P>> {
+impl<P> StatesLimits<Renamed<P>> {
     /// This part, named `name` once its role's `ready` is called: a part
     /// that breaks the rule that its name does not change once composed.
     pub(crate) fn renamed_once_ready(mut self, name: &'static str) -> Self {
@@ -41,7 +41,7 @@ impl<P> Limited<Renamed<P>> {
     }
 }
 
-impl<P: Driver> DriverLimits for Renamed<P> {
+impl<P: Driver> DriverRequirements for Renamed<P> {
     fn requires(&self, run: &RunRequirement) -> Capabilities<P::Sends> {
         self.part.required(run)
     }
@@ -85,9 +85,9 @@ impl<P: Driver> Driver for Renamed<P> {
 }
 
 /// A translating adapter states its limits itself, so a renamed one needs
-/// no [`AdapterLimits`]: it is the `Limited` its constructor returns that
+/// no [`AdapterLimits`]: it is the `StatesLimits` its constructor returns that
 /// takes the role, as for a driver and an executor.
-impl<P: TranslatingAdapter> TranslatingAdapter for Limited<Renamed<P>> {
+impl<P: TranslatingAdapter> TranslatingAdapter for StatesLimits<Renamed<P>> {
     type Accepts = P::Accepts;
     type Sends = P::Sends;
 

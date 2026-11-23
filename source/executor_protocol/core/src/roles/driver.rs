@@ -3,17 +3,17 @@
 
 //! The driver's role, [`Driver`], and what a `drive` returns when it gives
 //! no outputs: [`DriveError`]. Beside it, what a driver may state of its
-//! own of what it requires below, [`DriverLimits`], and what the protocol
+//! own of what it requires below, [`DriverRequirements`], and what the protocol
 //! reads of any driver, [`DriverReadings`].
 
-mod limits;
 mod readings;
+mod requirements;
 
 use std::error::Error;
 use std::fmt;
 
-pub use limits::DriverLimits;
 pub use readings::DriverReadings;
+pub use requirements::DriverRequirements;
 
 use super::Sealed;
 use crate::composition::DeclaredParts;
@@ -41,10 +41,10 @@ use crate::{
 /// The joins ([`DriverJoins`](crate::DriverJoins)) read them before any run:
 /// [`name`](Self::name), [`sends`](Self::sends) and what it requires
 /// ([`DriverReadings::required`]), which it states, if it states anything of
-/// its own, in [`DriverLimits`]. The join to the part below hands back what it
-/// made of them: [`bind`](Self::bind) gets the fit's binding. A join only
-/// decides, from what the parts declare; what prepares a part to run belongs to
-/// each run.
+/// its own, in [`DriverRequirements`]. The join to the part below hands back
+/// what it made of them: [`bind`](Self::bind) gets the fit's binding. A join
+/// only decides, from what the parts declare; what prepares a part to run
+/// belongs to each run.
 ///
 /// What it sends must not change once it is joined: the fit and `bind`'s
 /// binding are made once, from it. What it requires is asked again at each
@@ -83,7 +83,7 @@ pub trait Driver {
     fn bind(&mut self, below: Binding<Self::Sends>);
 
     /// As [`Executor::ready`], asked last; for what the run requires, as
-    /// [`DriverLimits::ready_for`].
+    /// [`DriverRequirements::ready_for`].
     fn ready(&mut self) -> impl Future<Output = Result<(), NotReady>> {
         async { Ok(()) }
     }
@@ -141,14 +141,14 @@ pub trait Driver {
     // at its lower half), and gives the same outputs; a fault is then its
     // refusal at `ready`, for the first boundary inside it found not to fit.
     // Through them, too, the protocol reads the limits of a part that states
-    // them (`DriverLimits`, on a `Limited` part); a hook no parameter type
-    // seals takes a `Sealed`, which no other crate can make.
+    // them (`DriverRequirements`, on a `StatesLimits` part); a hook no
+    // parameter type seals takes a `Sealed`, which no other crate can make.
 
     /// What it requires of the part below on a run that requires `run`
     /// ([`DriverReadings::required`]): by default
     /// [`Capabilities::from_run`]. Only the crate overrides it, to answer a
-    /// [`Limited`](crate::Limited) part's [`DriverLimits::requires`], or a
-    /// part it joins.
+    /// [`StatesLimits`](crate::StatesLimits) part's
+    /// [`DriverRequirements::requires`], or a part it joins.
     #[doc(hidden)]
     fn requirement(&self, run: &RunRequirement, sealed: Sealed) -> Capabilities<Self::Sends> {
         let _ = sealed;
@@ -184,8 +184,9 @@ pub trait Driver {
     /// Gets this part ready for `run`, what the run requires
     /// ([`DriverReadings::ready_given`]), at `at` in its chain: by default
     /// [`ready`](Self::ready). Only the crate overrides it, to answer a
-    /// [`Limited`](crate::Limited) part's [`DriverLimits::ready_for`], or
-    /// to name a refusal of a part it holds by that part's position.
+    /// [`StatesLimits`](crate::StatesLimits) part's
+    /// [`DriverRequirements::ready_for`], or to name a refusal of a part it
+    /// holds by that part's position.
     #[doc(hidden)]
     fn ready_at(
         &mut self,

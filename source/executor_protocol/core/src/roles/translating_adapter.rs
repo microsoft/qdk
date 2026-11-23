@@ -127,7 +127,7 @@ pub trait TranslatingAdapter {
 // Every method forwards, but the protocol hooks: an `Adapter` cannot
 // override them, so their defaults are its. What it provides and requires,
 // and getting it ready for what arrives, are the adapter's own hooks: what
-// a `Limited` adapter states, else nothing.
+// a `StatesLimits` adapter states, else nothing.
 impl<A: Adapter> TranslatingAdapter for A {
     type Accepts = A::Set;
     type Sends = A::Set;
