@@ -144,7 +144,7 @@ impl BoundaryCompatible for CoinGates {
 
 impl InstructionSet for CoinGates {
     type Instruction = Gate;
-    type Capabilities = Qubits;
+    type SetCapabilities = Qubits;
     /// The qubits a shot holds, read once per checked batch.
     type Requirement = u32;
     type Fault = QubitBeyond;
@@ -154,13 +154,9 @@ impl InstructionSet for CoinGates {
     type ShotConditions = bool;
     const UNWRITTEN_READOUT: Option<bool> = None;
 
-    fn unconstrained() -> &'static Capabilities<Self> {
-        static UNCONSTRAINED: Capabilities<CoinGates> = Capabilities::new(
-            Resources::unconstrained(),
-            Features::unconstrained(),
-            Qubits(u32::MAX),
-        );
-        &UNCONSTRAINED
+    /// No qubit: what a part that states nothing of the set requires.
+    fn needs_nothing() -> Qubits {
+        Qubits(0)
     }
 
     fn readout_slots(&self, gate: &Gate) -> ReadoutSlots {
@@ -506,8 +502,8 @@ impl Bits {
 }
 
 impl ExecutorLimits for Bits {
-    fn provides(&self) -> &Capabilities<CoinGates> {
-        &self.provides
+    fn provides(&self) -> Option<&Capabilities<CoinGates>> {
+        Some(&self.provides)
     }
 
     /// Holds the qubits the parts above require.

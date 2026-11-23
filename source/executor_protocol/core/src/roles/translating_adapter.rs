@@ -46,8 +46,8 @@ pub trait TranslatingAdapter {
     fn sends(&self) -> &Self::Sends;
 
     /// As [`AdapterLimits::provides`](crate::AdapterLimits::provides).
-    fn provides(&self) -> &Capabilities<Self::Accepts> {
-        Self::Accepts::unconstrained()
+    fn provides(&self) -> Option<&Capabilities<Self::Accepts>> {
+        None
     }
 
     /// As [`AdapterLimits::requires`](crate::AdapterLimits::requires), with
@@ -131,7 +131,7 @@ pub trait TranslatingAdapter {
     #[doc(hidden)]
     fn ready_alone(&mut self, sealed: Sealed) -> impl Future<Output = Result<(), NotReady>> {
         let _ = sealed;
-        self.ready(Self::Accepts::unconstrained())
+        async move { self.ready(&Capabilities::needs_nothing()).await }
     }
 }
 
@@ -156,7 +156,7 @@ impl<A: Adapter> TranslatingAdapter for A {
         Adapter::sends(self)
     }
 
-    fn provides(&self) -> &Capabilities<A::Set> {
+    fn provides(&self) -> Option<&Capabilities<A::Set>> {
         Adapter::provision(self, Sealed(()))
     }
 
@@ -222,7 +222,7 @@ macro_rules! lent_translating_adapter {
                 <$ty as $crate::TranslatingAdapter>::sends(&**self)
             }
 
-            fn provides(&self) -> &$crate::Capabilities<Self::Accepts> {
+            fn provides(&self) -> ::core::option::Option<&$crate::Capabilities<Self::Accepts>> {
                 <$ty as $crate::TranslatingAdapter>::provides(&**self)
             }
 

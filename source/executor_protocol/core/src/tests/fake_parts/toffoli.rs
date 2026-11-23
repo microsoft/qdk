@@ -115,8 +115,8 @@ impl StatesLimits<CliffordTRegister> {
 }
 
 impl ExecutorLimits for CliffordTRegister {
-    fn provides(&self) -> &Capabilities<WithoutToffoli> {
-        &self.provides
+    fn provides(&self) -> Option<&Capabilities<WithoutToffoli>> {
+        Some(&self.provides)
     }
 }
 
@@ -189,7 +189,7 @@ impl Adapter for CliffordTPassThrough {
 /// readouts from one `adapt` to the next.
 pub(crate) struct CczDecomposition {
     ancillas: u32,
-    provides: Capabilities<WithToffoli>,
+    provides: Option<Capabilities<WithToffoli>>,
     not_ready: Option<&'static str>,
     /// The instructions of each batch of the last `adapt`, then any kept
     /// from an earlier `adapt` of more batches.
@@ -201,7 +201,7 @@ impl CczDecomposition {
     pub(crate) fn new() -> Self {
         Self {
             ancillas: 0,
-            provides: WithToffoli::unconstrained().clone(),
+            provides: None,
             not_ready: None,
             sent: Vec::new(),
             readouts: Readouts::new(),
@@ -219,7 +219,7 @@ impl CczDecomposition {
     /// This decomposition, taking programs of at most `qubits` qubits.
     pub(crate) fn for_qubits(qubits: u32) -> Self {
         Self {
-            provides: on_qubits(qubits),
+            provides: Some(on_qubits(qubits)),
             ..Self::new()
         }
     }
@@ -265,8 +265,8 @@ impl TranslatingAdapter for CczDecomposition {
         &WithoutToffoli
     }
 
-    fn provides(&self) -> &Capabilities<WithToffoli> {
-        &self.provides
+    fn provides(&self) -> Option<&Capabilities<WithToffoli>> {
+        self.provides.as_ref()
     }
 
     fn requires(&self, above: &Capabilities<WithToffoli>) -> Capabilities<WithoutToffoli> {

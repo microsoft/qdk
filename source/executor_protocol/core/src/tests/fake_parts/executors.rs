@@ -104,8 +104,8 @@ impl StatesLimits<Bits> {
 }
 
 impl ExecutorLimits for Bits {
-    fn provides(&self) -> &Capabilities<Measuring> {
-        &self.provides
+    fn provides(&self) -> Option<&Capabilities<Measuring>> {
+        Some(&self.provides)
     }
 
     async fn ready_for(&mut self, above: &Capabilities<Measuring>) -> Result<(), NotReady> {
@@ -181,9 +181,8 @@ impl Executor for Bits {
 }
 
 /// An executor of `accepts` writing `Zero` in every slot of every row,
-/// whatever the batch, and allocating nothing. It provides the set's
-/// unconstrained capabilities, unless made by
-/// [`providing`](Self::providing).
+/// whatever the batch, and allocating nothing. It states no limit, unless
+/// made by [`providing`](Self::providing).
 pub(crate) struct Zeros<S: InstructionSet> {
     accepts: S,
     provides: Option<Capabilities<S>>,
@@ -197,19 +196,16 @@ impl<S: InstructionSet<Readout = BitReadout>> Zeros<S> {
         }
     }
 
-    /// An executor of `accepts` stating that it provides `provides`.
-    pub(crate) fn providing(accepts: S, provides: Capabilities<S>) -> StatesLimits<Self> {
-        Self {
-            accepts,
-            provides: Some(provides),
-        }
-        .stating_limits()
+    /// An executor of `accepts` stating that it provides `provides`
+    /// (`None`: no limit).
+    pub(crate) fn providing(accepts: S, provides: Option<Capabilities<S>>) -> StatesLimits<Self> {
+        Self { accepts, provides }.stating_limits()
     }
 }
 
 impl<S: InstructionSet<Readout = BitReadout>> ExecutorLimits for Zeros<S> {
-    fn provides(&self) -> &Capabilities<S> {
-        self.provides.as_ref().unwrap_or(S::unconstrained())
+    fn provides(&self) -> Option<&Capabilities<S>> {
+        self.provides.as_ref()
     }
 }
 
@@ -240,7 +236,7 @@ impl<S: InstructionSet<Readout = BitReadout>> Executor for Zeros<S> {
 pub(crate) struct Later<E>(pub(crate) E);
 
 impl<E: Executor> ExecutorLimits for Later<E> {
-    fn provides(&self) -> &Capabilities<E::Accepts> {
+    fn provides(&self) -> Option<&Capabilities<E::Accepts>> {
         self.0.provided()
     }
 
@@ -349,7 +345,7 @@ struct Handover {
 }
 
 impl<E: Executor> ExecutorLimits for FromThread<E> {
-    fn provides(&self) -> &Capabilities<E::Accepts> {
+    fn provides(&self) -> Option<&Capabilities<E::Accepts>> {
         self.inner.provided()
     }
 

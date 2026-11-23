@@ -165,11 +165,6 @@ pub(crate) fn capabilities(resources: Resources, features: Features) -> Capabili
     Capabilities::new(resources, features, NoCapabilities)
 }
 
-/// The capabilities of a [`Measuring`] set that state nothing.
-pub(crate) fn unconstrained() -> Capabilities<Measuring> {
-    Measuring::unconstrained().clone()
-}
-
 /// Batches of at most `n` instructions, and no other resource.
 pub(crate) fn batches_of(n: u32) -> Resources {
     Resources::unconstrained().with_instructions_per_batch(n)

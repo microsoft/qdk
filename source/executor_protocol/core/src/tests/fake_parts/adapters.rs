@@ -12,7 +12,7 @@ use std::task::Poll;
 
 use super::{
     BEYOND_THE_SET, Log, Stream, batches_of, bound, capabilities, coin_gates, forward, mapped,
-    ready_for, unconstrained,
+    ready_for,
 };
 use crate::prelude::*;
 use crate::tests::example_sets::{Gate, Measuring};
@@ -240,7 +240,7 @@ impl Adapter for NamesBelow {
         self.log.push(format!("below: {}", below.name()));
         self.log
             .push(format!("below accepts: {:?}", below.accepts()));
-        let most = below.provided().resources().instructions_per_batch;
+        let most = (below.provided()).and_then(|limits| limits.resources().instructions_per_batch);
         self.log.push(format!("below takes {most:?} a batch"));
         let map = bound(self.below.as_ref());
         forward(batches, seed, below, readouts, |batch| {
@@ -332,7 +332,7 @@ fn in_batches_of(above: &Capabilities<Measuring>, n: u32) -> Capabilities<Measur
 /// would state, though this toy writes each in one.
 pub(crate) struct Spread {
     k: u32,
-    provides: Capabilities<Measuring>,
+    provides: Option<Capabilities<Measuring>>,
     /// Whether it states its batches, once built.
     built: bool,
     below: Option<Vec<u32>>,
@@ -343,7 +343,7 @@ impl Spread {
     pub(crate) fn new(k: u32, log: &Log) -> StatesLimits<Self> {
         Self {
             k,
-            provides: unconstrained(),
+            provides: None,
             built: false,
             below: None,
             log: log.clone(),
@@ -357,15 +357,15 @@ impl StatesLimits<Spread> {
     /// takes at most `n`, and requires `k` instructions below for each
     /// that arrives.
     pub(crate) fn built_for(mut self, n: u32) -> Self {
-        self.part.provides = capabilities(batches_of(n), Features::unconstrained());
+        self.part.provides = Some(capabilities(batches_of(n), Features::unconstrained()));
         self.part.built = true;
         self
     }
 }
 
 impl AdapterLimits for Spread {
-    fn provides(&self) -> &Capabilities<Measuring> {
-        &self.provides
+    fn provides(&self) -> Option<&Capabilities<Measuring>> {
+        self.provides.as_ref()
     }
 
     /// What arrives, with `k` instructions a batch for each that arrives,
@@ -428,16 +428,16 @@ type Requiring = Box<dyn Fn(&Capabilities<Measuring>) -> Capabilities<Measuring>
 /// through, as a [`Spread`] of 1.
 pub(crate) struct Stating {
     spread: StatesLimits<Spread>,
-    provides: Capabilities<Measuring>,
+    provides: Option<Capabilities<Measuring>>,
     requires: Requiring,
 }
 
 impl Stating {
-    /// A toy taking `provides`, and requiring below what `requires` makes
-    /// of what arrives.
+    /// A toy taking `provides` (`None`: no limit), and requiring below
+    /// what `requires` makes of what arrives.
     fn new(
         log: &Log,
-        provides: Capabilities<Measuring>,
+        provides: Option<Capabilities<Measuring>>,
         requires: impl Fn(&Capabilities<Measuring>) -> Capabilities<Measuring> + 'static,
     ) -> StatesLimits<Self> {
         Self {
@@ -451,14 +451,14 @@ impl Stating {
     /// A toy taking `resources` and `features`, and passing what arrives
     /// below.
     fn providing(log: &Log, resources: Resources, features: Features) -> StatesLimits<Self> {
-        Self::new(log, capabilities(resources, features), Clone::clone)
+        Self::new(log, Some(capabilities(resources, features)), Clone::clone)
     }
 
     /// A toy interleaver, sending batches of `least` instructions at
     /// least: it requires the instructions a batch that arrive, or
     /// `least` if fewer arrive.
     pub(crate) fn interleaving(least: u32, log: &Log) -> StatesLimits<Self> {
-        Self::new(log, unconstrained(), move |above| {
+        Self::new(log, None, move |above| {
             in_batches_of(above, instructions_of(above).max(least))
         })
     }
@@ -466,7 +466,7 @@ impl Stating {
     /// A toy part adding `k` ancilla resets to each batch: it requires `k`
     /// instructions a batch more than arrive.
     pub(crate) fn reserving_ancillas(k: u32, log: &Log) -> StatesLimits<Self> {
-        Self::new(log, unconstrained(), move |above| {
+        Self::new(log, None, move |above| {
             in_batches_of(above, instructions_of(above) + k)
         })
     }
@@ -475,7 +475,7 @@ impl Stating {
     /// requires runs of `shots` below, whatever arrives. A declaration
     /// fake: it passes each run below whole, splitting none.
     pub(crate) fn splitting_runs(shots: u32, log: &Log) -> StatesLimits<Self> {
-        Self::new(log, unconstrained(), move |above| {
+        Self::new(log, None, move |above| {
             (above.clone()).map_resources(|resources| resources.with_shots(shots))
         })
     }
@@ -485,12 +485,10 @@ impl Stating {
     /// shots if none arrive. A declaration fake: it passes each run below
     /// as it is.
     pub(crate) fn repeating_shots(times: u32, log: &Log) -> StatesLimits<Self> {
-        Self::new(log, unconstrained(), move |above| {
-            match above.resources().shots {
-                Some(shots) => (above.clone())
-                    .map_resources(|resources| resources.with_shots(shots.saturating_mul(times))),
-                None => above.clone(),
-            }
+        Self::new(log, None, move |above| match above.resources().shots {
+            Some(shots) => (above.clone())
+                .map_resources(|resources| resources.with_shots(shots.saturating_mul(times))),
+            None => above.clone(),
         })
     }
 
@@ -512,7 +510,7 @@ impl Stating {
     /// A toy replayer that keeps each shot's readouts and gives them back
     /// on replay: it requires no replay below, and passes seeded runs.
     pub(crate) fn replaying(log: &Log) -> StatesLimits<Self> {
-        Self::new(log, unconstrained(), |above| {
+        Self::new(log, None, |above| {
             (above.clone()).map_features(|features| features.with_replay(false))
         })
     }
@@ -523,18 +521,18 @@ impl Stating {
     pub(crate) fn seeding_itself(log: &Log) -> StatesLimits<Self> {
         Self::new(
             log,
-            capabilities(
+            Some(capabilities(
                 Resources::unconstrained(),
                 Features::unconstrained().with_replay(false),
-            ),
+            )),
             |above| (above.clone()).map_features(|features| features.with_seeded_runs(false)),
         )
     }
 }
 
 impl AdapterLimits for Stating {
-    fn provides(&self) -> &Capabilities<Measuring> {
-        &self.provides
+    fn provides(&self) -> Option<&Capabilities<Measuring>> {
+        self.provides.as_ref()
     }
 
     fn requires(&self, above: &Capabilities<Measuring>) -> Capabilities<Measuring> {

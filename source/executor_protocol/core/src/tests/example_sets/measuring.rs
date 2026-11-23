@@ -9,7 +9,7 @@ use std::error::Error;
 use std::fmt;
 
 use super::{BitReadout, ShotFlags};
-use crate::{BoundaryCompatible, Capabilities, Features, InstructionSet, ReadoutSlots, Resources};
+use crate::{BoundaryCompatible, InstructionSet, ReadoutSlots};
 
 /// Gates named by string, each on one qubit, of which `mz` measures its
 /// qubit into one readout slot. An instruction names its gate by its
@@ -105,20 +105,15 @@ impl BoundaryCompatible for Measuring {
 
 impl InstructionSet for Measuring {
     type Instruction = Gate;
-    type Capabilities = NoCapabilities;
+    type SetCapabilities = NoCapabilities;
     type Requirement = ();
     type Fault = UnknownGate;
     type Readout = BitReadout;
     type ShotConditions = ShotFlags;
     const UNWRITTEN_READOUT: BitReadout = BitReadout::Unwritten;
 
-    fn unconstrained() -> &'static Capabilities<Self> {
-        static UNCONSTRAINED: Capabilities<Measuring> = Capabilities::new(
-            Resources::unconstrained(),
-            Features::unconstrained(),
-            NoCapabilities,
-        );
-        &UNCONSTRAINED
+    fn needs_nothing() -> NoCapabilities {
+        NoCapabilities
     }
 
     fn readout_slots(&self, gate: &Gate) -> ReadoutSlots {

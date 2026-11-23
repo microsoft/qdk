@@ -69,9 +69,9 @@ impl<E: Executor> Executor for BoundaryCrossing<'_, E> {
     }
 
     /// What is provided across the boundary, as the joins' fit read it.
-    fn provision(&self, sealed: Sealed) -> &Capabilities<E::Accepts> {
+    fn provision(&self, sealed: Sealed) -> Option<&Capabilities<E::Accepts>> {
         let _ = sealed;
-        &self.boundary.provided
+        self.boundary.provided.as_ref()
     }
 
     /// Takes `batches` in order: refuses a batch that holds more
@@ -101,12 +101,12 @@ impl<E: Executor> Executor for BoundaryCrossing<'_, E> {
         {
             let refused = |fault| refused(index, batch, fault);
             self.boundary
-                .batch_limits
+                .batch_limits()
                 .check_count(batch.instructions)
                 .map_err(refused)?;
             if batch.is_checked() {
                 self.boundary
-                    .batch_limits
+                    .batch_limits()
                     .check(
                         &self.boundary.accepted,
                         batch.instructions,

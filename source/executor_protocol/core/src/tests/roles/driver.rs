@@ -12,7 +12,7 @@ use crate::{Capabilities, DriverReadings, DriverRequirements, InstructionSet, Ru
 /// A driver whose shots need nothing of their own, either keeping the
 /// default `requires` of its limits or stating none at all, requires of
 /// the parts below what the run requires, every field as the runner
-/// stated it, and its set's capabilities that state nothing. A default
+/// stated it, and its set's capabilities that need nothing. A default
 /// dropping a field, adding one, or changing a value fails.
 #[test]
 fn by_default_requires_passes_the_run_and_states_nothing_of_its_set() {
@@ -21,8 +21,7 @@ fn by_default_requires_passes_the_run_and_states_nothing_of_its_set() {
         resources: *stated.resources(),
         features: *stated.features(),
     };
-    let nothing_of_the_set = QubitLimited::unconstrained().set_capabilities();
-    let passed = Capabilities::new(run.resources, run.features, *nothing_of_the_set);
+    let passed = Capabilities::new(run.resources, run.features, QubitLimited::needs_nothing());
     let driver = PassesTheRun(QubitProgram::new(&[0], 1));
     assert_eq!(driver.stating_limits().required(&run), passed);
     let driver = PassesTheRun(QubitProgram::new(&[0], 1));

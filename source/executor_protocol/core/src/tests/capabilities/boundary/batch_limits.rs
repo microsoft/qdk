@@ -12,13 +12,14 @@ use std::error::Error;
 use crate::prelude::*;
 use crate::tests::example_sets::BitReadout;
 use crate::tests::example_sets::{
-    Gate, Measuring, OnQubit, QubitBeyond, QubitLimited, UnknownGate, Wide, on_qubits,
+    Gate, Measuring, NoCapabilities, OnQubit, QubitBeyond, QubitLimited, UnknownGate, Wide,
+    on_qubits,
 };
 use crate::tests::fake_parts::Zeros;
 use crate::tests::runner;
 use crate::{
-    Batch, BatchFault, Binding, Capabilities, DriveError, ExecuteRefusal, Failure, InstructionSet,
-    Readouts, Resources, RunError, RunRequirement, Seed, ShotId, ShotSet,
+    Batch, BatchFault, Binding, Capabilities, DriveError, ExecuteRefusal, Failure, Features,
+    InstructionSet, Readouts, Resources, RunError, RunRequirement, Seed, ShotId, ShotSet,
 };
 
 /// How a sender marks a new batch before it sends it.
@@ -74,11 +75,11 @@ impl<S: InstructionSet> Driver for Literal<S> {
 }
 
 /// The run of shots 0 and 1 of `driver` over an executor of its set
-/// providing `provided`: the readout slots of the readouts it filled, or
-/// the refusal of its batch.
+/// providing `provided` (`None`: no limit): the readout slots of the
+/// readouts it filled, or the refusal of its batch.
 fn run<S: InstructionSet<Readout = BitReadout>>(
     driver: Literal<S>,
-    provided: Capabilities<S>,
+    provided: Option<Capabilities<S>>,
 ) -> Result<u32, ExecuteRefusal> {
     let executor = Zeros::providing(driver.sends.clone(), provided);
     let mut runner = runner(driver.stating_limits().on(executor));
@@ -128,7 +129,7 @@ fn measuring(gates: Vec<Gate>, stated: Option<u32>, mark: Mark<Measuring>) -> Li
         sends: GATES,
         instructions: gates,
         stated,
-        requires: Measuring::unconstrained().clone(),
+        requires: Capabilities::needs_nothing(),
         mark,
     }
 }
@@ -164,9 +165,11 @@ fn a_batch_of_more_than_the_receivers_most_instructions_is_refused() {
             instructions_per_batch: most,
             ..Resources::unconstrained()
         };
-        let provided = Measuring::unconstrained()
-            .clone()
-            .map_resources(|_| resources);
+        let provided = Some(Capabilities::new(
+            resources,
+            Features::unconstrained(),
+            NoCapabilities,
+        ));
         assert_eq!(
             debug(run(measuring(hs(count), None, mark), provided)),
             expected,
@@ -203,10 +206,7 @@ fn a_batch_is_checked_as_its_last_mark_says() {
         } else {
             Ok(0)
         };
-        let run = run(
-            measuring(vec![BEYOND], None, mark),
-            Measuring::unconstrained().clone(),
-        );
+        let run = run(measuring(vec![BEYOND], None, mark), None);
         assert_eq!(debug(run), expected, "{marked}");
     }
 }
@@ -221,10 +221,7 @@ fn a_checked_batch_stating_other_readout_slots_is_refused() {
     let misstated = |stated| refused(BatchFault::ReadoutSlotsMisstated { stated, counted: 2 });
     let checked: Mark<Measuring> = |batch| batch.checked();
     for (stated, expected) in [(2, Ok(2)), (1, misstated(1)), (3, misstated(3))] {
-        let run = run(
-            measuring(gates.clone(), Some(stated), checked),
-            Measuring::unconstrained().clone(),
-        );
+        let run = run(measuring(gates.clone(), Some(stated), checked), None);
         assert_eq!(debug(run), expected, "stating {stated}");
     }
 }
@@ -244,7 +241,7 @@ fn the_first_instruction_beyond_what_is_required_is_refused_at_its_position() {
         requires: on_qubits(3),
         mark: |batch| batch.checked(),
     };
-    let refusal = run(driver, on_qubits(8)).expect_err("the gate on qubit 3 is refused");
+    let refusal = run(driver, Some(on_qubits(8))).expect_err("the gate on qubit 3 is refused");
     let ExecuteRefusal::Batch {
         fault: BatchFault::Instruction { at, fault },
         ..
@@ -282,11 +279,11 @@ fn a_batch_reading_more_readout_slots_than_a_u32_counts_is_refused() {
             sends: Wide,
             instructions,
             stated: None,
-            requires: Wide::unconstrained().clone(),
+            requires: Capabilities::needs_nothing(),
             mark: |batch| batch.checked(),
         };
         assert_eq!(
-            debug(run(driver, Wide::unconstrained().clone())),
+            debug(run(driver, None)),
             refused(BatchFault::TooManyReadoutSlots { at }),
             "{scene}"
         );

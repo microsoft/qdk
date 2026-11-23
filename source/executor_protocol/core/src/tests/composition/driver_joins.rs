@@ -17,7 +17,6 @@ use crate::tests::example_sets::{Measuring, ToffoliGate, TooFewQubits};
 use crate::tests::fake_parts::{
     Bits, CczDecomposition, CliffordTRegister, CoinCopy, Log, Profiler, Program, Renamed, Spread,
     StatesNoLimits, Stating, ToffoliProgram, batches_of, coin_gates, in_each_bracketing,
-    unconstrained,
 };
 use crate::{
     Batch, BatchReadouts, BoundaryCompatible, BoundaryMismatch, Capabilities, CapabilitiesMismatch,
@@ -701,46 +700,46 @@ fn inserting_a_profiler_changes_only_the_positions_of_the_faults() {
 fn a_joined_part_requires_its_parts_requirements_in_turn_and_provides_its_top_parts_limits() {
     let log = Log::default();
     let counted = Rc::new(Cell::new(0));
-    let read = |capabilities: &Capabilities<Measuring>| {
-        (*capabilities.resources(), *capabilities.features())
+    let read = |capabilities: Option<&Capabilities<Measuring>>| {
+        capabilities.map(|capabilities| (*capabilities.resources(), *capabilities.features()))
     };
-    let batches_of_two = unconstrained().map_resources(|_| batches_of(2));
+    let batches_of_two = Capabilities::needs_nothing().map_resources(|_| batches_of(2));
     let rows = [
         // The encoding's batches of 14 for the program's 2, and the
         // program's replay.
         (
             "a driver through an encoding",
-            read(&DriverReadings::required(
+            read(Some(&DriverReadings::required(
                 &program(2, replay()).through(Spread::new(7, &log).built_for(2)),
                 &RunRequirement::unconstrained(),
-            )),
-            (batches_of(14), replay()),
+            ))),
+            Some((batches_of(14), replay())),
         ),
         (
             "an encoding through a profiler, requiring",
-            read(&TranslatingAdapter::requires(
+            read(Some(&TranslatingAdapter::requires(
                 &Spread::new(7, &log)
                     .built_for(2)
                     .through(Profiler::new(&counted, &log)),
                 &batches_of_two,
-            )),
-            (batches_of(14), Features::unconstrained()),
+            ))),
+            Some((batches_of(14), Features::unconstrained())),
         ),
         (
             "a profiler through an encoding, providing",
             read(TranslatingAdapter::provides(
                 &Profiler::new(&counted, &log).through(Spread::new(7, &log).built_for(2)),
             )),
-            (Resources::unconstrained(), Features::unconstrained()),
+            None,
         ),
         // The interleaver's least, for a program smaller than it.
         (
             "a driver through an interleaver",
-            read(&DriverReadings::required(
+            read(Some(&DriverReadings::required(
                 &program(2, Features::unconstrained()).through(Stating::interleaving(3, &log)),
                 &RunRequirement::unconstrained(),
-            )),
-            (batches_of(3), Features::unconstrained()),
+            ))),
+            Some((batches_of(3), Features::unconstrained())),
         ),
         // The queue's 4 shots, not the bits' batches of 8.
         (
@@ -748,10 +747,10 @@ fn a_joined_part_requires_its_parts_requirements_in_turn_and_provides_its_top_pa
             read(ExecutorReadings::provided(&Stating::queue(4, &log).on(
                 Bits::new(&log).with_resources(batches_of(8).with_shots(8)),
             ))),
-            (
+            Some((
                 Resources::unconstrained().with_shots(4),
                 Features::unconstrained(),
-            ),
+            )),
         ),
         // The decoder's batches of 64, not the queue's 4 shots.
         (
@@ -759,11 +758,11 @@ fn a_joined_part_requires_its_parts_requirements_in_turn_and_provides_its_top_pa
             read(TranslatingAdapter::provides(
                 &Stating::capping(64, &log).through(Stating::queue(4, &log)),
             )),
-            (batches_of(64), Features::unconstrained()),
+            Some((batches_of(64), Features::unconstrained())),
         ),
     ];
-    for (row, read, (resources, features)) in rows {
-        assert_eq!(read, (resources, features), "{row}");
+    for (row, read, expected) in rows {
+        assert_eq!(read, expected, "{row}");
     }
 }
 

@@ -190,7 +190,7 @@ impl<P: TranslatingAdapter> TranslatingAdapter for StatesLimits<PanicsInDrop<P>>
         self.part.part.sends()
     }
 
-    fn provides(&self) -> &Capabilities<P::Accepts> {
+    fn provides(&self) -> Option<&Capabilities<P::Accepts>> {
         self.part.part.provides()
     }
 
@@ -226,7 +226,7 @@ impl<P: TranslatingAdapter> TranslatingAdapter for StatesLimits<PanicsInDrop<P>>
 }
 
 impl<P: Executor> ExecutorLimits for PanicsInDrop<P> {
-    fn provides(&self) -> &Capabilities<P::Accepts> {
+    fn provides(&self) -> Option<&Capabilities<P::Accepts>> {
         self.part.provided()
     }
 

@@ -980,7 +980,7 @@ fn each_batchs_readouts_come_shaped_as_the_batch_prefilled() {
 struct FailsFirst(StatesLimits<Bits>, bool);
 
 impl ExecutorLimits for FailsFirst {
-    fn provides(&self) -> &Capabilities<Measuring> {
+    fn provides(&self) -> Option<&Capabilities<Measuring>> {
         self.0.provided()
     }
 

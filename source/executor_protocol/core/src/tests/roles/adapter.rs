@@ -5,26 +5,19 @@
 //! arrives.
 
 use super::every_field_stated;
-use crate::tests::example_sets::QubitLimited;
+use crate::TranslatingAdapter;
 use crate::tests::fake_parts::{Log, QubitPassThrough};
-use crate::{InstructionSet, TranslatingAdapter};
 
 /// An adapter that passes what arrives and changes nothing, such as a
 /// profiler, either keeping the default `provides` of its limits or
-/// stating none at all, limits nothing, so a chain is never refused at
-/// its boundary. A default stating any limit, even one as wide as a
-/// type's largest value, fails.
+/// stating none at all, states no limit (`None`), so a chain is never
+/// refused at its boundary. A default stating any limit, even one as wide
+/// as a type's largest value, fails.
 #[test]
 fn by_default_provides_limits_nothing() {
     let adapter = QubitPassThrough::new(&Log::default());
-    assert_eq!(
-        TranslatingAdapter::provides(&adapter),
-        QubitLimited::unconstrained()
-    );
-    assert_eq!(
-        TranslatingAdapter::provides(&adapter.part),
-        QubitLimited::unconstrained()
-    );
+    assert_eq!(TranslatingAdapter::provides(&adapter), None);
+    assert_eq!(TranslatingAdapter::provides(&adapter.part), None);
 }
 
 /// The same adapter, keeping the default `requires` of its limits or

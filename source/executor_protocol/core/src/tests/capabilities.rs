@@ -20,7 +20,7 @@ use std::any::type_name;
 use crate::prelude::*;
 use crate::tests::example_sets::{QubitLimited, Qubits, TooFewQubits};
 use crate::tests::fake_parts::{
-    Log, QubitPassThrough, QubitProgram, QubitRegister, in_each_bracketing,
+    Log, PassesTheRun, QubitPassThrough, QubitProgram, QubitRegister, in_each_bracketing,
 };
 use crate::{
     Capabilities, CapabilitiesMismatch, FeatureMismatch, Features, PartId, ResourceMismatch,
@@ -220,6 +220,41 @@ fn the_sets_capabilities_flow_down_and_are_fit_at_on() {
                     "QubitRegister ready for 3 qubits",
                     "QubitPassThrough ready for 3 qubits",
                     "QubitPassThrough ready for 3 qubits",
+                    "QubitRegister execute",
+                ],
+                "{brackets}"
+            );
+        }
+    );
+}
+
+/// A driver that states nothing of the set, such as one sending only
+/// batches of no gate, requires the set's capabilities that need nothing,
+/// no qubit, so it composes over a register of any size and runs, in each
+/// bracketing, each part ready for 0 qubits. A requirement of nothing
+/// read as every qubit (`u32::MAX`), as a set stating "no limit" by its
+/// largest value would, is refused by every register, and fails.
+#[test]
+fn a_driver_stating_nothing_of_the_set_composes_over_any_register() {
+    in_each_bracketing!(
+        [d, a, b, e] from {
+            let log = Log::default();
+            let d = PassesTheRun(QubitProgram::new(&[], 1)).stating_limits();
+            let a = QubitPassThrough::new(&log);
+            let b = QubitPassThrough::new(&log);
+            let e = QubitRegister::new(4, &log);
+        },
+        |chain, brackets| {
+            let Ok(mut runner) = chain else {
+                panic!("{brackets}: a requirement of nothing fits 4 qubits");
+            };
+            runner.run(&ShotSet::ids([1]), 7).expect(brackets);
+            assert_eq!(
+                log.entries(),
+                [
+                    "QubitRegister ready for 0 qubits",
+                    "QubitPassThrough ready for 0 qubits",
+                    "QubitPassThrough ready for 0 qubits",
                     "QubitRegister execute",
                 ],
                 "{brackets}"

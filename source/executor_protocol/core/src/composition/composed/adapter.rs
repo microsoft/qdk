@@ -10,8 +10,8 @@ use crate::composition::part_panics::{await_part, end_both};
 use crate::part_id::ChainPosition;
 use crate::roles::{Sealed, lent_translating_adapter};
 use crate::{
-    Batch, BatchReadouts, Binding, Capabilities, ExecuteError, Executor, InstructionSet, NotReady,
-    Seed, ShotSet, TranslatingAdapter,
+    Batch, BatchReadouts, Binding, Capabilities, ExecuteError, Executor, NotReady, Seed, ShotSet,
+    TranslatingAdapter,
 };
 
 impl<U: TranslatingAdapter, L: TranslatingAdapter<Accepts = U::Sends>> Composed<U, L, U::Sends> {
@@ -55,7 +55,7 @@ impl<U: TranslatingAdapter, L: TranslatingAdapter<Accepts = U::Sends>> Translati
 
     /// The upper part's: what arrives at the lower part is checked against
     /// what it provides when the joined part gets ready.
-    fn provides(&self) -> &Capabilities<U::Accepts> {
+    fn provides(&self) -> Option<&Capabilities<U::Accepts>> {
         self.upper.provides()
     }
 
@@ -147,7 +147,7 @@ impl<U: TranslatingAdapter, L: TranslatingAdapter<Accepts = U::Sends>> Translati
     /// that states nothing readies it.
     async fn ready_alone(&mut self, sealed: Sealed) -> Result<(), NotReady> {
         let (lower, ..) = self.start_run(
-            |upper| upper.requires(U::Accepts::unconstrained()),
+            |upper| upper.requires(&Capabilities::needs_nothing()),
             ChainPosition::UNKNOWN,
         )?;
         await_part(lower.ready_alone(Sealed(()))).await?;

@@ -10,8 +10,8 @@ use std::collections::BTreeMap;
 
 use super::{BoundaryMismatch, CompositionFault};
 use crate::{
-    BoundaryCompatible, Capabilities, CapabilitiesMismatch, FeatureMismatch, Features,
-    InstructionSet, PartId, ResourceMismatch, Resources,
+    Capabilities, CapabilitiesMismatch, FeatureMismatch, Features, InstructionSet, PartId,
+    ResourceMismatch, Resources,
 };
 
 /// The parts of a chain, top to bottom, as the roles' hidden `declare`
@@ -98,10 +98,10 @@ impl<'a> DeclaredParts<'a> {
     pub(crate) fn receive<S: InstructionSet>(
         &mut self,
         accepts: &S,
-        provides: &Capabilities<S>,
+        provides: Option<&Capabilities<S>>,
         arriving: &Capabilities<S>,
     ) {
-        let fit = arriving.fits(provides);
+        let fit = arriving.fits_limits(provides);
         self.fits &= fit.is_ok();
         let Some(faults) = &mut self.faults else {
             return;
@@ -152,8 +152,8 @@ impl<'a> DeclaredParts<'a> {
         }
         if let Some(mismatch) = set_capabilities {
             let at = origin(&|a, b| {
-                let a = a.set_capabilities.downcast_ref::<S::Capabilities>();
-                a == b.set_capabilities.downcast_ref::<S::Capabilities>()
+                let a = a.set_capabilities.downcast_ref::<S::SetCapabilities>();
+                a == b.set_capabilities.downcast_ref::<S::SetCapabilities>()
             });
             split.entry(at).or_default().set_capabilities = Some(mismatch);
         }

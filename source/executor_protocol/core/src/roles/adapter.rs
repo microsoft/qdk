@@ -139,14 +139,13 @@ pub trait Adapter {
 
     /// What it provides, as a
     /// [`TranslatingAdapter`](crate::TranslatingAdapter): by default
-    /// nothing stated, its set's
-    /// [`unconstrained`](InstructionSet::unconstrained). Only the crate
-    /// overrides it, to answer a [`StatesLimits`](crate::StatesLimits) part's
+    /// `None`, no limit stated. Only the crate overrides it, to answer a
+    /// [`StatesLimits`](crate::StatesLimits) part's
     /// [`AdapterLimits::provides`].
     #[doc(hidden)]
-    fn provision(&self, sealed: Sealed) -> &Capabilities<Self::Set> {
+    fn provision(&self, sealed: Sealed) -> Option<&Capabilities<Self::Set>> {
         let _ = sealed;
-        Self::Set::unconstrained()
+        None
     }
 
     /// What it requires of the part below, given `above`, as a
@@ -222,7 +221,7 @@ impl<A: Adapter + ?Sized> Adapter for &mut A {
         (**self).end_shots(shots);
     }
 
-    fn provision(&self, sealed: Sealed) -> &Capabilities<A::Set> {
+    fn provision(&self, sealed: Sealed) -> Option<&Capabilities<A::Set>> {
         (**self).provision(sealed)
     }
 

@@ -22,24 +22,26 @@ the set the few things it checks:
   each instruction it sends; `()` where both share one encoding.
 - **The set's own capabilities**: what a part requires, or provides, of the
   set beside the resources and features every chain states, such as the
-  qubits a shot holds (the set's `Capabilities` type); they flow down a
-  chain with them, as [Capabilities and their fit](capabilities.md) says.
+  qubits a shot holds (the set's `SetCapabilities` type); they flow down
+  a chain with them, as [Capabilities and their fit](capabilities.md) says.
+  A value reads per side: as a requirement, the needs it states; as a
+  provision, the limits it states.
 - **Requirement** and **fault**: what a checked batch's instructions are
   checked against on a run, prepared once per run from the set's
-  capabilities that arrive at the receiver (and once at each join, from
-  those that state nothing); and why the set refuses an instruction.
+  capabilities that arrive at the receiver; and why the set refuses an
+  instruction.
 
 ## What a set states, and when the protocol reads it
 
-| Item                                | What it says                                                                     | Read                                                                                        |
-| ----------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| The set's type                      | which parts can be joined: a sender's set type must be its receiver's            | by the compiler, at `through` and `on`                                                      |
-| `fits` (from `BoundaryCompatible`)  | whether a sender's set value fits a receiver's, giving the binding or a mismatch | by each join; inside a part of the user's, at each run's `ready`                            |
-| `Capabilities`, with its own `fits` | the set's own capabilities, required above and provided below                    | by the `on` that makes a runner, and at each run's start                                    |
-| `unconstrained`                     | the capabilities that state nothing                                              | by a part's default `provides`, and by a driver's default `requires` as its set's part      |
-| `readout_slots`                     | the readout slots one instruction writes                                         | by a sender, which sums them into a batch's stated slots                                    |
-| `requirement`                       | what a checked batch's instructions are checked against                          | by each join, from `unconstrained`'s; then once per run, at each boundary accepting the set |
-| `check`                             | an instruction's readout slots, or the set's fault                               | for each instruction of a checked batch, before the batch runs                              |
+| Item                                   | What it says                                                                     | Read                                                                                                    |
+| -------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| The set's type                         | which parts can be joined: a sender's set type must be its receiver's            | by the compiler, at `through` and `on`                                                                  |
+| `fits` (from `BoundaryCompatible`)     | whether a sender's set value fits a receiver's, giving the binding or a mismatch | by each join; inside a part of the user's, at each run's `ready`                                        |
+| `SetCapabilities`, with its own `fits` | the set's own capabilities, required above and provided below                    | by the `on` that makes a runner, and at each run's start                                                |
+| `needs_nothing`                        | the capabilities that need nothing, which fit every provision                    | by a driver's default `requires`, as its set's part, and by the `on` that checks a chain before any run |
+| `readout_slots`                        | the readout slots one instruction writes                                         | by a sender, which sums them into a batch's stated slots                                                |
+| `requirement`                          | what a checked batch's instructions are checked against                          | once per run, at each boundary accepting the set, from the set's capabilities arriving there            |
+| `check`                                | an instruction's readout slots, or the set's fault                               | for each instruction of a checked batch, before the batch runs                                          |
 
 A set's mismatch and fault are its own typed errors; the protocol's shared
 errors ([`BoundaryMismatch`](../src/composition/composition_faults.rs),

@@ -141,7 +141,7 @@ impl<P: TranslatingAdapter> TranslatingAdapter for StatesLimits<Renamed<P>> {
         self.part.part.sends()
     }
 
-    fn provides(&self) -> &Capabilities<P::Accepts> {
+    fn provides(&self) -> Option<&Capabilities<P::Accepts>> {
         self.part.part.provides()
     }
 
@@ -178,7 +178,7 @@ impl<P: TranslatingAdapter> TranslatingAdapter for StatesLimits<Renamed<P>> {
 }
 
 impl<P: Executor> ExecutorLimits for Renamed<P> {
-    fn provides(&self) -> &Capabilities<P::Accepts> {
+    fn provides(&self) -> Option<&Capabilities<P::Accepts>> {
         self.part.provided()
     }
 

@@ -5,6 +5,44 @@ composition faults or a run's refusal: what a part states, what arrives at
 each part, and where each statement is checked. The terms are those of the
 [README](../README.md#terms).
 
+## What a value means
+
+A part states capabilities on two sides: as a **requirement**, what it
+needs of the part below; as a **provision**, its limits on what arrives
+from the part above. Each value stands for a set: a requirement, for the
+needs it holds; a provision, for the requirements it takes. What arrives
+fits a provision when the first set is inside the second: every need
+it holds is within the limits.
+
+| Value                                                                                                     | As a requirement                                                           | As a provision                                                                |
+| --------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `None`                                                                                                    | not one: a requirement is always a value                                   | no limit, which every requirement fits: a part's default `provides`           |
+| nothing stated: `Resources::unconstrained()`, `Features::unconstrained()` and the set's `needs_nothing()` | no need, which fits every provision: what arrives before any run says more | never one: its set's part would read as the tightest limits, such as no qubit |
+| a stated value                                                                                            | the needs it states, such as 3 qubits a shot                               | the limits it states, such as at most 8 qubits a shot                         |
+| a field left unstated, inside a stated value                                                              | no need of that field                                                      | no limit on that field                                                        |
+
+One requirement **requires no more than** another when it fits every
+provision the other fits, as [`Capabilities`](../src/capabilities.rs)
+says field by field. The protocol relies on three laws:
+
+- **(a) Needing nothing fits every provision.** The set's `needs_nothing()`
+  fits every provision, stated or not, so a chain of parts that state
+  nothing composes and runs over any part below
+  ([`src/tests/capabilities.rs`](../src/tests/capabilities.rs)).
+- **(b) Each `requires` is monotone in this order**, not in the fit: given
+  what arrives requiring no more than another, it requires no more than
+  given the other. The writer keeps it; the `on` that makes a runner
+  relies on it to check a chain once, with nothing arriving at its top,
+  and each run's start checks again what that run makes arrive
+  ([`src/tests/composition/runner.rs`](../src/tests/composition/runner.rs)),
+  as [The rule](#the-rule) says.
+- **(c) A value never crosses sides untranslated.** A part that limits
+  nothing provides `None`, never the requirement of nothing, which as a
+  provision would refuse every need
+  ([`src/tests/roles/executor.rs`](../src/tests/roles/executor.rs),
+  [`src/tests/roles/adapter.rs`](../src/tests/roles/adapter.rs)); and a
+  requirement is compared with a provision by the fit alone.
+
 ## By default, nothing
 
 A part that does not state a capability composes with any part on it, so most
@@ -12,11 +50,15 @@ writers write only the instructions their part accepts and sends
 (`accepts`, `sends`, as [Instruction sets](instruction-sets.md) says). The
 three defaults:
 
-| Method                                        | By default                                        | So the part                         |
-| --------------------------------------------- | ------------------------------------------------- | ----------------------------------- |
-| `Driver::requires(run)`                       | `run`                                             | passes the run below, needs nothing |
-| `Adapter::requires(above)`                    | `above`                                           | passes below what arrives           |
-| `Adapter::provides()`, `Executor::provides()` | the set's `unconstrained()`, which states nothing | limits nothing                      |
+| Method                                                    | By default                              | So the part                                    |
+| --------------------------------------------------------- | --------------------------------------- | ---------------------------------------------- |
+| `DriverRequirements::requires(run)`                       | `run`, with the set's `needs_nothing()` | passes the run below, needs nothing of the set |
+| `AdapterLimits::requires(above)`                          | `above`                                 | passes below what arrives                      |
+| `AdapterLimits::provides()`, `ExecutorLimits::provides()` | `None`                                  | limits nothing                                 |
+
+A part states any of them by implementing that trait too, and is joined
+`stating_limits()`: the protocol reads them only through that
+[`StatesLimits`](../src/capabilities/states_limits.rs) part.
 
 What a part leaves unstated, composition cannot refuse a chain on: a
 driver that does not state the batches it sends composes over an
@@ -27,19 +69,22 @@ executor that takes smaller ones, and its batches are refused as it runs.
 - **Capabilities** ([`Capabilities`](../src/capabilities.rs)): amounts
   ([`Resources`](../src/capabilities/resources.rs)) and yes-or-no features
   ([`Features`](../src/capabilities/features.rs)), which every chain
-  states, each built from its `unconstrained()`, which states nothing; and
-  the instruction set's own capabilities, such as the qubits a shot holds,
-  as [Instruction sets](instruction-sets.md) says. `Capabilities::new`
-  takes all three.
+  states, each built from its `unconstrained()`, which states no field; and
+  the instruction set's own capabilities, such as the qubits a shot holds
+  (`set_capabilities()`, of the set's `SetCapabilities` type), as
+  [Instruction sets](instruction-sets.md) says. `Capabilities::new` takes
+  all three.
 - **Requirement**: what a part requires of the part below it, given what
-  arrives at it (`Adapter::requires(above)`); the driver's, given the run
-  (`Driver::requires(run)`): the run's shots, and seeded runs when its seed
+  arrives at it (`AdapterLimits::requires(above)`,
+  `TranslatingAdapter::requires(above)`); the driver's, given the run
+  (`DriverRequirements::requires(run)`): the run's shots, and seeded runs when its seed
   is fixed, which the runner states
   ([`RunRequirement`](../src/capabilities/run_requirement.rs), of no
   instruction set), with what its shots use of the set it sends.
 - **Provision**: a part's fixed limits on what arrives at it
-  (`Adapter::provides`, `Executor::provides`). A field it does not state,
-  it does not limit.
+  (`AdapterLimits::provides`, `TranslatingAdapter::provides`,
+  `ExecutorLimits::provides`), or `None` for no limit. A field it does
+  not state, it does not limit.
 - **What arrives** at a part: the requirement of the part above it, given
   what arrived there; at the part below the driver, the driver's
   requirement.

@@ -8,7 +8,7 @@ use std::error::Error;
 use std::fmt;
 
 use super::{BitReadout, NoCapabilities, ShotFlags};
-use crate::{BoundaryCompatible, Capabilities, Features, InstructionSet, ReadoutSlots, Resources};
+use crate::{BoundaryCompatible, InstructionSet, ReadoutSlots};
 
 /// A set whose each instruction is the count of readout slots it writes,
 /// up to `u32::MAX - 1`; `u32::MAX` is refused ([`Beyond`]).
@@ -26,20 +26,15 @@ impl BoundaryCompatible for Wide {
 
 impl InstructionSet for Wide {
     type Instruction = u32;
-    type Capabilities = NoCapabilities;
+    type SetCapabilities = NoCapabilities;
     type Requirement = ();
     type Fault = Beyond;
     type Readout = BitReadout;
     type ShotConditions = ShotFlags;
     const UNWRITTEN_READOUT: BitReadout = BitReadout::Unwritten;
 
-    fn unconstrained() -> &'static Capabilities<Self> {
-        static UNCONSTRAINED: Capabilities<Wide> = Capabilities::new(
-            Resources::unconstrained(),
-            Features::unconstrained(),
-            NoCapabilities,
-        );
-        &UNCONSTRAINED
+    fn needs_nothing() -> NoCapabilities {
+        NoCapabilities
     }
 
     fn readout_slots(&self, slots: &u32) -> ReadoutSlots {

@@ -3,7 +3,7 @@
 
 //! The limits an executor may state, [`ExecutorLimits`].
 
-use crate::{Capabilities, Executor, InstructionSet, NotReady, StatesLimits};
+use crate::{Capabilities, Executor, NotReady, StatesLimits};
 
 /// The limits of an executor that has them: what it provides to the part
 /// above, and how it gets ready for what arrives from it.
@@ -22,14 +22,14 @@ pub trait ExecutorLimits: Executor {
     /// capabilities say it holds: what arrives must fit them, as
     /// [`Capabilities`] says.
     ///
-    /// By default its set's
-    /// [`unconstrained`](InstructionSet::unconstrained): it states nothing,
-    /// for a part that implements this trait only to get ready for what
-    /// arrives ([`ready_for`](Self::ready_for)). Stating its real limits is
-    /// the writer's job: an executor that does not lets `on` accept a chain
-    /// it cannot run, which then fails as it runs.
-    fn provides(&self) -> &Capabilities<Self::Accepts> {
-        Self::Accepts::unconstrained()
+    /// `None` states no limit, which every requirement fits; within a
+    /// stated value, a field left unstated limits nothing. By default
+    /// `None`, for a part that implements this trait only to get ready for
+    /// what arrives ([`ready_for`](Self::ready_for)). Stating its real
+    /// limits is the writer's job: an executor that does not lets `on`
+    /// accept a chain it cannot run, which then fails as it runs.
+    fn provides(&self) -> Option<&Capabilities<Self::Accepts>> {
+        None
     }
 
     /// As [`Executor::ready`], for `above`, what arrives from the part

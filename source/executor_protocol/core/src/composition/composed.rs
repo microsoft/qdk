@@ -58,11 +58,12 @@ mod executor;
 use super::BoundaryMismatch;
 use super::part_panics::end_both;
 use crate::PartId;
+use crate::capabilities::READY_FIRST;
 use crate::part_id::ChainPosition;
 use crate::roles::Sealed;
 use crate::{
-    Batch, BatchReadouts, Binding, Boundary, BoundaryCompatible, Capabilities, ExecuteError,
-    Executor, InstructionSet, NotReady, Seed, ShotSet, TranslatingAdapter,
+    Batch, BatchReadouts, Binding, Boundary, Capabilities, ExecuteError, Executor, InstructionSet,
+    NotReady, Seed, ShotSet, TranslatingAdapter,
 };
 
 /// Two parts as one: `upper` calls `lower`. A driver, an adapter or an
@@ -90,10 +91,6 @@ pub struct Composed<U, L, S: InstructionSet> {
     /// this part's position the lower half's is.
     upper_parts: usize,
 }
-
-/// Why a `Composed` has its boundary at its run's calls.
-const READY_FIRST: &str = "each run gets a part ready before calling it, as its role says, \
-                           and a joined part whose halves do not fit refuses every run then";
 
 /// What [`Composed::start_run`] gives: the lower half, what arrives at it,
 /// its position, and the part a refusal from it names.
@@ -143,7 +140,7 @@ impl<U, L, S: InstructionSet> Composed<U, L, S> {
             Err(unfit) => return Err(unfit.refusal(&required(upper))),
         };
         boundary.require(required(upper));
-        (boundary.required.fits(&boundary.provided)).map_err(|capabilities| {
+        (boundary.required.fits_limits(boundary.provided.as_ref())).map_err(|capabilities| {
             NotReady::new(BoundaryMismatch {
                 capabilities,
                 ..BoundaryMismatch::default()
@@ -188,7 +185,7 @@ impl<A: TranslatingAdapter, B: Executor<Accepts = A::Sends>> Executor for ChainB
 
     /// The adapter's. Not asked at run time: the boundary crossing the
     /// part above calls answers what is provided across it.
-    fn provision(&self, sealed: Sealed) -> &Capabilities<A::Accepts> {
+    fn provision(&self, sealed: Sealed) -> Option<&Capabilities<A::Accepts>> {
         let _ = sealed;
         self.adapter.provides()
     }
@@ -223,26 +220,27 @@ impl<A: TranslatingAdapter, B: Executor<Accepts = A::Sends>> Executor for ChainB
 fn boundary<S: InstructionSet>(
     sends: &S,
     accepted: &S,
-    provided: &Capabilities<S>,
+    provided: Option<&Capabilities<S>>,
 ) -> Result<(Boundary<S>, Binding<S>), UnfitHalves<S>> {
     match Boundary::fit(sends, accepted, provided) {
         Ok(fit) => Ok(fit),
         Err(_) => Err(UnfitHalves {
             sends: sends.clone(),
             accepted: accepted.clone(),
-            provided: provided.clone(),
+            provided: provided.cloned(),
         }),
     }
 }
 
 /// Halves whose sets do not fit, as the join read them: the set the upper
 /// half sends, the set the lower half accepts, and what the lower half
-/// provides, against which each run checks what arrives at the lower half,
-/// so that a run's refusal holds every mismatch at their boundary.
+/// provides (`None`, no limit), against which each run checks what arrives
+/// at the lower half, so that a run's refusal holds every mismatch at their
+/// boundary.
 struct UnfitHalves<S: InstructionSet> {
     sends: S,
     accepted: S,
-    provided: Capabilities<S>,
+    provided: Option<Capabilities<S>>,
 }
 
 impl<S: InstructionSet> UnfitHalves<S> {
@@ -254,7 +252,9 @@ impl<S: InstructionSet> UnfitHalves<S> {
         NotReady::new(BoundaryMismatch {
             instructions: (self.sends.fits(&self.accepted).err())
                 .map(|mismatch| Box::new(mismatch) as Box<dyn std::error::Error + Send + Sync>),
-            capabilities: required.fits(&self.provided).err().unwrap_or_default(),
+            capabilities: (required.fits_limits(self.provided.as_ref()))
+                .err()
+                .unwrap_or_default(),
         })
     }
 }

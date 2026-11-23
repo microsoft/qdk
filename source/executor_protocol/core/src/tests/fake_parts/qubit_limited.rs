@@ -173,8 +173,8 @@ impl QubitRegister {
 }
 
 impl ExecutorLimits for QubitRegister {
-    fn provides(&self) -> &Capabilities<QubitLimited> {
-        &self.provides
+    fn provides(&self) -> Option<&Capabilities<QubitLimited>> {
+        Some(&self.provides)
     }
 
     async fn ready_for(&mut self, above: &Capabilities<QubitLimited>) -> Result<(), NotReady> {

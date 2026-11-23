@@ -15,7 +15,7 @@ mod run_requirement;
 mod states_limits;
 
 pub use boundary::BatchFault;
-pub(crate) use boundary::Boundary;
+pub(crate) use boundary::{Boundary, READY_FIRST};
 pub use features::{FeatureMismatch, Features};
 pub use resources::{ResourceMismatch, Resources};
 pub use run_requirement::RunRequirement;
@@ -44,19 +44,23 @@ use crate::{BoundaryCompatible, InstructionSet};
 /// What arrives at a part must [`fit`](BoundaryCompatible::fits) what it
 /// provides, as the crate's `docs/capabilities.md` says.
 ///
-/// One requirement *requires no more than* another when each of its parts
-/// does: for each resource and feature it states, the other's value needs
-/// at least as much (an amount no smaller, a feature used where it is
-/// used; a field left unstated requires nothing, and so does a feature
-/// stated `false`), and its set's capabilities fit the other's. It
-/// compares two requirements, unlike [`fits`](BoundaryCompatible::fits),
-/// which compares a requirement with limits, and reads a field left
-/// unstated in the limits as no limit.
+/// One requirement *requires no more than* another when it fits every
+/// provision the other fits. Part by part: for each resource and feature
+/// it states, the other's value needs at least as much (an amount no
+/// smaller, a feature used where it is used; a field left unstated
+/// requires nothing, and so does a feature stated `false`), and its set's
+/// capabilities fit every provision the other's fit. It compares two
+/// requirements, unlike [`fits`](BoundaryCompatible::fits), which
+/// compares a requirement with limits, and reads a field left unstated in
+/// the limits as no limit: a value is never read on the other side
+/// untranslated.
 ///
-/// Built by [`new`](Self::new), from a run's by
-/// [`from_run`](Self::from_run), or from the set's
-/// [`unconstrained`](InstructionSet::unconstrained), which states nothing,
-/// with [`map_resources`](Self::map_resources) and
+/// A part's limits are an `Option` of it: `None` states no limit, and
+/// every requirement fits it.
+///
+/// Built by [`new`](Self::new), or from a run's by
+/// [`from_run`](Self::from_run), with
+/// [`map_resources`](Self::map_resources) and
 /// [`map_features`](Self::map_features).
 #[expect(
     clippy::struct_field_names,
@@ -65,7 +69,7 @@ use crate::{BoundaryCompatible, InstructionSet};
 pub struct Capabilities<S: InstructionSet> {
     resources: Resources,
     features: Features,
-    set_capabilities: S::Capabilities,
+    set_capabilities: S::SetCapabilities,
 }
 
 impl<S: InstructionSet> Capabilities<S> {
@@ -74,7 +78,7 @@ impl<S: InstructionSet> Capabilities<S> {
     pub const fn new(
         resources: Resources,
         features: Features,
-        set_capabilities: S::Capabilities,
+        set_capabilities: S::SetCapabilities,
     ) -> Self {
         Self {
             resources,
@@ -84,17 +88,27 @@ impl<S: InstructionSet> Capabilities<S> {
     }
 
     /// `run`'s resources and features, with the set's capabilities that
-    /// state nothing: what a driver that states nothing of its own
-    /// requires
+    /// need nothing ([`needs_nothing`](InstructionSet::needs_nothing)):
+    /// what a driver that states nothing of its own requires
     /// ([`DriverRequirements::requires`](crate::DriverRequirements::requires)'s
     /// default).
     #[must_use]
     pub fn from_run(run: &RunRequirement) -> Self {
-        Self::new(
-            run.resources,
-            run.features,
-            S::unconstrained().set_capabilities().clone(),
-        )
+        Self::new(run.resources, run.features, S::needs_nothing())
+    }
+
+    /// The requirement of nothing: no resource, no feature, and the set's
+    /// [`needs_nothing`](InstructionSet::needs_nothing). What arrives from
+    /// a part above that states nothing, before any run says more.
+    pub(crate) fn needs_nothing() -> Self {
+        Self::from_run(&RunRequirement::unconstrained())
+    }
+
+    /// Whether `self`, what arrives at a part, fits `limits`, the part's:
+    /// as [`fits`](BoundaryCompatible::fits), where no limits (`None`) fit
+    /// every requirement.
+    pub(crate) fn fits_limits(&self, limits: Option<&Self>) -> Result<(), CapabilitiesMismatch> {
+        limits.map_or(Ok(()), |limits| self.fits(limits))
     }
 
     /// The amounts stated.
@@ -111,7 +125,7 @@ impl<S: InstructionSet> Capabilities<S> {
 
     /// The instruction set's own capabilities stated.
     #[must_use]
-    pub fn set_capabilities(&self) -> &S::Capabilities {
+    pub fn set_capabilities(&self) -> &S::SetCapabilities {
         &self.set_capabilities
     }
 

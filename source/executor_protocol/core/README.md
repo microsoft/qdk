@@ -135,6 +135,21 @@ wrapping an existing interpreter, noise model or simulator.
 [`examples/compose_and_run.rs`](examples/compose_and_run.rs) writes a small
 part of each role.
 
+**Key ideas.**
+
+- **One call down, readouts back.** Every boundary is the same `execute`,
+  so a part sees the chain below it as one executor and is written once.
+- **Checks where parts meet.** What a part states is checked by the
+  protocol where it meets the next part, at composition when the chain is
+  known, so a part never repeats them.
+- **Fit is inclusion.** A requirement stands for the needs it holds, a
+  provision for the requirements it takes, and a requirement fits when
+  its needs lie within the provision's. A part that states no limit
+  provides `None`, which every requirement fits; a part that states no
+  need requires its set's `needs_nothing()`, which fits every provision.
+  [Capabilities and their fit](docs/capabilities.md) gives each value's
+  reading on each side, and the laws the checks rely on.
+
 **Why this approach.**
 
 - **Decoupled, open-closed parts.** One driver runs on every chain that

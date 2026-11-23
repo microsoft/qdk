@@ -71,7 +71,7 @@ impl<E: ExecutorLimits> Executor for StatesLimits<E> {
         self.part.end_shots(shots);
     }
 
-    fn provision(&self, sealed: Sealed) -> &Capabilities<E::Accepts> {
+    fn provision(&self, sealed: Sealed) -> Option<&Capabilities<E::Accepts>> {
         let _ = sealed;
         ExecutorLimits::provides(&self.part)
     }
@@ -133,7 +133,7 @@ impl<A: AdapterLimits> Adapter for StatesLimits<A> {
         Adapter::end_shots(&mut self.part, shots);
     }
 
-    fn provision(&self, sealed: Sealed) -> &Capabilities<A::Set> {
+    fn provision(&self, sealed: Sealed) -> Option<&Capabilities<A::Set>> {
         let _ = sealed;
         AdapterLimits::provides(&self.part)
     }

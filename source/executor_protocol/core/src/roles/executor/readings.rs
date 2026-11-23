@@ -13,13 +13,12 @@ use crate::{Capabilities, Executor, NotReady};
 /// An adapter reads them of the part below it, and a part that wraps an
 /// executor forwards them, as its own
 /// [`ExecutorLimits`](crate::ExecutorLimits).
-/// An executor that states no limits answers its set's
-/// [`unconstrained`](crate::InstructionSet::unconstrained) and its
+/// An executor that states no limits answers `None` and its
 /// [`ready`](Executor::ready); a [`StatesLimits`](crate::StatesLimits) one, its
 /// limits; a joined one, its parts'.
 pub trait ExecutorReadings: Executor {
-    /// What it provides to the part above.
-    fn provided(&self) -> &Capabilities<Self::Accepts>;
+    /// What it provides to the part above: `None` states no limit.
+    fn provided(&self) -> Option<&Capabilities<Self::Accepts>>;
 
     /// Gets it ready for `above`, what arrives from the part above.
     fn ready_given(
@@ -29,7 +28,7 @@ pub trait ExecutorReadings: Executor {
 }
 
 impl<E: Executor + ?Sized> ExecutorReadings for E {
-    fn provided(&self) -> &Capabilities<E::Accepts> {
+    fn provided(&self) -> Option<&Capabilities<E::Accepts>> {
         self.provision(Sealed(()))
     }
 

@@ -3,7 +3,7 @@
 
 //! The limits an adapter may state, [`AdapterLimits`].
 
-use crate::{Adapter, Capabilities, InstructionSet, NotReady, StatesLimits};
+use crate::{Adapter, Capabilities, NotReady, StatesLimits};
 
 /// The limits of an adapter that has them: what it provides to the part
 /// above, what it requires of the part below, and how it gets ready for
@@ -23,13 +23,13 @@ pub trait AdapterLimits: Adapter {
     /// most shots, or what its set's capabilities say it takes: what
     /// arrives must fit them, as [`Capabilities`] says.
     ///
-    /// By default its set's
-    /// [`unconstrained`](InstructionSet::unconstrained): it states nothing.
-    /// Stating its real limits is the writer's job: an adapter that does
-    /// not lets `on` accept a chain that sends it more than it can take,
-    /// which then fails as it runs.
-    fn provides(&self) -> &Capabilities<Self::Set> {
-        Self::Set::unconstrained()
+    /// `None` states no limit, which every requirement fits; within a
+    /// stated value, a field left unstated limits nothing. By default
+    /// `None`. Stating its real limits is the writer's job: an adapter that
+    /// does not lets `on` accept a chain that sends it more than it can
+    /// take, which then fails as it runs.
+    fn provides(&self) -> Option<&Capabilities<Self::Set>> {
+        None
     }
 
     /// What it requires of the part below, given `above`, what arrives

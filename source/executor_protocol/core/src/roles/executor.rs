@@ -202,14 +202,13 @@ pub trait Executor {
     // (`ExecutorLimits`, on a `StatesLimits` part), and of the parts it joins.
 
     /// What it provides ([`ExecutorReadings::provided`]): by default
-    /// nothing stated, its set's
-    /// [`unconstrained`](InstructionSet::unconstrained). Only the crate
-    /// overrides it, to answer a [`StatesLimits`](crate::StatesLimits) part's
+    /// `None`, no limit stated. Only the crate overrides it, to answer a
+    /// [`StatesLimits`](crate::StatesLimits) part's
     /// [`ExecutorLimits::provides`], or a part it joins.
     #[doc(hidden)]
-    fn provision(&self, sealed: Sealed) -> &Capabilities<Self::Accepts> {
+    fn provision(&self, sealed: Sealed) -> Option<&Capabilities<Self::Accepts>> {
         let _ = sealed;
-        Self::Accepts::unconstrained()
+        None
     }
 
     /// Adds this part to `parts`, given `above`, what arrives at it. Only
@@ -270,7 +269,7 @@ impl<E: Executor + ?Sized> Executor for &mut E {
         (**self).end_shots(shots);
     }
 
-    fn provision(&self, sealed: Sealed) -> &Capabilities<E::Accepts> {
+    fn provision(&self, sealed: Sealed) -> Option<&Capabilities<E::Accepts>> {
         (**self).provision(sealed)
     }
 

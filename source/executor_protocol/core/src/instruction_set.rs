@@ -8,7 +8,7 @@ use std::error::Error;
 use std::fmt;
 use std::ops::BitOrAssign;
 
-use crate::{BoundaryCompatible, Capabilities, ReadoutSlots};
+use crate::{BoundaryCompatible, ReadoutSlots};
 
 /// An instruction set, as the protocol sees it: the instructions a batch
 /// holds, when a sender's set fits a receiver's, the set's own
@@ -23,11 +23,11 @@ use crate::{BoundaryCompatible, Capabilities, ReadoutSlots};
 /// instructions in the other's.
 ///
 /// A set states two kinds of its own capabilities: what parts state and
-/// compare at composition ([`Capabilities`](Self::Capabilities), such as
-/// the qubits a shot holds), and what each batch's instructions are
-/// checked against on a run ([`Requirement`](Self::Requirement)), prepared
-/// from the first once per run so that the per-instruction check is cheap,
-/// and once at composition, from the capabilities that state nothing.
+/// compare at composition ([`SetCapabilities`](Self::SetCapabilities),
+/// such as the qubits a shot holds), and what each batch's instructions
+/// are checked against on a run ([`Requirement`](Self::Requirement)),
+/// prepared from the first once per run so that the per-instruction check
+/// is cheap.
 ///
 /// A set is a declaration that the parts and the runner share, so it is
 /// `Send` and `Sync`, as its instructions, readouts and capabilities are:
@@ -48,7 +48,12 @@ pub trait InstructionSet:
     /// [`fits`](BoundaryCompatible::fits) with the same rule as theirs.
     /// Equal values are what a part passes below unchanged, which a
     /// composition fault traces to the part that first required them.
-    type Capabilities: BoundaryCompatible<Fit = (), Mismatch: Error + Send + Sync + 'static>
+    ///
+    /// A value reads per side: as a requirement, what the part above needs
+    /// (an unstated field, no need); as a provision, the part's limits (an
+    /// unstated field, no limit). It fits when every need is within the
+    /// limits, as the crate's `docs/capabilities.md` says.
+    type SetCapabilities: BoundaryCompatible<Fit = (), Mismatch: Error + Send + Sync + 'static>
         + Clone
         + PartialEq
         + fmt::Debug
@@ -57,10 +62,9 @@ pub trait InstructionSet:
         + 'static;
 
     /// What each instruction of a checked batch is checked against on a
-    /// run, prepared once per run by [`requirement`](Self::requirement),
-    /// and once at composition, for a boundary before any run.
+    /// run, prepared once per run by [`requirement`](Self::requirement).
     /// A set whose check reads its capabilities as they are may use
-    /// [`Capabilities`](Self::Capabilities) itself.
+    /// [`SetCapabilities`](Self::SetCapabilities) itself.
     type Requirement: Send + Sync;
 
     /// Why [`check`](Self::check) refuses an instruction.
@@ -80,10 +84,14 @@ pub trait InstructionSet:
     /// value, never as one made up for it.
     const UNWRITTEN_READOUT: Self::Readout;
 
-    /// No limit and no need: the core's unconstrained resources and
-    /// features, with the set's capabilities that state nothing. What a
-    /// part's default `provides` lends, so a set keeps it in a `static`.
-    fn unconstrained() -> &'static Capabilities<Self>;
+    /// The set's capabilities that need nothing: what a requirement that
+    /// states nothing of the set holds, such as no qubit, and what a driver
+    /// that states nothing requires of the set. It fits every provision,
+    /// stated or not, as a need of nothing is within any limits: a chain of
+    /// parts that state nothing composes and runs on any part below. A
+    /// part that limits nothing states no provision at all (`None`), never
+    /// this value, which as a provision could limit everything.
+    fn needs_nothing() -> Self::SetCapabilities;
 
     /// The readout slots `instruction` writes: what a sender sums into a
     /// batch's [`readout_slots`](crate::Batch::readout_slots).
@@ -91,11 +99,9 @@ pub trait InstructionSet:
 
     /// What a checked batch's instructions are checked against, given
     /// `required`, the set's capabilities arriving at the receiver: built
-    /// once per run, at each boundary whose receiver accepts this set, and
-    /// once when that boundary is joined, given the set's capabilities that
-    /// state nothing (those of [`unconstrained`](Self::unconstrained)),
-    /// before any run.
-    fn requirement(&self, required: &Self::Capabilities) -> Self::Requirement;
+    /// once per run, at each boundary whose receiver accepts this set, as
+    /// the run starts.
+    fn requirement(&self, required: &Self::SetCapabilities) -> Self::Requirement;
 
     /// Checks `instruction` against this set, the receiver's, and against
     /// `required`: its readout slots, or why it is refused. The slots it

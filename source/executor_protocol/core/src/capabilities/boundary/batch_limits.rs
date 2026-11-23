@@ -32,16 +32,16 @@ pub(crate) struct BatchLimits<S: InstructionSet> {
 
 impl<S: InstructionSet> BatchLimits<S> {
     /// The limits of the batches sent across a boundary where `required`
-    /// arrives at a part that provides `provided` and accepts `accepted`:
-    /// the most instructions per batch provided, and the set's requirement
-    /// given the set's capabilities required.
+    /// arrives at a part that provides `provided` (`None`, no limit) and
+    /// accepts `accepted`: the most instructions per batch provided, and
+    /// the set's requirement given the set's capabilities required.
     pub(crate) fn new(
         required: &Capabilities<S>,
-        provided: &Capabilities<S>,
+        provided: Option<&Capabilities<S>>,
         accepted: &S,
     ) -> Self {
         Self {
-            max_instructions: provided.resources().instructions_per_batch,
+            max_instructions: provided.and_then(|limits| limits.resources().instructions_per_batch),
             requirement: accepted.requirement(required.set_capabilities()),
         }
     }

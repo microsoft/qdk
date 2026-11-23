@@ -10,8 +10,8 @@ use crate::composition::part_panics::{await_part, end_both};
 use crate::part_id::ChainPosition;
 use crate::roles::Sealed;
 use crate::{
-    Batch, BatchReadouts, Capabilities, ExecuteError, Executor, ExecutorReadings, InstructionSet,
-    NotReady, Seed, ShotSet, TranslatingAdapter,
+    Batch, BatchReadouts, Capabilities, ExecuteError, Executor, ExecutorReadings, NotReady, Seed,
+    ShotSet, TranslatingAdapter,
 };
 
 impl<U: TranslatingAdapter, L: Executor<Accepts = U::Sends>> Composed<U, L, U::Sends> {
@@ -52,7 +52,7 @@ impl<U: TranslatingAdapter, L: Executor<Accepts = U::Sends>> Executor for Compos
     /// as it does readied without what arrives.
     async fn ready(&mut self) -> Result<(), NotReady> {
         let (lower, ..) = self.start_run(
-            |upper| upper.requires(U::Accepts::unconstrained()),
+            |upper| upper.requires(&Capabilities::needs_nothing()),
             ChainPosition::UNKNOWN,
         )?;
         await_part(Executor::ready(lower)).await?;
@@ -86,7 +86,7 @@ impl<U: TranslatingAdapter, L: Executor<Accepts = U::Sends>> Executor for Compos
 
     /// The adapter's: what arrives at the executor is checked against what
     /// it provides when the joined part gets ready.
-    fn provision(&self, sealed: Sealed) -> &Capabilities<U::Accepts> {
+    fn provision(&self, sealed: Sealed) -> Option<&Capabilities<U::Accepts>> {
         let _ = sealed;
         self.upper.provides()
     }

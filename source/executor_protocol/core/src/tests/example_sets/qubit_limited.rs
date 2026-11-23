@@ -23,12 +23,13 @@ pub(crate) struct QubitLimited;
 pub(crate) struct OnQubit(pub(crate) u32);
 
 /// A count of qubits: those a receiver holds, or those a sender requires.
-/// Unconstrained, it is `u32::MAX`.
+/// Needing nothing, it is `Qubits(0)`; a receiver that limits nothing
+/// states no provision (`None`), not a count.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Qubits(pub(crate) u32);
 
 /// The capabilities of `n` qubits, and any resources and features.
-pub(crate) fn on_qubits<S: InstructionSet<Capabilities = Qubits>>(n: u32) -> Capabilities<S> {
+pub(crate) fn on_qubits<S: InstructionSet<SetCapabilities = Qubits>>(n: u32) -> Capabilities<S> {
     Capabilities::new(
         Resources::unconstrained(),
         Features::unconstrained(),
@@ -63,20 +64,15 @@ impl BoundaryCompatible for QubitLimited {
 
 impl InstructionSet for QubitLimited {
     type Instruction = OnQubit;
-    type Capabilities = Qubits;
+    type SetCapabilities = Qubits;
     type Requirement = u32;
     type Fault = QubitBeyond;
     type Readout = BitReadout;
     type ShotConditions = ShotFlags;
     const UNWRITTEN_READOUT: BitReadout = BitReadout::Unwritten;
 
-    fn unconstrained() -> &'static Capabilities<Self> {
-        static UNCONSTRAINED: Capabilities<QubitLimited> = Capabilities::new(
-            Resources::unconstrained(),
-            Features::unconstrained(),
-            Qubits(u32::MAX),
-        );
-        &UNCONSTRAINED
+    fn needs_nothing() -> Qubits {
+        Qubits(0)
     }
 
     fn readout_slots(&self, _gate: &OnQubit) -> ReadoutSlots {
