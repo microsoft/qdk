@@ -138,9 +138,8 @@ impl<U: TranslatingAdapter, L: TranslatingAdapter<Accepts = U::Sends>> Translati
         await_part(lower.ready_at(below_required, below))
             .await
             .map_err(|not_ready| not_ready.answered_by(part))?;
-        await_part(self.upper.ready_at(above, at)).await?;
-        self.readied = true;
-        Ok(())
+        let upper = await_part(self.upper.ready_at(above, at)).await;
+        self.finish_run(upper)
     }
 
     /// Refuses the run as [`ready_at`](Self::ready_at) does, for what
@@ -153,9 +152,8 @@ impl<U: TranslatingAdapter, L: TranslatingAdapter<Accepts = U::Sends>> Translati
             ChainPosition::UNKNOWN,
         )?;
         await_part(lower.ready_alone(Sealed(()))).await?;
-        await_part(self.upper.ready_alone(sealed)).await?;
-        self.readied = true;
-        Ok(())
+        let upper = await_part(self.upper.ready_alone(sealed)).await;
+        self.finish_run(upper)
     }
 }
 

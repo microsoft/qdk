@@ -123,7 +123,7 @@ and an adapter below it adds a need of reset, an executor of 8 qubits and
 no reset falls short of the driver's qubits and of the adapter's reset,
 two faults. A need of the set's own is traced only through the parts
 whose requirements are of its capabilities' type, so the trace stops at
-a translating adapter onto a set whose capabilities are of another type,
+a translating adapter from a set whose capabilities are of another type,
 which the fault names, even for a need it copied: where a driver needs
 10 qubits and a translator below it, onto a set of qubits and a reset,
 copies them and adds a need of reset, an executor of 8 qubits and no

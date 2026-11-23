@@ -64,9 +64,8 @@ impl<U: Driver, L: TranslatingAdapter<Accepts = U::Sends>> Driver for Composed<U
             ChainPosition::UNKNOWN,
         )?;
         await_part(lower.ready_alone(Sealed(()))).await?;
-        await_part(Driver::ready(&mut self.upper)).await?;
-        self.readied = true;
-        Ok(())
+        let upper = await_part(Driver::ready(&mut self.upper)).await;
+        self.finish_run(upper)
     }
 
     /// The driver's `drive`, on the adapter and the chain below as one
@@ -136,8 +135,7 @@ impl<U: Driver, L: TranslatingAdapter<Accepts = U::Sends>> Driver for Composed<U
         await_part(lower.ready_at(required, below))
             .await
             .map_err(|not_ready| not_ready.answered_by(part))?;
-        await_part(self.upper.ready_at(run, at)).await?;
-        self.readied = true;
-        Ok(())
+        let upper = await_part(self.upper.ready_at(run, at)).await;
+        self.finish_run(upper)
     }
 }

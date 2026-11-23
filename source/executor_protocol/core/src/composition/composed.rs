@@ -51,9 +51,9 @@
 //! itself ([`StatesLimits`](crate::StatesLimits)), rather than run with
 //! its limits unread.
 //!
-//! However it is readied, a `Composed` runs its role's calls only once the
-//! last `ready` started on it got both halves ready; otherwise each call
-//! panics before either half is called.
+//! Its `drive`, `adapt` and `execute` keep [`Executor::execute`]'s rule
+//! that a joined part is called only once a run got it ready: each starts
+//! with `Composed::halves`, which checks it.
 
 mod adapter;
 mod driver;
@@ -94,9 +94,8 @@ pub struct Composed<U, L, S: InstructionSet> {
     /// `count_parts`, which asks no part what it requires): how far below
     /// this part's position the lower half's is.
     upper_parts: usize,
-    /// Whether the last `ready` started on this part got both halves
-    /// ready: cleared as each starts, set once its upper half, the last
-    /// asked, answers `Ok`. Its role's calls run only when it is set.
+    /// Whether the last `ready` polled on this part got both halves
+    /// ready: cleared by `start_run`, set by `finish_run`.
     readied: bool,
 }
 
@@ -163,15 +162,25 @@ impl<U, L, S: InstructionSet> Composed<U, L, S> {
         Ok((lower, &boundary.required, below, boundary.part.as_ref()))
     }
 
+    /// Ends a run's `ready` with `upper`, the answer of the upper half,
+    /// the last asked once the lower half answered `Ok`: marks this part
+    /// ready if it is `Ok`.
+    fn finish_run(&mut self, upper: Result<(), NotReady>) -> Result<(), NotReady> {
+        self.readied = upper.is_ok();
+        upper
+    }
+
     /// The halves, and their boundary on this run: what each call of its
     /// role, `drive`, `adapt` or `execute`, starts with.
     ///
     /// # Panics
     ///
-    /// Unless the last `ready` started on this part got both halves
-    /// ready, before either half is called: a part is called only once a
-    /// run got it ready, as its role says, and every run's `ready` refuses
-    /// halves that do not fit.
+    /// Unless the last `ready` polled on this part answered `Ok`, before
+    /// either half is called: a part is called only once a run got it
+    /// ready, as its role says. So it panics before any `ready`, after one
+    /// that a half or the boundary refused or that was dropped before it
+    /// answered, and always where the halves do not fit, which every
+    /// `ready` refuses.
     fn halves(&mut self) -> (&mut U, &mut L, &Boundary<S>) {
         match &self.fit {
             Ok(boundary) if self.readied => (&mut self.upper, &mut self.lower, boundary),

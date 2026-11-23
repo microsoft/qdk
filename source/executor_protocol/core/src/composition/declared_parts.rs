@@ -26,7 +26,7 @@ use crate::{
 /// need of the set's own, as [`InstructionSet::split_mismatch`] splits
 /// them, on its own. A need of the set's own is traced only through parts
 /// whose requirements are of its capabilities' type, as the crate's
-/// `docs/capabilities.md` says: a translating adapter onto a set whose
+/// `docs/capabilities.md` says: a translating adapter from a set whose
 /// capabilities are of another type is the first to require each such
 /// need it sends below, even one it copied.
 ///
