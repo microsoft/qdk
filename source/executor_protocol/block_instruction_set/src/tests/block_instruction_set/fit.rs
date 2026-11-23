@@ -98,15 +98,42 @@ fn undeclared_instructions_match_by_mnemonic_between_sets_of_one_name() {
 }
 
 /// A mnemonic proves nothing between sets of other names: one mismatch
-/// says so, not one per instruction.
+/// says so, naming each undeclared instruction, not one per instruction;
+/// in a set where some instructions declare a meaning, it names only the
+/// others, in order, at the place of the first of them among the other
+/// mismatches.
 #[test]
 fn undeclared_instructions_of_sets_of_other_names_are_refused_once() {
-    let sent = set_of("Gates", 1, vec![gate("x"), gate("h")]);
-    let accepted = set_of("Device", 1, vec![gate("x"), gate("h")]);
-    assert_eq!(
-        sent.fits(&accepted).map_err(|m| m.mismatches().to_vec()),
-        Err(vec![InstructionMismatch::OtherSet])
-    );
+    let other_set = |mnemonics: &[&str]| InstructionMismatch::OtherSet {
+        mnemonics: mnemonics.iter().map(|&m| m.to_owned()).collect(),
+    };
+    for (row, sent, accepted, expected) in [
+        (
+            "none declared",
+            vec![gate("x"), gate("h")],
+            vec![gate("x"), gate("h")],
+            vec![other_set(&["x", "h"])],
+        ),
+        (
+            "some declared",
+            vec![
+                gate("t"),
+                gate("h").meaning(hadamard()),
+                gate("x"),
+                gate("s"),
+                gate("y"),
+            ],
+            vec![gate("h").meaning(hadamard()), gate("x"), gate("y")],
+            vec![missing("t"), other_set(&["x", "y"]), missing("s")],
+        ),
+    ] {
+        let (sent, accepted) = (set_of("Gates", 1, sent), set_of("Device", 1, accepted));
+        assert_eq!(
+            sent.fits(&accepted).map_err(|m| m.mismatches().to_vec()),
+            Err(expected),
+            "{row}"
+        );
+    }
 }
 
 /// The set of `instruction` over qubits and `carbon` blocks.
@@ -434,7 +461,13 @@ fn a_mismatch_names_its_instruction_and_what_differs() {
             vec!["cz", "do"],
             None,
         ),
-        (InstructionMismatch::OtherSet, vec!["set"], None),
+        (
+            InstructionMismatch::OtherSet {
+                mnemonics: vec![cz(), "ccx".to_owned()],
+            },
+            vec!["cz", "ccx", "set"],
+            None,
+        ),
     ];
     let messages: Vec<String> = rows
         .iter()

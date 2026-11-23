@@ -82,7 +82,8 @@ impl BoundaryCompatible for BlockInstructionSet {
     /// receiver's instruction of its mnemonic; `Meaning` when one of the
     /// two declares what it does and the other does not; else, both
     /// undeclared under sets of other names,
-    /// [`OtherSet`](InstructionMismatch::OtherSet), given once.
+    /// [`OtherSet`](InstructionMismatch::OtherSet), given once, at the
+    /// first such instruction, naming each.
     fn fits(
         &self,
         receiver: &BlockInstructionSet,
@@ -91,23 +92,30 @@ impl BoundaryCompatible for BlockInstructionSet {
         let mut opcodes = Vec::with_capacity(self.instructions.len());
         let mut by_mnemonic = Vec::new();
         let mut mismatches = Vec::new();
+        // The undeclared instructions a set of another name receives, and
+        // where the one mismatch naming them goes.
+        let (mut other_set, mut other_set_at) = (Vec::new(), 0);
         for sent in &self.instructions {
-            match self.match_in(sent, receiver, same_name) {
+            match self.match_in(sent, receiver) {
                 Ok(Match::ByMeaning(opcode)) => opcodes.push(opcode),
-                Ok(Match::ByMnemonic(opcode)) => {
+                Ok(Match::ByMnemonic(opcode)) if same_name => {
                     opcodes.push(opcode);
                     by_mnemonic.push(sent.mnemonic.clone());
                 }
-                Err(found) => {
-                    for mismatch in found {
-                        if mismatch != InstructionMismatch::OtherSet
-                            || !mismatches.contains(&InstructionMismatch::OtherSet)
-                        {
-                            mismatches.push(mismatch);
-                        }
+                Ok(Match::ByMnemonic(_)) => {
+                    if other_set.is_empty() {
+                        other_set_at = mismatches.len();
                     }
+                    other_set.push(sent.mnemonic.clone());
                 }
+                Err(found) => mismatches.extend(found),
             }
+        }
+        if !other_set.is_empty() {
+            let other_set = InstructionMismatch::OtherSet {
+                mnemonics: other_set,
+            };
+            mismatches.insert(other_set_at, other_set);
         }
         if mismatches.is_empty() {
             Ok(OpcodeMap::new(opcodes, by_mnemonic))
@@ -119,12 +127,13 @@ impl BoundaryCompatible for BlockInstructionSet {
 
 impl BlockInstructionSet {
     /// The receiver's opcode for `sent`, an instruction of `self`, as
-    /// [`fits`](BoundaryCompatible::fits) matches it, or its mismatches.
+    /// [`fits`](BoundaryCompatible::fits) matches it, or its mismatches; a
+    /// match by mnemonic, whatever the sets' names, which `fits` refuses
+    /// between sets of other names.
     fn match_in(
         &self,
         sent: &InstructionDef,
         receiver: &BlockInstructionSet,
-        same_name: bool,
     ) -> Result<Match, Vec<InstructionMismatch>> {
         let mnemonic = || sent.mnemonic.clone();
         let named = receiver.opcode(&sent.mnemonic);
@@ -169,11 +178,7 @@ impl BlockInstructionSet {
                 mnemonic: mnemonic(),
             }]);
         }
-        if same_name {
-            Ok(Match::ByMnemonic(opcode))
-        } else {
-            Err(vec![InstructionMismatch::OtherSet])
-        }
+        Ok(Match::ByMnemonic(opcode))
     }
 
     /// How `theirs`, of `receiver`, differs from `sent`, of `self`, in
@@ -226,9 +231,13 @@ impl BlockInstructionSet {
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum InstructionMismatch {
-    /// Neither set declares what its instructions do, and their names
-    /// differ, so a mnemonic proves nothing.
-    OtherSet,
+    /// These instructions declare no meaning, nor do the receiver's of
+    /// their mnemonics, and the sets' names differ, so their mnemonics
+    /// prove nothing.
+    OtherSet {
+        /// The instructions' mnemonics, in the sent set's order.
+        mnemonics: Vec<String>,
+    },
     /// The receiver has no instruction of this mnemonic, nor one doing the
     /// same with the same blocks, parameters and readouts.
     Missing {
@@ -266,8 +275,14 @@ pub enum InstructionMismatch {
 impl fmt::Display for InstructionMismatch {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            InstructionMismatch::OtherSet => {
-                f.write_str("another set, and no instruction declares what it does")
+            InstructionMismatch::OtherSet { mnemonics } => {
+                f.write_str("no meaning is declared for ")?;
+                let mut separator = "";
+                for mnemonic in mnemonics {
+                    write!(f, "{separator}`{mnemonic}`")?;
+                    separator = ", ";
+                }
+                f.write_str(", and the sets' names differ, so a mnemonic proves nothing")
             }
             InstructionMismatch::Missing { mnemonic } => {
                 write!(f, "`{mnemonic}` is not accepted")
