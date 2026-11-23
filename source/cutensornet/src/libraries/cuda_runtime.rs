@@ -133,7 +133,7 @@ super::function_table::function_table! {
     /// Every CUDA Runtime function discovery looks up.
     #[expect(
         dead_code,
-        reason = "the version rows are only looked up, so that a missing one is reported (the versions are read through CudaVersionFunctions); the setup check, added later, calls device_get_attribute"
+        reason = "the version rows are only looked up, so that a missing one is reported (the versions are read through CudaVersionFunctions); device_get_attribute is for the setup check"
     )]
     struct CudaFunctions, declared in cudart_12 {
         required runtime_get_version: versions::RuntimeGetVersionFn = cudaRuntimeGetVersion,
