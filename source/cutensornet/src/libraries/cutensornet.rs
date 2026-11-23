@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! cuTensorNet, NVIDIA's tensor-network library, which the MPS engine calls.
+//! cuTensorNet, NVIDIA's tensor-network library.
 //!
 //! Everything the crate assumes of cuTensorNet is in this module, as its
 //! `NativeLibrary`: where it is looked for, the functions looked up in it
@@ -23,12 +23,6 @@
 //! type from the CUDA Runtime's bindings. It also declares the header's
 //! version, which must be the accepted one: the crate does not compile
 //! otherwise.
-//!
-//! The table is the list of the functions the crate uses; the bindings
-//! declare the whole API, so binding another function is its row here, with
-//! a field named for its symbol (the tests check it), and its type in its
-//! family's file, which the crate checks, when it compiles, against the
-//! function's declaration in `v2_13`.
 
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 pub(crate) mod decomposition;

@@ -3,23 +3,17 @@
 
 //! Finding and loading NVIDIA cuTensorNet and the CUDA Runtime at run time.
 //!
-//! This crate is a step towards running the QDK's tensor-network
-//! simulations, the MPS simulator first, on an NVIDIA GPU through
-//! cuTensorNet, NVIDIA's tensor-network library, which runs on the CUDA
-//! Runtime. Most users have neither, so the QDK must build, install and run
-//! without them. The crate therefore never links them: when a GPU run is
-//! asked for, [`discover`] finds and opens the shared libraries it needs
-//! (today the CUDA Runtime and cuTensorNet) installed on the host, looks up
-//! the functions of a table per library, and checks
-//! the libraries' versions against the audited ones. It returns an
+//! The crate never links them, so the QDK builds and runs without them: when
+//! a GPU run is asked for, [`discover`] opens the libraries installed on the
+//! host, looks up the functions of a table per library, and checks the
+//! libraries' versions against the audited ones. It returns an
 //! [`Availability`] that keeps the libraries loaded, or an
 //! [`AvailabilityError`] listing every fault of each library, so a caller
-//! can report them or run on the CPU instead. Discovery runs no GPU work.
-//! The MPS engine, added in a later change, calls cuTensorNet through these
-//! tables.
+//! can report them or run on the CPU instead. The MPS engine, added in a
+//! later change, calls cuTensorNet through these tables.
 //!
-//! The crate's `docs/loading.md` shows the steps of discovery and the faults
-//! each one can find.
+//! The crate's README says why; its `docs/loading.md` shows the steps of
+//! discovery and the faults each one can find.
 
 mod discovery;
 #[cfg_attr(

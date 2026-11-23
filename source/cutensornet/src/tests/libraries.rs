@@ -99,8 +99,8 @@ fn an_absolute_path_to_a_file_is_the_override() {
 /// A user who sets the variable wrong is refused, and the reason says which
 /// mistake to fix: a relative path (`libcudart.so.12` would let the system
 /// loader pick any copy on its search path), a mistyped path, a folder, a
-/// link left behind by an uninstalled library, or a path that exists but
-/// cannot be read.
+/// link left behind by an uninstalled library, a path through a file, or a
+/// path that exists but cannot be read.
 #[test]
 fn an_invalid_override_is_refused_with_why() {
     #[cfg_attr(not(unix), expect(unused_mut, reason = "only Unix adds rows"))]
@@ -123,6 +123,12 @@ fn an_invalid_override_is_refused_with_why() {
         std::os::unix::fs::symlink(unique_temp_path("removed-target"), &dangling)
             .expect("the temporary directory is writable");
         rows.push(("a dangling link", dangling.clone(), "does not exist"));
+        let (file, remove_file) = not_a_shared_object("override-parent-file");
+        rows.push((
+            "a path through a file",
+            file.join("libcudart.so.12"),
+            "does not exist",
+        ));
         let (looping, locked_dir, guard) = unreadable_overrides();
         rows.push(("a symlink loop", looping, "cannot be read"));
         // Root reads a directory whatever its mode, so the row runs only
@@ -134,7 +140,7 @@ fn an_invalid_override_is_refused_with_why() {
                 "permission denied",
             ));
         }
-        (RemoveFile(dangling), guard)
+        (RemoveFile(dangling), remove_file, guard)
     };
     for (case, path, expected) in rows {
         let reason = refusal_reason(path);

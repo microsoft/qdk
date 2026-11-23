@@ -18,12 +18,7 @@
 //! `scripts/generate_bindings.py`, from what `bindings.toml` in this module's
 //! folder pins; it also declares the CUDA stream type that cuTensorNet's
 //! bindings import, and the header's version, which must be the accepted
-//! one: the crate does not compile otherwise. The table is the list of the
-//! functions the crate uses; the bindings declare the whole API, so binding
-//! another function is its row here, with a field named for its symbol (the
-//! tests check it), and its type in its family's file, which the crate
-//! checks, when it compiles, against the function's declaration in
-//! `cudart_12`.
+//! one: the crate does not compile otherwise.
 
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 pub(crate) mod device;
@@ -171,7 +166,7 @@ super::function_table::function_table! {
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 fn probe_version(
     component: &'static str,
-    probe: unsafe extern "C" fn(*mut i32) -> cudart_12::cudaError_t,
+    probe: versions::VersionProbeFn,
     get_error_string: Option<error_strings::GetErrorStringFn>,
 ) -> Result<i32, LibraryFault> {
     let mut version = 0;

@@ -29,8 +29,7 @@ pub enum AvailabilityError {
     Unusable(AvailabilityReport),
 }
 
-/// Each fault of `report`, after its library's name and, when it was
-/// opened, its path.
+/// The message of [`AvailabilityError::Unusable`].
 #[expect(
     clippy::unnecessary_debug_formatting,
     reason = "paths are quoted, as in the faults' own messages"

@@ -30,11 +30,11 @@ flowchart TD
   [`cuda_runtime.rs`](../src/libraries/cuda_runtime.rs)): its name, override
   variable and default paths, its [`FunctionTable`](../src/libraries/function_table.rs),
   and how its versions are read and which are accepted. cuTensorNet's table
-  holds the functions the crate may call: its handle's and its workspaces',
-  and those of its tensor API (tensor descriptors, SVD settings and
-  reports, `GateSplit`, `TensorQR` and contraction networks); each is
-  required but `cutensornetGetLastError`, which only adds detail to an
-  error message.
+  holds the functions the crate may call: its handle's, its versions' and
+  error strings', its workspaces', and those of its tensor API (tensor
+  descriptors, SVD settings and reports, `GateSplit`, `TensorQR` and
+  contraction networks); each is required but `cutensornetGetLastError`,
+  which only adds detail to an error message.
 - [`CheckLibrary`](../src/libraries.rs) is a trait so that what discovery
   concludes from the checks is tested without library files.
 - [`LoadedLibraries`](../src/libraries.rs) is the one list of the libraries a
@@ -90,7 +90,7 @@ sequenceDiagram
   D->>N: look up its functions
   D->>N: cutensornetGetVersion, cutensornetGetCudartVersion
   D-->>C: Unusable, with every library's faults
-  D->>C: Availability, if no library has a fault
+  D-->>C: Availability, if no library has a fault
 ```
 
 A library is opened with the system loader's (`dlopen`) `RTLD_NOW`, which

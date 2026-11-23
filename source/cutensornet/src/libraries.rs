@@ -28,34 +28,30 @@
 //!
 //! To bind another library:
 //!
-//! 1. generate its bindings, the Rust declarations of its API, with
-//!    `scripts/generate_bindings.py` from the library's header, into the
-//!    `generated/` folder of its module's folder (as the CUDA Runtime's
-//!    `cudart_12` and cuTensorNet's `v2_13`): a `bindings.toml` in its
-//!    module's folder, which says what they are made of, makes the script
-//!    bind it; and assert at compile time the layout of each struct a bound
-//!    function takes by value (no function bound today takes one);
-//! 2. add its module here, whose type implements `NativeLibrary`: its name,
-//!    override variable and default paths, its table of functions
-//!    (`function_table!`, each field named for its symbol, each type in a
-//!    file of its module's folder per family of functions, as the CUDA
-//!    Runtime's `device.rs`), and how its
-//!    versions are read and which are accepted, asserted at compile time to
-//!    be the version its header declares, where the header declares one;
+//! 1. generate its bindings, the Rust declarations of its API, from its
+//!    header with `scripts/generate_bindings.py`. A `bindings.toml` in its
+//!    module's folder says what they are made of; the script writes them to
+//!    the `generated/` folder beside it (as the CUDA Runtime's `cudart_12`
+//!    and cuTensorNet's `v2_13`). Assert at compile time the layout of each
+//!    struct a bound function takes by value (no function bound today takes
+//!    one);
+//! 2. add its module here. Its type implements `NativeLibrary`: its name,
+//!    override variable and default paths, its table (`function_table!`,
+//!    one field per symbol, named for it, each type in its family's file, as
+//!    the CUDA Runtime's `device.rs`), and its accepted versions, asserted at
+//!    compile time against its header where the header declares one;
+//!    the CUDA Runtime's `device.rs`), and its accepted versions, asserted at
+//!    compile time against its header where the header declares one;
 //! 3. add its field to `LoadedLibraries`, and open it in
 //!    `LoadedLibraries::open` after the libraries it runs on, so that each
 //!    of those is listed before it in the report;
-//! 4. test its versions in `tests/libraries/`, and its tables there with the
-//!    naming rule (`assert_each_field_is_named_for_its_symbol`) and in the
-//!    case list of `function_table`'s tests; add its variable, paths and
-//!    versions to the README.
+//! 4. test its versions, and its tables with the naming rule
+//!    (`assert_each_field_is_named_for_its_symbol`), in its file under
+//!    `src/tests/libraries/`; add its variable, paths and versions to the
+//!    README.
 //!
 //! Discovery and the public report, a list with one entry per library, do
 //! not change.
-//!
-//! Only the audited versions are accepted: the bindings were checked against
-//! them, and a newer library is not assumed compatible, so any other version
-//! fails discovery before a function is called beyond the version probes.
 
 pub(crate) mod cuda_runtime;
 pub(crate) mod cutensornet;
