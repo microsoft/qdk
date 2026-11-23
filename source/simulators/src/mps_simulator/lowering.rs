@@ -36,7 +36,7 @@ use super::qubit_order::QubitOrder;
               live in one slice, and a box would allocate once per gate"
 )]
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) enum SiteStep {
+pub(super) enum SiteStep {
     /// Applies a gate on one or two sites.
     Apply(SiteGate),
     /// Draws the value of `site`, projects on it, and answers `result`
@@ -54,16 +54,16 @@ pub(crate) enum SiteStep {
 /// a unitary on one or two distinct sites, as the engine takes it, the
 /// first of [`sites`](Self::sites) the matrix's most significant bit.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct SiteGate {
+pub(super) struct SiteGate {
     /// Room for two sites, the second unused for a one-site matrix: read
     /// the sites it acts on through [`sites`](Self::sites).
-    pub(crate) site_slots: [usize; 2],
-    pub(crate) matrix: OperatorMatrix,
+    pub(super) site_slots: [usize; 2],
+    pub(super) matrix: OperatorMatrix,
 }
 
 impl SiteGate {
     /// The sites it acts on, in the matrix's order.
-    pub(crate) fn sites(&self) -> &[usize] {
+    pub(super) fn sites(&self) -> &[usize] {
         &self.site_slots[..self.matrix.qubit_count()]
     }
 }
@@ -75,7 +75,7 @@ impl SiteGate {
 ///
 /// The first call that the MPS simulation method does not run (noise,
 /// loss) or cannot run (a gate on one qubit twice).
-pub(crate) fn lower<E>(
+pub(super) fn lower<E>(
     calls: &[QirCall],
     qubit_order: &QubitOrder,
 ) -> Result<Vec<SiteStep>, MpsResumerError<E>> {

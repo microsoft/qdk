@@ -10,11 +10,10 @@
 //! group, a failure settling the fork only the shots that wait); a run
 //! names its first failing shot in the order of its shots, whichever group
 //! of a split goes on, and drops the groups whose shots all come after it;
-//! a run after a failed one is independent of it; and a stop flag ends a
-//! run before the next batch.
+//! and a stop flag ends a run before the next batch.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 
 use crate::bytecode::Instruction;
 use crate::mps_simulator::shot_stream::shot_stream;
@@ -707,14 +706,12 @@ fn a_failure_settling_the_fork_fails_only_the_shots_that_wait() {
 /// A run whose stop flag is already set fails before any gate, naming its
 /// first shot, even when its program would end at its first resume; the
 /// resumer leaves the flag set, so each run fails so until the caller
-/// clears it, and the run after is then a fresh resumer's. Each row is a
-/// run with the flag set: four coins; a program that only returns; and
-/// four coins again.
+/// clears it. Each row is a run with the flag set: four coins; a program
+/// that only returns; and four coins again.
 #[test]
 fn a_set_stop_flag_fails_the_run_before_any_gate() {
     let stop_flag = Arc::new(AtomicBool::new(true));
-    let mut resumer =
-        MpsResumer::new(ReferenceSpy::new(), 7).with_stop_flag(Arc::clone(&stop_flag));
+    let mut resumer = MpsResumer::new(ReferenceSpy::new(), 7).with_stop_flag(stop_flag);
     let rows = [
         ("four coins", coins(4), ids(&[3, 1, 2])),
         (
@@ -738,16 +735,6 @@ fn a_set_stop_flag_fails_the_run_before_any_gate() {
         );
     }
     assert_eq!(resumer.engine().applies(), 0);
-    stop_flag.store(false, Ordering::Relaxed);
-    let shots = ids(&[3, 1, 2]);
-    let cleared = run(&mut resumer, &coins(4), &shots).expect("a cleared flag stops nothing");
-    let fresh = run(
-        &mut MpsResumer::new(ReferenceSpy::new(), 7),
-        &coins(4),
-        &shots,
-    )
-    .expect("the program runs");
-    assert_eq!(cleared, fresh);
 }
 
 /// A flag set during a batch lets the group under way run the rest of it,

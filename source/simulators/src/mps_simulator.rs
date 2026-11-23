@@ -14,7 +14,7 @@
 //! [`qir`](crate::qir) runs a program's classical part and hands each shot's
 //! quantum calls to a resumer; an engine holds states on a chain of sites,
 //! applies matrices to them and answers probabilities. This module joins
-//! them; its parts, each in its file under `mps_simulator/`:
+//! them; its parts, and the file of each:
 //!
 //! ```text
 //! MpsResumer           runs a program's shots       (this file)
@@ -45,9 +45,10 @@ use crate::qir::{QirMachine, QirResumeError, QirResumer, QirShotId};
 use tensornet::MpsEngine;
 
 mod grouped_run;
-pub(crate) mod lowering;
+mod lowering;
 mod mps_resumer_error;
 mod mps_run_report;
+// Reached by their own tests too.
 pub(crate) mod qubit_order;
 pub(crate) mod shot_stream;
 
@@ -124,16 +125,15 @@ impl<E: MpsEngine> MpsResumer<E> {
     /// that gives a group its next batch or a trap, before the batch is lowered
     /// or the trap reported. So a flag set while a group runs its batch lets
     /// that group run the rest of the batch, and stops each group split off by
-    /// a draw before it runs on. A record, read or write of a result the batch
-    /// measures into ends the batch, so a Base Profile program that measures
-    /// into each result once and records its results after its last
-    /// measurement is one batch: the group under way runs to its end, and the
-    /// groups split off do not run on. Once read set, the flag fails the
-    /// run with [`MpsResumerError::Stopped`], naming the first shot that had
-    /// not ended, whatever the batch after the read would have done (trapped,
-    /// or been refused); a run whose every shot has ended returns its records,
-    /// and a run of no shots returns none. Whoever sets it clears it before the
-    /// next run.
+    /// a draw before it runs on. A Base Profile program that measures into
+    /// each result once and records its results after its last measurement
+    /// is one batch ([where a batch ends](QirMachine)): the group under way
+    /// runs to its end, and the groups split off do not run on. Once read
+    /// set, the flag fails the run with [`MpsResumerError::Stopped`], naming
+    /// the first shot that had not ended, whatever the batch after the read
+    /// would have done (trapped, or been refused); a run whose every shot has
+    /// ended returns its records, and a run of no shots returns none. Whoever
+    /// sets it clears it before the next run.
     #[must_use]
     pub fn with_stop_flag(mut self, stop_flag: Arc<AtomicBool>) -> Self {
         self.stop_flag = Some(stop_flag);

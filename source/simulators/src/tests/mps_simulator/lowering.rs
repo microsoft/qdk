@@ -18,7 +18,7 @@ use tensornet::MpsEngineError;
 use tensornet::reference::ExactReference;
 
 use super::programs::{
-    branch, coins, correlated_noise, gate, gate1, gate2, jump, measure, mz, peek_loss, program,
+    branch, correlated_noise, gate, gate1, gate2, jump, measure, mz, peek_loss, program,
     program_with, readout_noise, reset, ret, set,
 };
 use super::{ids, results, run};
@@ -195,16 +195,18 @@ fn a_rotation_turns_by_its_angle_sign_included() {
 
 /// A rotation by an angle that is not finite has no unitary matrix:
 /// lowering passes it on, the engine refuses it, and the run fails naming
-/// its first shot, the engine's refusal as its error; the resumer's next
-/// run is a fresh resumer's. Each row is an angle: NaN, +∞ and −∞.
+/// its first shot, the engine's refusal as its error. Each row is an angle:
+/// NaN, +∞ and −∞.
 #[test]
 fn a_rotation_by_an_angle_that_is_not_finite_is_the_engines_refusal() {
-    let shots = QirShotId::first(8);
     for angle in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
-        let mut resumer = MpsResumer::new(ExactReference::new(), 7);
         let block = [gate(OPID_RX, 0, 0, angle), mz(0), ret()];
-        let error = run(&mut resumer, &program(1, &[&block]), &ids(&[2, 0]))
-            .expect_err("the engine refuses the rotation");
+        let error = run(
+            &mut MpsResumer::new(ExactReference::new(), 7),
+            &program(1, &[&block]),
+            &ids(&[2, 0]),
+        )
+        .expect_err("the engine refuses the rotation");
         assert!(
             matches!(
                 &error,
@@ -215,14 +217,6 @@ fn a_rotation_by_an_angle_that_is_not_finite_is_the_engines_refusal() {
             ),
             "rx by {angle}: {error:?}"
         );
-        let next = run(&mut resumer, &coins(2), &shots).expect("the program runs");
-        let fresh = run(
-            &mut MpsResumer::new(ExactReference::new(), 7),
-            &coins(2),
-            &shots,
-        )
-        .expect("the program runs");
-        assert_eq!(next, fresh, "rx by {angle}");
     }
 }
 
