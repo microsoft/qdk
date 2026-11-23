@@ -7,8 +7,7 @@ entangle them little, and returns them with the run's report: the largest
 bond it held and the weight truncation discarded.
 ``check_tensornetwork_setup`` says whether the GPU is set up for the GPU
 engine (``engine="gpu"``, the default, which needs
-``pip install "qdk[tensornetwork]"``); the CPU engine (``engine="cpu"``)
-needs no setup.
+``pip install "qdk[tensornetwork]"``).
 """
 
 from dataclasses import dataclass
@@ -63,8 +62,8 @@ class MpsOptions:
 
 @dataclass(frozen=True)
 class Sample:
-    """Query ``shots`` shots: the result is a list with one entry per shot,
-    that shot's output in the structure the program records it: one
+    """A query for ``shots`` shots; its result is a list with one entry per
+    shot, that shot's output in the structure the program records it: one
     recorded value alone (``Result`` for a measurement; ``bool``, ``int``
     or ``float`` for a classical value); a tuple or a list for a tuple or
     an array record, holding its values in recording order; or, when the
@@ -93,8 +92,8 @@ class TensorNetworkReport:
     shots.
 
     :param largest_bond: The largest bond a state held where a sequence of
-        gates ended, before the measurements after it: what the run's
-        costliest gates paid for.
+        gates ended, before the measurements after it: the bond that set
+        the run's time and memory.
     :param discarded_weight: The most weight a shot's state lost to
         truncation: an estimate of the fidelity lost, 0 when the run was
         exact (to rounding).
@@ -219,9 +218,9 @@ def tensornetwork_qir(
         say), an ``engine`` other than ``"gpu"`` and ``"cpu"``, ``queries``
         not holding exactly one query, a program the MPS simulation method
         does not run (a noise intrinsic, a readout-noise call, a loss check,
-        a gate on one qubit twice), a max bond dimension too large for the
-        program's qubits, or a call the engine refuses (a rotation by an
-        angle that is not finite, say).
+        a two-qubit gate given one qubit twice), a max bond dimension too
+        large for the program's qubits, or a call the engine refuses (a
+        rotation by an angle that is not finite, say).
     :raises TypeError: When ``options`` is not an :class:`MpsOptions`,
         ``queries`` is not iterable (a bare :class:`Sample`, say), a query
         is not a :class:`Sample`, ``engine`` is not a ``str``, or ``input``
@@ -272,7 +271,7 @@ def tensornetwork_qir(
         sample.shots,
         seed,
         options.max_bond_dimension,
-        _packaged_libraries(),
+        _packaged_libraries() if engine == "gpu" else [],
         _INSTALL_COMMAND,
         engine,
     )

@@ -23,16 +23,10 @@ tensor-network simulation:
 - :func:`~qdk.simulation.run_qir` — simulates QIR as given in one of
   three backend simulators: clifford, gpu or cpu.
 
-- :func:`~qdk.simulation.tensornetwork_qir` — simulates QIR with a
-  tensor-network simulation method: shots on a matrix product state, on an
-  NVIDIA GPU (``engine="gpu"``, the default, after
-  ``pip install "qdk[tensornetwork]"``) or the CPU (``engine="cpu"``). It
-  takes :class:`~qdk.simulation.Sample` queries and
-  :class:`~qdk.simulation.MpsOptions`, and returns
-  :class:`~qdk.simulation.TensorNetworkResults` with the run's
-  :class:`~qdk.simulation.TensorNetworkReport`;
-  :func:`~qdk.simulation.check_tensornetwork_setup` checks the GPU setup
-  and returns a :class:`~qdk.simulation.TensorNetworkSetup`.
+- :func:`~qdk.simulation.tensornetwork_qir` — simulates QIR's shots on a
+  matrix product state, on an NVIDIA GPU (``qdk[tensornetwork]``) or the
+  CPU; :func:`~qdk.simulation.check_tensornetwork_setup` checks the GPU's
+  setup.
 
 - :class:`~qdk.simulation.DensityMatrixSimulator` — an experimental simulator that uses
   a density-matrix to track its state.

@@ -35,13 +35,12 @@ qre = ["pandas>=2.1"]
 # The GPU engine of `tensornetwork_qir(method="mps")`: NVIDIA's cuTensorNet
 # and CUDA Runtime wheels, at the versions the bindings were audited against
 # (cuTensorNet 2.13.0 exactly; any CUDA Runtime 12.9.x, as each reports
-# 12.9), on Linux x86-64, the only platform whose bindings the QDK
-# generated and audited; and the cuBLAS and cuSOLVER wheels, which
-# cuTensorNet's library needs to load but its wheel does not declare,
-# pinned to the versions an A100 ran the engine with from wheels.
-# `qdk/simulation/_tensor_network.py` (`_PACKAGED_LIBRARIES`) says which of
-# these libraries the QDK opens, and who finds the others. Not in `all`:
-# the libraries run only with an NVIDIA GPU and driver.
+# 12.9); and the cuBLAS and cuSOLVER wheels, which cuTensorNet's library
+# needs to load but its wheel does not declare, pinned to the versions the
+# engine was verified with. `qdk/simulation/_tensor_network.py`
+# (`_PACKAGED_LIBRARIES`) says which of these libraries the QDK opens, and
+# who finds the others. Not in `all`: the libraries run only with an NVIDIA
+# GPU and driver.
 tensornetwork = [
   "cutensornet-cu12==2.13.0; platform_system == 'Linux' and platform_machine == 'x86_64'",
   "nvidia-cuda-runtime-cu12==12.9.*; platform_system == 'Linux' and platform_machine == 'x86_64'",

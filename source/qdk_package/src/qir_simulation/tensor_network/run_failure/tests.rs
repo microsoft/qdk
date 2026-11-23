@@ -115,7 +115,7 @@ fn a_failures_message_shows_each_cause_once() {
             ))),
         ),
         (
-            "a max bond dimension that makes no chain",
+            "a max bond dimension too large for the program's qubits",
             shot_0_failure_and_its_chain(MpsResumerError::<FakeEngineError>::Capacity {
                 qubits: 70,
                 max_bond_dimension: 1 << 40,

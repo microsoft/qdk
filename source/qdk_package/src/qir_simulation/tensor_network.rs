@@ -18,12 +18,9 @@
 //! device 0 (`CudaMpsEngine`, on cuTensorNet), whose libraries discovery
 //! finds, with the files of NVIDIA's wheels that Python found; or `"cpu"`,
 //! the same engine on the host CPU (`CpuMpsEngine`), which needs no setup.
-//! The program and the settings are checked before the run, and a fault
-//! raises `ValueError` here; which Python exception each failure of the
-//! run raises, and with what message (a GPU not set up among them), is in
-//! `tensor_network/run_failure.rs`; how
-//! the run leaves the Python thread, and stops on Ctrl-C, in
-//! `tensor_network/detached_run.rs`.
+//! The program and the settings are checked before the run (`ValueError`).
+//! Which exception each run failure raises: `tensor_network/run_failure.rs`;
+//! leaving the Python thread and Ctrl-C: `tensor_network/detached_run.rs`.
 
 mod detached_run;
 mod run_failure;
@@ -100,7 +97,7 @@ pub(crate) fn _tensor_network_sample<'py>(
             gpu_run(py, &settings, &packaged)?
         }
         "cpu" => run_detached(py, |stop_flag| {
-            run(&settings, || Ok(CpuMpsEngine::new(CpuAlgebra)), stop_flag)
+            run_on_engine(&settings, || Ok(CpuMpsEngine::new(CpuAlgebra)), stop_flag)
         })?,
         other => {
             return Err(PyValueError::new_err(format!(
@@ -171,7 +168,7 @@ fn gpu_run(
         .detach(|| qdk_cutensornet::discover_with(packaged))
         .map_err(|_| gpu_not_set_up(&py.detach(|| GpuSetup::check(packaged))).into_py_err())?;
     run_detached(py, move |stop_flag| {
-        run(settings, || gpu_engine(&availability, packaged), stop_flag)
+        run_on_engine(settings, || gpu_engine(&availability, packaged), stop_flag)
     })
 }
 
@@ -201,7 +198,7 @@ fn gpu_engine(
 
 /// The run itself, on the run thread: makes the engine with `make_engine`,
 /// then runs the shots on it, stopping once `stop_flag` is set.
-fn run<E: MpsEngine>(
+fn run_on_engine<E: MpsEngine>(
     settings: &RunSettings<'_>,
     make_engine: impl FnOnce() -> Result<E, RunFailure>,
     stop_flag: Arc<AtomicBool>,

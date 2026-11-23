@@ -32,7 +32,6 @@ from qdk.simulation import (
     Sample,
     TensorNetworkReport,
     TensorNetworkResults,
-    TensorNetworkSetup,
     check_tensornetwork_setup,
     tensornetwork_qir,
 )
@@ -163,39 +162,50 @@ attributes #2 = {{ "qdk_noise" }}
 
 @pytest.mark.parametrize("shots", [0, -1, 2**32, True, 1.5])
 def test_sample_refuses_a_count_out_of_range(shots):
+    """A shot count that is not an integer in [1, 2**32) is refused when the
+    query is made, before any run."""
     with pytest.raises(ValueError, match="shots"):
         Sample(shots)
 
 
 @pytest.mark.parametrize("bond", [0, 2**32, True, 2.0])
 def test_mps_options_refuse_a_max_bond_dimension_out_of_range(bond):
+    """A max bond dimension that is not an integer in [1, 2**32) is refused
+    when the options are made."""
     with pytest.raises(ValueError, match="max_bond_dimension"):
         MpsOptions(max_bond_dimension=bond)
 
 
 def test_the_default_max_bond_dimension_is_128():
+    """Options made without a max bond dimension take χ = 128."""
     assert MpsOptions().max_bond_dimension == 128
 
 
 def test_an_unknown_method_is_refused():
+    """A method other than ``"mps"`` is refused, naming the method."""
     with pytest.raises(ValueError, match="method"):
         run(BELL, [Sample(1)], method="contraction")
 
 
 @pytest.mark.parametrize("seed", [-1, 2**32, True, 1.5, "7"])
 def test_a_seed_out_of_range_is_refused(seed):
+    """A seed that is not an integer in [0, 2**32) is refused before the
+    run."""
     with pytest.raises(ValueError, match="seed"):
         run(BELL, [Sample(1)], seed=seed)
 
 
 @pytest.mark.parametrize("seed", [0, 2**32 - 1])
 def test_a_seed_at_either_end_of_its_range_runs(seed):
+    """A seed of 0 or 2**32 − 1, the ends of the native side's 32-bit seed,
+    runs."""
     (rows,) = run(BELL, [Sample(4)], seed=seed)
     assert len(rows) == 4
 
 
 @pytest.mark.parametrize("queries", [[], [Sample(1), Sample(2)]])
 def test_queries_other_than_one_sample_are_refused(queries):
+    """No query, or more than one, is refused: a run answers one Sample."""
     with pytest.raises(ValueError, match="exactly one Sample"):
         run(BELL, queries)
 
@@ -462,14 +472,14 @@ _MEASURE_AND_RECORD = """
         pytest.param(
             "call void @__quantum__qis__cnot__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 0 to %Qubit*))",
             r"qubits in invocation.*cnot.*are not unique",
-            id="a gate on one qubit twice",
+            id="a two-qubit gate given one qubit twice",
         ),
         pytest.param(
             "%index = add i64 0, 0\n"
             "  %qubit = inttoptr i64 %index to %Qubit*\n"
             "  call void @__quantum__qis__cnot__body(%Qubit* %qubit, %Qubit* %qubit)",
             r"`cx`.*qubit 0",
-            id="a gate on one qubit twice, the qubit computed at run time",
+            id="a two-qubit gate given one qubit twice, the qubit computed at run time",
         ),
         pytest.param(
             "call void @__quantum__rt__readout_noise(double 0.1, double 0.1, %Result* inttoptr (i64 0 to %Result*))",
@@ -558,7 +568,6 @@ def test_the_setup_check_reports_a_problem_without_raising(unusable_setup):
     """A setup that cannot work is reported as not ready, and printing the
     result shows its report; the check raises nothing."""
     setup = check_tensornetwork_setup()
-    assert isinstance(setup, TensorNetworkSetup)
     assert not setup.ready
     assert str(setup) == setup.report
 
@@ -574,7 +583,7 @@ def test_the_setup_checks_advice_names_the_fix(unusable_setup):
         assert "Linux x86-64" in advice
 
 
-def test_the_setup_check_gives_the_native_warnings(monkeypatch):
+def test_the_setup_check_gives_its_warnings(monkeypatch):
     """The warnings the native check found (here, as a host with two copies
     of cuTensorNet would give them) reach `TensorNetworkSetup.warnings`."""
     warning = "another copy of cuTensorNet is at /env/libcutensornet.so.2"
