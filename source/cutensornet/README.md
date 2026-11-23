@@ -1,9 +1,9 @@
 # cuTensorNet for the QDK: the MPS engine, and the discovery and loading of its libraries
 
 The `qdk_cutensornet` crate was designed to solve the problem of running
-a QDK simulator's matrix product states (MPS) on an NVIDIA GPU, with
-NVIDIA's cuTensorNet library, without making NVIDIA software part of the
-QDK. The problem includes:
+the QDK's tensor-network simulations, the MPS (matrix product state)
+simulator first, on an NVIDIA GPU, with NVIDIA's cuTensorNet library,
+without making NVIDIA software part of the QDK. The problem includes:
 
 - an MPS engine's rules (where the orthogonality centre moves, how gates
   are fused and applied, what a truncation keeps track of) are the same on
@@ -236,12 +236,11 @@ before making any engine, and the engine takes its result.
 every QDK build, and every process that loads the QDK, fail without them.
 
 **How it is solved.** Nothing is linked. When a GPU run is asked for,
-[`discover`](src/discovery.rs) opens the two libraries, looks up by name
-each C function the crate uses (its _symbol_), cuTensorNet's tensor API
-among them, and checks the versions the libraries report. It returns an
-`Availability`, which keeps them loaded and which
-[`CudaAlgebra::new`](src/engine/cuda_algebra.rs) takes, or an
-`AvailabilityError` that says what is missing.
+[`discover`](src/discovery.rs) opens the libraries it needs (today the CUDA
+Runtime and cuTensorNet), looks up by name each C function the crate uses
+(its _symbol_), cuTensorNet's tensor API among them, and checks the
+versions the libraries report. It returns an `Availability`, which keeps
+them loaded, or an `AvailabilityError` that says what is missing.
 
 **Why this approach.**
 
@@ -253,7 +252,7 @@ among them, and checks the versions the libraries report. It returns an
   function, or a version other than the audited one, is found before any
   GPU work and reported with the path, function or version at fault, for
   every library at once, so an installation is fixed in one pass.
-- **One audited surface.** The functions the algebra may call are the rows
+- **One audited surface.** The functions the crate may call are the rows
   of one table per library, each checked against NVIDIA's header when the
   crate compiles ([The bindings](docs/loading.md#the-bindings)).
 - **Open to more libraries.** Each library is one module; adding one changes
@@ -354,8 +353,12 @@ native object, its scratch, its failures and its refusals.
 the kit and `canonical_mps`'s engine circuits on a GPU, with the real
 libraries, and the native calls' tests include the cases they also run
 on a GPU; these tests are ignored unless asked for (`--ignored`), as they
-need a GPU. The [unit tests](src/tests) drive each way discovery fails
-without NVIDIA's libraries, and
+need a GPU.
+
+The [unit tests](src/tests) drive each way discovery fails without
+NVIDIA's libraries, on any Unix host: missing and refused libraries,
+missing functions, failed version probes, refused versions, and bad
+override variables, each reported with the others.
 [`tests/availability.rs`](tests/availability.rs) discovers the audited
 libraries where they are installed.
 

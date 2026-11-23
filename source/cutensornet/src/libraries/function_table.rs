@@ -8,8 +8,7 @@
 //! declaration in the library's bindings. Filling a table looks each
 //! function up through a [`SymbolResolver`]; it stores the function's
 //! address and does not call it. It returns every missing required
-//! function, so that the user fixes them all at once. The MPS engine calls
-//! the libraries through these tables.
+//! function, so that the user fixes them all at once.
 
 use crate::LibraryFault;
 
