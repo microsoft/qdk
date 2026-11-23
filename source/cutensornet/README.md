@@ -50,8 +50,8 @@ Today the crate holds:
   [`LibraryFault`](src/libraries/report.rs)s it lists.
 
 The extension point is an MPS simulation method: written once against
-`tensornet::MpsEngine`, it runs on this engine as on `canonical_mps`'s
-`CpuMpsEngine`, and runs on the GPU unchanged. A simulator calls
+`tensornet::MpsEngine`, it runs unchanged on this engine, on the GPU, as on
+`canonical_mps`'s `CpuMpsEngine`. A simulator calls
 `discover()`, then makes the engine with
 `CudaMpsEngine::try_from(&availability)` (Linux x86-64), at the engine's
 default cutoff (`.with_cutoff(c)` sets another), as the example on
@@ -351,7 +351,7 @@ libraries, and the native calls' tests include the cases they also run
 on a GPU; these tests are ignored unless asked for (`--ignored`), as they
 need a GPU.
 
-The [unit tests](src/tests) drive each way discovery fails without
+Discovery's [unit tests](src/tests) drive each way it fails without
 NVIDIA's libraries: on any Unix host, refused libraries, missing
 functions, failed version probes, refused versions, and bad override
 variables, each reported with the others; on Linux with glibc, the tests
