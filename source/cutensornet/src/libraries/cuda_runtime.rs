@@ -8,8 +8,10 @@
 //! the functions looked up in it (`CudaFunctions`), and its versions
 //! (`CUDA Runtime`, which must be 12.9, and `CUDA driver`, reported only); as
 //! its `LibrarySetupGuide`, what the setup check shows of it and advises. CUDA
-//! encodes a version as `1000·major + 10·minor` (`12090` is 12.9). This module
-//! also declares the function-pointer types of the table's rows.
+//! encodes a version as `1000·major + 10·minor` (`12090` is 12.9). One file
+//! per family of the table's functions declares their function-pointer
+//! types, mirroring cuTensorNet's: `versions`, `error_strings`, `device`,
+//! `memory` and `stream`.
 //!
 //! `cudart_12`, in `generated/`, declares the CUDA Runtime 12's API, the
 //! functions, types and constants of its header: a function pointer is only

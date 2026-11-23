@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! [`NativeCalls`]: every call the CUDA algebra and its session make to the
-//! CUDA Runtime and cuTensorNet, and the two implementations that answer
+//! [`NativeCalls`]: the calls to the CUDA Runtime and cuTensorNet that a
+//! canonical MPS on the GPU needs, and the two implementations that answer
 //! them. The setup check reads the devices through three of them (the
 //! count, the selection and the memory read).
 //!
@@ -30,25 +30,12 @@ pub(crate) mod fake_libraries;
 mod loaded_libraries;
 pub(crate) mod memory_calls;
 pub(crate) mod session_calls;
-pub(super) mod tensor_calls;
-
-// What the tests under `src/tests` name of these modules: the size of the
-// algebra's buffers, and the traits and arguments of the calls they make on
-// the fake libraries and on the loaded ones.
-#[cfg(test)]
-pub(crate) use self::{
-    complex::{Complex64Abi, complex_bytes},
-    memory_calls::{MemoryCalls, WorkspaceSlot},
-    session_calls::SessionCalls,
-    tensor_calls::{
-        GateSplitDescriptors, GateSplitOperands, NativeContractionNetwork, SvdSetting,
-        SvdTruncation, TensorCalls, TensorModes, TensorOperand,
-    },
-};
+pub(crate) mod tensor_calls;
 
 use std::{ffi::c_void, ptr::NonNull};
 
-/// Every native call the CUDA algebra and its session make.
+/// The calls to the CUDA Runtime and cuTensorNet: the session's, the
+/// memory's and the tensor API's, in one trait.
 pub(crate) trait NativeCalls:
     session_calls::SessionCalls + tensor_calls::TensorCalls
 {

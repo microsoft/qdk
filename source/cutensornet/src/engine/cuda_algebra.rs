@@ -62,6 +62,7 @@ mod device_session;
 mod device_tensor;
 mod extents;
 mod gate_split;
+mod modes;
 pub(crate) mod policy;
 mod qr_move;
 mod resources;

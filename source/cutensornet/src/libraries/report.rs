@@ -12,9 +12,9 @@
 //! Each library at fault lists every fault its checks could find, so that
 //! the user fixes their installation in one pass: the variable, path,
 //! function or version at fault. Only a fault that leaves nothing more to
-//! check about its library (an override that is not a file, a library not
-//! found, a path the process cannot access, or a library refused by the
-//! system loader) stops the checks of that library.
+//! check about its library (an invalid override, not a file or not
+//! readable; a library not found, at a path the process cannot access, or
+//! refused by the system loader) stops the checks of that library.
 
 use std::path::PathBuf;
 use thiserror::Error;

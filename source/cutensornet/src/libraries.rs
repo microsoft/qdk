@@ -34,8 +34,6 @@
 //! loaded.
 //! `Opening` keeps, beside each library's report, its setup guide, so the
 //! setup check shows and advises about the libraries discovery opened.
-//! The MPS engine and the setup check call the loaded libraries through
-//! their tables.
 //!
 //! To bind another library:
 //!
@@ -48,10 +46,12 @@
 //!    function takes by value (no function bound today takes one);
 //! 2. add its module here, whose type implements `NativeLibrary`: its name,
 //!    override variable, file name and default paths, its table of
-//!    functions (`function_table!`, each field named for its symbol), how
-//!    its versions are read and which are accepted, asserted at compile time
-//!    to be the version its header declares, where the header declares one;
-//!    and `LibrarySetupGuide`: what the setup check shows of it and advises;
+//!    functions (`function_table!`, each field named for its symbol, each
+//!    type in a file of its module's folder per family of functions, as the
+//!    CUDA Runtime's `device.rs`), how its versions are read and which are
+//!    accepted, asserted at compile time to be the version its header
+//!    declares, where the header declares one; and `LibrarySetupGuide`:
+//!    what the setup check shows of it and advises;
 //! 3. add its field to `LoadedLibraries`, open it in `LoadedLibraries::open`
 //!    after the libraries it runs on, so that each of those is listed before
 //!    it in the report and the setup check;
