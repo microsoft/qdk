@@ -197,8 +197,7 @@ def test_a_seed_out_of_range_is_refused(seed):
 
 @pytest.mark.parametrize("seed", [0, 2**32 - 1])
 def test_a_seed_at_either_end_of_its_range_runs(seed):
-    """A seed of 0 or 2**32 − 1, the ends of the native side's 32-bit seed,
-    runs."""
+    """A seed of 0 or 2**32 − 1, the ends of its documented range, runs."""
     (rows,) = run(BELL, [Sample(4)], seed=seed)
     assert len(rows) == 4
 

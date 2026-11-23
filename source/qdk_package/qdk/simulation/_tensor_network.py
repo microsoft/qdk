@@ -91,9 +91,9 @@ class TensorNetworkReport:
     """The run's report: what a :func:`tensornetwork_qir` run cost, over its
     shots.
 
-    :param largest_bond: The largest bond a state held where a sequence of
-        gates ended, before the measurements after it: the bond that set
-        the run's time and memory.
+    :param largest_bond: The largest bond a state held at the end of a
+        sequence of gates, before the measurements after it; a gate inside
+        a sequence may hold a larger one.
     :param discarded_weight: The most weight a shot's state lost to
         truncation: an estimate of the fidelity lost, 0 when the run was
         exact (to rounding).
