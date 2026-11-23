@@ -270,6 +270,8 @@ class NeutralAtomDevice(Device):
         using_noise = noise is not None
         if noise is None:
             noise = NoiseConfig()
+        else:
+            noise = noise.copy()
 
         # Override t, t_adj, s, s_adj, and z noise if they are unset and rz noise is set.
         if noise and not noise.rz.is_noiseless():
