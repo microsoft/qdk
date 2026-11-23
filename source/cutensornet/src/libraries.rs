@@ -40,8 +40,6 @@
 //!    one field per symbol, named for it, each type in its family's file, as
 //!    the CUDA Runtime's `device.rs`), and its accepted versions, asserted at
 //!    compile time against its header where the header declares one;
-//!    the CUDA Runtime's `device.rs`), and its accepted versions, asserted at
-//!    compile time against its header where the header declares one;
 //! 3. add its field to `LoadedLibraries`, and open it in
 //!    `LoadedLibraries::open` after the libraries it runs on, so that each
 //!    of those is listed before it in the report;
