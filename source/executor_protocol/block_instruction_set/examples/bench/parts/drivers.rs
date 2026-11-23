@@ -66,8 +66,8 @@ impl<'p> ProgramInBatches<'p> {
         Self {
             sends: set,
             requires: Capabilities::new(
-                Resources::unconstrained(),
-                Features::unconstrained(),
+                Resources::nothing_stated(),
+                Features::nothing_stated(),
                 BlockCapabilities::NONE
                     .with_qubits(qubits)
                     .with_readout_parity(true),

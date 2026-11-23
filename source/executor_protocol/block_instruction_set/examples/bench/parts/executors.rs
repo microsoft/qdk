@@ -63,7 +63,7 @@ impl Profiler {
             accepts: MixGates::set(),
             provides: Capabilities::new(
                 resources,
-                Features::unconstrained(),
+                Features::nothing_stated(),
                 BlockCapabilities::NONE,
             ),
             profile: Profile::default(),

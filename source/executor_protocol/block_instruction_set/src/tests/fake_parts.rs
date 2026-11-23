@@ -131,8 +131,8 @@ impl QubitRegister {
         Self {
             accepts: Gates::set(),
             provides: Capabilities::new(
-                Resources::unconstrained(),
-                Features::unconstrained(),
+                Resources::nothing_stated(),
+                Features::nothing_stated(),
                 limits,
             ),
         }
