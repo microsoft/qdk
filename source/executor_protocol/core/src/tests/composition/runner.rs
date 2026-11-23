@@ -21,11 +21,15 @@ use super::driver_joins::{NO_X, fault, listed, part, short_shots};
 use super::{PATIENT, SEED, ends_soon, failed, plain, refused};
 use crate::prelude::*;
 use crate::tests::example_sets::Measuring;
-use crate::tests::example_sets::{BitReadout, ShotFlags, ToffoliGate};
+use crate::tests::example_sets::{
+    BitReadout, QubitsAndResetShort, Resettable, ShotFlags, ToffoliGate, TooFewQubits,
+    qubits_and_reset,
+};
 use crate::tests::fake_parts::{
-    BitFlip, Bits, CczDecomposition, CliffordTRegister, CoinCopy, FailsOnce, FromThread,
-    GateForGate, Later, Log, Panics, PanicsWhen, Profiler, Program, Renamed, Splitter, Spread,
-    Stating, ToffoliProgram, Trap, Values, YieldNow, batches_of, coin_gates, in_each_bracketing,
+    AncillaReuse, BitFlip, Bits, CczDecomposition, CliffordTRegister, CoinCopy, FailsOnce,
+    FromThread, GateForGate, Later, Log, Panics, PanicsWhen, Profiler, Program, Renamed,
+    SideBySideProgram, Splitter, Spread, Stating, ToffoliProgram, Trap, Values, YieldNow, Zeros,
+    batches_of, coin_gates, in_each_bracketing,
 };
 use crate::tests::runner;
 use crate::{
@@ -1148,6 +1152,13 @@ fn faults_listed(refusal: RunRefusal) -> Vec<CompositionFault> {
 /// positions they name are the walk's, pinned in `driver_joins`:
 /// `every_fault_is_listed_by_requirer_then_by_provider` and
 /// `inserting_a_profiler_changes_only_the_positions_of_the_faults`.
+///
+/// A set's own needs are split per need at a run's start as at `on`: a
+/// program running its shots side by side, 4 qubits each, over an ancilla
+/// reuse, over 8 qubits and no reset, composes, as a run stating no shots
+/// needs no qubit; a run of 3 shots falls short of the program's 12
+/// qubits and of the reset the reuse adds, two faults, each naming the
+/// part that stated its need.
 #[test]
 fn a_refused_run_names_each_part_whose_requirement_is_not_provided_and_its_provider() {
     let log = Log::default();
@@ -1162,6 +1173,46 @@ fn a_refused_run_names_each_part_whose_requirement_is_not_provided_and_its_provi
         listed(&[
             fault(part::<Program>(0), part::<Stating>(1), short_shots(3, 2)),
             fault(part::<Stating>(2), part::<Bits>(3), short_shots(6, 4)),
+        ]),
+    );
+    let chain = SideBySideProgram::new(4)
+        .through(AncillaReuse::new())
+        .on(Zeros::providing(
+            Resettable,
+            Some(qubits_and_reset(8, false)),
+        ));
+    let short = |piece: QubitsAndResetShort| BoundaryMismatch {
+        capabilities: CapabilitiesMismatch {
+            set_capabilities: vec![Box::new(piece)],
+            ..CapabilitiesMismatch::default()
+        },
+        ..BoundaryMismatch::default()
+    };
+    let register = part::<Zeros<Resettable>>(2);
+    assert_eq!(
+        listed(&faults_listed(refused(
+            runner(chain).run(&ShotSet::ids(0..3), SEED)
+        ))),
+        listed(&[
+            fault(
+                part::<SideBySideProgram>(0),
+                register.clone(),
+                short(QubitsAndResetShort {
+                    qubits: Some(TooFewQubits {
+                        required: 12,
+                        provided: 8,
+                    }),
+                    reset: false,
+                }),
+            ),
+            fault(
+                part::<AncillaReuse>(1),
+                register,
+                short(QubitsAndResetShort {
+                    qubits: None,
+                    reset: true,
+                }),
+            ),
         ]),
     );
 }

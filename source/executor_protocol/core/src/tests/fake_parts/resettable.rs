@@ -2,10 +2,10 @@
 // Licensed under the MIT License.
 
 //! The fake parts on [`Resettable`], whose capabilities are qubits and a
-//! reset: a driver needing qubits, an adapter needing a reset below, and a
-//! translating adapter onto it from [`QubitLimited`], for the tests of a
-//! fault naming the part that stated each need. Its executor is
-//! [`Zeros`](super::Zeros), of any set.
+//! reset: drivers needing qubits, one of them per shot of the run, an
+//! adapter needing a reset below, and a translating adapter onto it from
+//! [`QubitLimited`], for the tests of a fault naming the part that stated
+//! each need. Its executor is [`Zeros`](super::Zeros), of any set.
 
 use crate::prelude::*;
 use crate::roles::lent_translating_adapter;
@@ -55,9 +55,56 @@ impl Driver for ResettableProgram {
     }
 }
 
-/// An adapter reusing its ancillas, which resets them between uses: it
-/// requires what arrives, with a reset, below, and passes each batch as it
-/// came.
+/// A driver running a run's shots side by side on one register, `width`
+/// qubits each: it requires the run's resources and features, with
+/// `width` qubits per shot of the run and no reset, so a run that states
+/// no shots, as the one `on` checks a chain with, needs no qubit. It
+/// sends no batch.
+pub(crate) struct SideBySideProgram {
+    width: u32,
+}
+
+impl SideBySideProgram {
+    pub(crate) fn new(width: u32) -> StatesLimits<Self> {
+        Self { width }.stating_limits()
+    }
+}
+
+impl DriverRequirements for SideBySideProgram {
+    /// The run's, with `width` qubits per shot.
+    fn requires(&self, run: &RunRequirement) -> Capabilities<Resettable> {
+        let needs = QubitsAndReset {
+            qubits: self.width.saturating_mul(run.resources.shots.unwrap_or(0)),
+            reset: false,
+        };
+        Capabilities::new(run.resources, run.features, needs)
+    }
+}
+
+impl Driver for SideBySideProgram {
+    type Sends = Resettable;
+    type Output = ();
+
+    fn sends(&self) -> &Resettable {
+        &Resettable
+    }
+
+    fn bind(&mut self, (): ()) {}
+
+    async fn drive(
+        &mut self,
+        shots: &ShotSet,
+        _seed: Seed,
+        _below: &mut impl Executor<Accepts = Resettable>,
+    ) -> Result<Vec<()>, DriveError> {
+        Ok(vec![(); shots.len()])
+    }
+}
+
+/// An adapter reusing the qubits that arrive as ancillas, which resets
+/// them between uses: it requires what arrives below, with a reset if any
+/// qubit arrives, as with none it has none to reuse, and passes each batch
+/// as it came.
 pub(crate) struct AncillaReuse;
 
 impl AncillaReuse {
@@ -67,11 +114,12 @@ impl AncillaReuse {
 }
 
 impl AdapterLimits for AncillaReuse {
-    /// What arrives, with a reset.
+    /// What arrives, with a reset if any qubit arrives.
     fn requires(&self, above: &Capabilities<Resettable>) -> Capabilities<Resettable> {
+        let arriving = *above.set_capabilities();
         let needs = QubitsAndReset {
-            reset: true,
-            ..*above.set_capabilities()
+            reset: arriving.reset || arriving.qubits > 0,
+            ..arriving
         };
         Capabilities::new(*above.resources(), *above.features(), needs)
     }
