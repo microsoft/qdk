@@ -3,11 +3,10 @@
 
 //! Opening a native library file.
 //!
-//! `libraries::open` opens each library the crate uses with
-//! [`load_library`], from the first of its candidate paths that exists, and
-//! fills the table of its functions from the open file, which is a
-//! `SymbolResolver` (`function_table`). Opening returns its fault as a
-//! [`LibraryFault`].
+//! [`load_library`] opens a library from the first of its candidate paths
+//! (absolute paths, or bare file names the system loader searches for) that
+//! names a file of it, and tells a library not found from one the system
+//! loader refused ([`LibraryFault`]'s `NotFound` and `LoadFailed`).
 
 use super::function_table::SymbolResolver;
 use crate::LibraryFault;
@@ -42,9 +41,8 @@ impl SymbolResolver for OpenLibraryFile {
 ///
 /// An absolute path that does not exist is skipped. A bare file name is
 /// searched for by the system loader, and skipped when the loader reports
-/// no file of that name: glibc reports so too when its search found only
-/// files of that name it could not use (another machine's, or unreadable
-/// ones), as its own search skips them. Any other failure is the library's.
+/// no file of that name ([`no_file_of_that_name`]). Any other failure is
+/// the library's.
 pub(crate) fn load_library(paths: Vec<PathBuf>) -> Result<OpenLibraryFile, LibraryFault> {
     for path in &paths {
         if path.is_absolute() && !path.exists() {

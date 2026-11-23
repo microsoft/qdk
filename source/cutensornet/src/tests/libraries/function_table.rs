@@ -7,13 +7,7 @@
 //! every table does when it is filled.
 
 use crate::tests::stand_ins::StandInResolver;
-use crate::{
-    LibraryFault,
-    libraries::{
-        cuda_runtime::CudaFunctions, cutensornet::CuTensorNetFunctions,
-        function_table::FunctionTable,
-    },
-};
+use crate::{LibraryFault, libraries::function_table::FunctionTable};
 
 /// Checks that each of `rows`, `(field, symbol, required)`, names its field
 /// for its symbol: the field's words appear, in order, among the words of
@@ -47,39 +41,47 @@ pub(super) fn assert_each_field_is_named_for_its_symbol(rows: &[(&str, &str, boo
     }
 }
 
-/// A library that lacks required functions is refused, naming each one in
-/// its table's order, so that the user fixes them all at once.
-#[test]
-fn every_missing_required_function_is_reported_in_table_order() {
-    for (table, rows, resolve) in [
-        (
-            "CudaFunctions",
-            CudaFunctions::ROWS,
-            faults_of::<CudaFunctions> as fn(&StandInResolver) -> Option<Vec<LibraryFault>>,
-        ),
-        (
-            "CuTensorNetFunctions",
-            CuTensorNetFunctions::ROWS,
-            faults_of::<CuTensorNetFunctions>,
-        ),
-    ] {
-        let required: Vec<_> = rows.iter().filter(|row| row.2).map(|row| row.1).collect();
-        let resolver = required
-            .iter()
-            .fold(StandInResolver::audited(), |resolver, &symbol| {
-                resolver.without(symbol)
-            });
-        let expected: Vec<_> = required
-            .into_iter()
-            .map(|symbol| LibraryFault::MissingRequiredSymbol { symbol })
-            .collect();
-        assert_eq!(resolve(&resolver), Some(expected), "{table}");
+/// The functions a test library declares, which `function_table!` checks
+/// its rows against.
+mod declarations {
+    pub(super) unsafe extern "C" fn test_zeta() {}
+    pub(super) unsafe extern "C" fn test_alpha() {}
+    pub(super) unsafe extern "C" fn test_mu() {}
+}
+
+crate::libraries::function_table::function_table! {
+    /// A test library's table, its rows out of alphabetical order, an
+    /// optional one between two required ones.
+    #[expect(dead_code, reason = "the tests read only the faults of filling it")]
+    struct TestFunctions, declared in declarations {
+        required zeta: unsafe extern "C" fn() = test_zeta,
+        optional alpha: unsafe extern "C" fn() = test_alpha,
+        required mu: unsafe extern "C" fn() = test_mu,
     }
 }
 
-/// The faults of filling the table `T` through `resolver`, if it fails.
-fn faults_of<T: FunctionTable>(resolver: &StandInResolver) -> Option<Vec<LibraryFault>> {
-    T::resolve(resolver).err()
+/// A library that lacks required functions is refused, naming each one in
+/// its table's order, so that the user fixes them all at once; a missing
+/// optional function is not a fault.
+#[test]
+fn every_missing_required_function_is_reported_in_table_order() {
+    let resolver = TestFunctions::ROWS
+        .iter()
+        .fold(StandInResolver::audited(), |resolver, row| {
+            resolver.without(row.1)
+        });
+    let faults = TestFunctions::resolve(&resolver)
+        .err()
+        .expect("the required functions are missing");
+    assert_eq!(
+        faults,
+        [
+            LibraryFault::MissingRequiredSymbol {
+                symbol: "test_zeta"
+            },
+            LibraryFault::MissingRequiredSymbol { symbol: "test_mu" },
+        ]
+    );
 }
 
 /// The lower-case words of a camel-case name, an acronym being one word:

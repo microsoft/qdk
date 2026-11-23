@@ -11,8 +11,9 @@
 //! Each library at fault lists every fault its checks could find, so that
 //! the user fixes their installation in one pass: the variable, path,
 //! function or version at fault. Only a fault that leaves nothing more to
-//! check about its library (an override that is not a file, a library not
-//! found or refused by the system loader) stops the checks of that library.
+//! check about its library (an invalid override, not a file or not
+//! readable; a library not found or refused by the system loader) stops the
+//! checks of that library.
 
 use std::path::PathBuf;
 use thiserror::Error;
@@ -74,8 +75,7 @@ pub enum LibraryFault {
 
     /// No candidate path named a file of the library: an absolute path
     /// does not exist, and for a bare file name the system loader reported
-    /// no file of that name (glibc reports so too for a file its search
-    /// skipped because it could not use it).
+    /// no file of that name (README, "Where the libraries are looked for").
     #[error("not found; attempted {attempted:?}")]
     NotFound { attempted: Vec<PathBuf> },
 

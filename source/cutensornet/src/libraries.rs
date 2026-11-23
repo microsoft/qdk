@@ -37,7 +37,9 @@
 //!    function takes by value (no function bound today takes one);
 //! 2. add its module here, whose type implements `NativeLibrary`: its name,
 //!    override variable and default paths, its table of functions
-//!    (`function_table!`, each field named for its symbol), and how its
+//!    (`function_table!`, each field named for its symbol, each type in a
+//!    file of its module's folder per family of functions, as the CUDA
+//!    Runtime's `device.rs`), and how its
 //!    versions are read and which are accepted, asserted at compile time to
 //!    be the version its header declares, where the header declares one;
 //! 3. add its field to `LoadedLibraries`, and open it in
