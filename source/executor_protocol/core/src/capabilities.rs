@@ -182,7 +182,9 @@ impl<S: InstructionSet> BoundaryCompatible for Capabilities<S> {
             resources: self.resources.mismatches(&provided.resources),
             features: self.features.mismatches(provided.features),
             set_capabilities: (self.set_capabilities.fits(&provided.set_capabilities).err())
-                .map(|mismatch| Box::new(mismatch) as Box<dyn Error + Send + Sync>),
+                .map(|mismatch| Box::new(mismatch) as Box<dyn Error + Send + Sync>)
+                .into_iter()
+                .collect(),
         };
         if short.is_empty() { Ok(()) } else { Err(short) }
     }
@@ -199,14 +201,17 @@ pub struct CapabilitiesMismatch {
     pub resources: Vec<ResourceMismatch>,
     /// Each feature required and not provided.
     pub features: Vec<FeatureMismatch>,
-    /// How the set's capabilities fall short: the set's own mismatch,
-    /// which `downcast_ref` reads as its type.
-    pub set_capabilities: Option<Box<dyn Error + Send + Sync>>,
+    /// How the set's capabilities fall short, each the set's own mismatch,
+    /// which `downcast_ref` reads as its type: in a composition fault, the
+    /// pieces whose needs its requirer stated, as
+    /// [`split_mismatch`](crate::InstructionSet::split_mismatch) splits
+    /// them; elsewhere, the whole mismatch alone.
+    pub set_capabilities: Vec<Box<dyn Error + Send + Sync>>,
 }
 
 impl CapabilitiesMismatch {
     pub(crate) fn is_empty(&self) -> bool {
-        self.resources.is_empty() && self.features.is_empty() && self.set_capabilities.is_none()
+        self.resources.is_empty() && self.features.is_empty() && self.set_capabilities.is_empty()
     }
 }
 

@@ -11,6 +11,9 @@
 //! - [`QubitLimited`]: one gate on one qubit, whose capabilities are a count
 //!   of qubits. What the tests of a set's own capabilities, and of a checked
 //!   batch's faults, send.
+//! - [`Resettable`]: the same gate, whose capabilities are two independent
+//!   needs, qubits and a reset, its mismatch split per need. What the tests
+//!   of a fault naming the part that stated each need send.
 //! - [`WithToffoli`] and [`WithoutToffoli`]: `h`, a three-qubit `ccz` and
 //!   `mz`, and Clifford+T (`h`, `cx`, `t`, `tdg` and `mz`), what a `ccz`
 //!   decomposes into. What the tests of a translating adapter send.
@@ -24,6 +27,7 @@
 mod bit_readout;
 mod measuring;
 mod qubit_limited;
+mod resettable;
 mod shot_flags;
 mod wide;
 mod with_toffoli;
@@ -36,6 +40,7 @@ pub(crate) use measuring::{Gate, Measuring, NoCapabilities, UnacceptedNames, Unk
 pub(crate) use qubit_limited::{
     OnQubit, QubitBeyond, QubitLimited, Qubits, TooFewQubits, on_qubits,
 };
+pub(crate) use resettable::{QubitsAndReset, QubitsAndResetShort, Resettable, qubits_and_reset};
 pub(crate) use wide::Wide;
 pub(crate) use with_toffoli::{ToffoliGate, WithToffoli};
 pub(crate) use without_toffoli::{CliffordT, WithoutToffoli};

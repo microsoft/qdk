@@ -112,8 +112,13 @@ the first that changes it, and is checked at each. The `on` that makes a
 runner reports every part it does not fit at once, naming the part whose
 requirement it is, and the part that falls short: for a value passed
 unchanged, the part that first required it, so a logger inserted between
-them moves only the positions the fault names. Each part then gets ready,
-on every run, for what arrives at it.
+them moves only the positions the fault names. Each resource, each
+feature, and each need of the set's own, as the set's `split_mismatch`
+splits its mismatch, is traced on its own: where a driver needs 10 qubits
+and an adapter below it adds a need of reset, an executor of 8 qubits and
+no reset falls short of the driver's qubits and of the adapter's reset,
+two faults. Each part then gets ready, on every run, for what arrives at
+it.
 
 A `requires` is deterministic, and monotone: given what arrives requiring
 no more than another, as [`Capabilities`](../src/capabilities.rs) defines

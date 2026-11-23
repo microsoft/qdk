@@ -1,8 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! What the protocol asks of an instruction set: [`InstructionSet`], and
-//! what a sender binds when its set fits the receiver's ([`Binding`]).
+//! What the protocol asks of an instruction set: [`InstructionSet`]; what
+//! a sender binds when its set fits the receiver's ([`Binding`]); and
+//! whether two parts state one need of the set alike ([`SameNeed`]).
 
 use std::error::Error;
 use std::fmt;
@@ -47,7 +48,9 @@ pub trait InstructionSet:
     /// above, provided below, compared by
     /// [`fits`](BoundaryCompatible::fits) with the same rule as theirs.
     /// Equal values are what a part passes below unchanged, which a
-    /// composition fault traces to the part that first required them.
+    /// composition fault traces to the part that first required them;
+    /// each piece of a mismatch is traced on its own, by the
+    /// [`SameNeed`] that [`split_mismatch`](Self::split_mismatch) gives it.
     ///
     /// A value reads per side: as a requirement, what the part above needs
     /// (an unstated field, no need); as a provision, the part's limits (an
@@ -93,6 +96,28 @@ pub trait InstructionSet:
     /// this value, which as a provision could limit everything.
     fn needs_nothing() -> Self::SetCapabilities;
 
+    /// `mismatch`, a fit's of the set's capabilities, split into one piece
+    /// per need, each with how two parts' capabilities state the same need
+    /// ([`SameNeed`]): so that a composition fault names, for each need,
+    /// the part that stated it, as it does for each resource and feature.
+    /// A need a part passes below unchanged is the first stater's: where a
+    /// driver needs 10 qubits and an adapter below it adds a need of
+    /// reset, an executor of 8 qubits and no reset falls short of the
+    /// driver's qubits and of the adapter's reset, two faults.
+    ///
+    /// By default, the whole mismatch is one piece, a need two parts state
+    /// alike when their capabilities are equal: a set whose capabilities
+    /// hold several independent needs overrides it, or its faults name the
+    /// last part to change any of them.
+    fn split_mismatch(
+        mismatch: <Self::SetCapabilities as BoundaryCompatible>::Mismatch,
+    ) -> Vec<(
+        <Self::SetCapabilities as BoundaryCompatible>::Mismatch,
+        SameNeed<Self>,
+    )> {
+        vec![(mismatch, Box::new(|a, b| a == b))]
+    }
+
     /// The readout slots `instruction` writes: what a sender sums into a
     /// batch's [`readout_slots`](crate::Batch::readout_slots).
     fn readout_slots(&self, instruction: &Self::Instruction) -> ReadoutSlots;
@@ -123,3 +148,14 @@ pub trait InstructionSet:
 /// result, such as the receiver's encoding of each sent instruction, or
 /// `()` where both share it.
 pub type Binding<S> = <S as BoundaryCompatible>::Fit;
+
+/// Whether two parts' capabilities of the set `S` state the same need, for
+/// one piece of a mismatch that
+/// [`split_mismatch`](InstructionSet::split_mismatch) gives: such as the
+/// same count of qubits, whatever else each needs.
+pub type SameNeed<S> = Box<
+    dyn Fn(
+        &<S as InstructionSet>::SetCapabilities,
+        &<S as InstructionSet>::SetCapabilities,
+    ) -> bool,
+>;

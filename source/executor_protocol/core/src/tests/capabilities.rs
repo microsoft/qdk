@@ -43,10 +43,13 @@ fn every_kind_short() -> (Capabilities<QubitLimited>, Capabilities<QubitLimited>
     (required, provided)
 }
 
-/// The set's own mismatch in `mismatch`, read as its type.
+/// The set's own mismatch in `mismatch`, whole, read as its type.
 fn qubits_short(mismatch: &CapabilitiesMismatch) -> Option<&TooFewQubits> {
-    (mismatch.set_capabilities.as_ref())
-        .map(|mismatch| mismatch.downcast_ref().expect("the set's own mismatch"))
+    match mismatch.set_capabilities.as_slice() {
+        [] => None,
+        [whole] => Some(whole.downcast_ref().expect("the set's own mismatch")),
+        pieces => panic!("the set's mismatch whole, not in pieces: {pieces:?}"),
+    }
 }
 
 /// Whoever builds the chain fixes every mismatch at once: each short

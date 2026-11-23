@@ -40,6 +40,10 @@
 //!   [`QubitPassThrough`], an adapter keeping the defaults;
 //!   [`QubitNarrowing`], an adapter requiring fewer qubits below than it
 //!   sends on; and [`QubitRegister`], an executor.
+//! - On [`Resettable`](crate::tests::example_sets::Resettable), whose
+//!   capabilities are qubits and a reset: [`ResettableProgram`], a driver
+//!   needing qubits; and [`AncillaReuse`], an adapter needing a reset
+//!   below.
 //! - Across a translation of
 //!   [`WithToffoli`](crate::tests::example_sets::WithToffoli) to
 //!   [`WithoutToffoli`](crate::tests::example_sets::WithoutToffoli):
@@ -72,6 +76,7 @@ mod panics;
 mod panics_in_drop;
 mod qubit_limited;
 mod renamed;
+mod resettable;
 mod toffoli;
 
 pub(crate) use adapters::*;
@@ -81,6 +86,7 @@ pub(crate) use panics::{Panics, PanicsWhen};
 pub(crate) use panics_in_drop::PanicsInDrop;
 pub(crate) use qubit_limited::{QubitNarrowing, QubitPassThrough, QubitProgram, QubitRegister};
 pub(crate) use renamed::Renamed;
+pub(crate) use resettable::{AncillaReuse, ResettableProgram};
 pub(crate) use toffoli::{
     CczDecomposition, CliffordTPassThrough, CliffordTRegister, RoundsIntoItsReadouts,
     ToffoliProgram,

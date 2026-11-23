@@ -38,7 +38,7 @@ pub use composition::{
     AdapterJoins, BatchFault, BoundaryMismatch, CompositionFault, CompositionFaults, DriverJoins,
     RunError, RunRefusal, Runner,
 };
-pub use instruction_set::{Binding, InstructionSet};
+pub use instruction_set::{Binding, InstructionSet, SameNeed};
 pub use part_id::PartId;
 pub use roles::{
     Adapter, AdapterLimits, DriveError, Driver, DriverReadings, DriverRequirements, ExecuteError,

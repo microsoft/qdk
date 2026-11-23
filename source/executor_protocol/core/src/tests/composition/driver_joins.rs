@@ -9,14 +9,18 @@
 
 use std::any::type_name;
 use std::cell::Cell;
+use std::error::Error;
 use std::rc::Rc;
 
 use crate::prelude::*;
 use crate::tests::composition::faults;
-use crate::tests::example_sets::{Measuring, ToffoliGate, TooFewQubits};
+use crate::tests::example_sets::{
+    Measuring, QubitsAndResetShort, Resettable, ToffoliGate, TooFewQubits, qubits_and_reset,
+};
 use crate::tests::fake_parts::{
-    Bits, CczDecomposition, CliffordTRegister, CoinCopy, Log, Profiler, Program, Renamed, Spread,
-    StatesNoLimits, Stating, ToffoliProgram, batches_of, coin_gates, in_each_bracketing,
+    AncillaReuse, Bits, CczDecomposition, CliffordTRegister, CoinCopy, Log, Profiler, Program,
+    Renamed, ResettableProgram, Spread, StatesNoLimits, Stating, ToffoliProgram, Zeros, batches_of,
+    coin_gates, in_each_bracketing,
 };
 use crate::{
     Batch, BatchReadouts, BoundaryCompatible, BoundaryMismatch, Capabilities, CapabilitiesMismatch,
@@ -97,7 +101,7 @@ pub(super) fn short_shots(required: u32, provided: u32) -> BoundaryMismatch {
 /// The mismatch of `required` qubits against `provided`.
 fn short_qubits(required: u32, provided: u32) -> BoundaryMismatch {
     capabilities(CapabilitiesMismatch {
-        set_capabilities: Some(Box::new(TooFewQubits { required, provided })),
+        set_capabilities: vec![Box::new(TooFewQubits { required, provided })],
         ..CapabilitiesMismatch::default()
     })
 }
@@ -302,7 +306,12 @@ impl Adapter for Decomposer {
 /// translating adapter that decomposes its `ccz` with no ancilla, so a
 /// register of 2 qubits below falls short of the program's 3; and a
 /// translating adapter taking at most 2 qubits falls short of them, a
-/// fault naming it as the provider, while one taking 3 composes.
+/// fault naming it as the provider, while one taking 3 composes. Each
+/// need of a set's own passes on its own: a program's 10 qubits pass
+/// unchanged through an ancilla reuse that adds a need of reset, so an
+/// executor of 8 qubits and no reset falls short of the program's qubits
+/// and of the reuse's reset, two faults; and of a program needing both,
+/// its reset passed unchanged through the reuse, one fault holding both.
 /// Instructions a batch, shots and qubits stand for any value: which
 /// values fit is each kind's rule, pinned once.
 #[test]
@@ -405,6 +414,64 @@ fn a_requirement_passed_unchanged_is_checked_at_each_part_below_naming_its_requi
             short_qubits(3, 2),
         )],
     );
+    let needs_short = |pieces: &[QubitsAndResetShort]| {
+        capabilities(CapabilitiesMismatch {
+            set_capabilities: (pieces.iter())
+                .map(|&piece| Box::new(piece) as Box<dyn Error + Send + Sync>)
+                .collect(),
+            ..CapabilitiesMismatch::default()
+        })
+    };
+    let qubits_short = QubitsAndResetShort {
+        qubits: Some(TooFewQubits {
+            required: 10,
+            provided: 8,
+        }),
+        reset: false,
+    };
+    let reset_short = QubitsAndResetShort {
+        qubits: None,
+        reset: true,
+    };
+    let driver = part::<ResettableProgram>(0);
+    let register = part::<Zeros<Resettable>>(2);
+    for (row, reset, expected) in [
+        (
+            "qubits through an ancilla reuse adding a need of reset",
+            false,
+            vec![
+                fault(
+                    driver.clone(),
+                    register.clone(),
+                    needs_short(&[qubits_short]),
+                ),
+                fault(
+                    part::<AncillaReuse>(1),
+                    register.clone(),
+                    needs_short(&[reset_short]),
+                ),
+            ],
+        ),
+        (
+            "qubits and a reset through an ancilla reuse",
+            true,
+            vec![fault(
+                driver.clone(),
+                register.clone(),
+                needs_short(&[qubits_short, reset_short]),
+            )],
+        ),
+    ] {
+        faults_in_each_bracketing!(
+            row,
+            [d, a, e] from {
+                let d = ResettableProgram::new(10, reset);
+                let a = AncillaReuse::new();
+                let e = Zeros::providing(Resettable, Some(qubits_and_reset(8, false)));
+            },
+            expected,
+        );
+    }
     for (qubits, expected) in [
         (
             2,

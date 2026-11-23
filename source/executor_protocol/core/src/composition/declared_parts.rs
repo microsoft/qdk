@@ -10,8 +10,8 @@ use std::collections::BTreeMap;
 
 use super::{BoundaryMismatch, CompositionFault};
 use crate::{
-    Capabilities, CapabilitiesMismatch, FeatureMismatch, Features, InstructionSet, PartId,
-    ResourceMismatch, Resources,
+    BoundaryCompatible, Capabilities, CapabilitiesMismatch, FeatureMismatch, Features,
+    InstructionSet, PartId, ResourceMismatch, Resources,
 };
 
 /// The parts of a chain, top to bottom, as the roles' hidden `declare`
@@ -22,9 +22,11 @@ use crate::{
 /// What arrives at a part is what the part above requires given what
 /// arrived there, starting from what the run requires. A value a part
 /// passes below unchanged is the requirement of the first part that
-/// required it, which a fault names; a translating adapter that changes
-/// what it sends below is the first to require it, and one that passes a
-/// value unchanged is not.
+/// required it, which a fault names: each resource, each feature, and each
+/// need of the set's own, as [`InstructionSet::split_mismatch`] splits
+/// them, on its own. A translating adapter that changes what it sends
+/// below is the first to require it, and one that passes a value unchanged
+/// is not.
 ///
 /// It is public, because the roles' hidden hooks name it, but no public
 /// path reaches it, so that no other crate can call or override the hooks.
@@ -150,12 +152,20 @@ impl<'a> DeclaredParts<'a> {
             });
             split.entry(at).or_default().features.push(mismatch);
         }
-        if let Some(mismatch) = set_capabilities {
-            let at = origin(&|a, b| {
-                let a = a.set_capabilities.downcast_ref::<S::SetCapabilities>();
-                a == b.set_capabilities.downcast_ref::<S::SetCapabilities>()
-            });
-            split.entry(at).or_default().set_capabilities = Some(mismatch);
+        for mismatch in set_capabilities {
+            let whole = mismatch
+                .downcast::<<S::SetCapabilities as BoundaryCompatible>::Mismatch>()
+                .expect("`Capabilities::<S>::fits` boxes the mismatch of `S`'s capabilities");
+            for (piece, same_need) in S::split_mismatch(*whole) {
+                // A part above a translating adapter, whose set's
+                // capabilities are of another type, states no need of `S`.
+                let at = origin(&|a, b| {
+                    let a = a.set_capabilities.downcast_ref::<S::SetCapabilities>();
+                    let b = b.set_capabilities.downcast_ref::<S::SetCapabilities>();
+                    a.zip(b).is_some_and(|(a, b)| same_need(a, b))
+                });
+                (split.entry(at).or_default().set_capabilities).push(Box::new(piece));
+            }
         }
         for (origin, mismatch) in split {
             let capabilities = &mut (faults.found.entry((origin, receiver)))
@@ -163,7 +173,7 @@ impl<'a> DeclaredParts<'a> {
                 .capabilities;
             capabilities.resources.extend(mismatch.resources);
             capabilities.features.extend(mismatch.features);
-            capabilities.set_capabilities = mismatch.set_capabilities;
+            (capabilities.set_capabilities).extend(mismatch.set_capabilities);
         }
     }
 
