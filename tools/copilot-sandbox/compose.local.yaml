@@ -1,0 +1,8 @@
+# Not intended to be used directly.  Invoke via `sandbox.py run --local`
+services:
+  agent:
+    image: ${QDK_SANDBOX_AGENT_IMAGE:?Use sandbox.py run --local}
+    pull_policy: never
+  proxy:
+    image: ${QDK_SANDBOX_PROXY_IMAGE:?Use sandbox.py run --local}
+    pull_policy: never
