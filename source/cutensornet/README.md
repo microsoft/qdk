@@ -57,12 +57,8 @@ The extension point is an MPS simulation method: written once against
 default cutoff (`.with_cutoff(c)` sets another), as the example on
 [`CudaMpsEngine`](src/engine.rs) does; or, to hold the algebra itself,
 with `CudaMpsEngine::new(CudaAlgebra::new(&availability)?)`. The
-simulator opens the engine in each run's first step, on the thread that
-runs it, and drops it at the run's end: the engine holds device 0's
-stream and cuTensorNet handle, the memory it lent cuTensorNet (grown to
-the run's largest call) and the contraction networks it prepared, until
-it is dropped. On an error, the simulator tells the user what is missing,
-or runs on `CpuMpsEngine`.
+simulator opens the engine in each run's first step and drops it at the
+run's end; [`CudaMpsEngine`](src/engine.rs) says why.
 
 ## The MPS engine
 
@@ -85,12 +81,14 @@ calls of each phase and the numerics, and each file's header the details.
   GPU, and a fix to them reaches both.
 - **Small GPU code, checked once.** The GPU code is the operations alone,
   checked by `canonical_mps`'s conformance kit.
-- **Compared read by read.** The GPU engine reads as `canonical_mps`'s
-  `CpuMpsEngine` does, up to rounding.
+- **Compared read by read.** On the capped circuit of the
+  [GPU tests](tests/cuda_mps_engine_on_the_gpu.rs), the GPU engine reads
+  as `canonical_mps`'s `CpuMpsEngine` does, to within `1e-9`.
 - **Why a GPU.** The CPU engine is slow on the large chemistry instances,
-  and the GPU engine is meant for them; its speed on them is not measured
-  yet. Its sites stay in the GPU's memory, and only an upload or a read
-  copies one between the host and the GPU.
+  and the GPU engine is meant for them: it is faster than the CPU engine
+  at large bonds, slower on small circuits. Its sites stay in the GPU's
+  memory, and only an upload or a read copies one between the host and
+  the GPU.
 
 Here the engine's `MpsEngine` methods call the _`SiteAlgebra` methods_
 (`upload`, `read`, `duplicate`, `gate_split`, `qr_move`), which this
@@ -114,7 +112,7 @@ synchronous calls and cuTensorNet's asynchronous ones:
 - **Device session:** the algebra's device, its stream (the queue the
   device runs the algebra's work in, in order) and its cuTensorNet handle
   (the library's context, on which each native object is created), in a
-  [`DeviceSession`](src/engine/device_session.rs). The algebra shares it
+  [`DeviceSession`](src/engine/cuda_algebra/device_session.rs). The algebra shares it
   with its tensors, so it closes after the last of them.
 - **Device tensor:** one site, a device buffer of complex doubles in the
   contract's layout ([`DeviceTensor`](src/engine/cuda_algebra/device_tensor.rs)).
@@ -194,50 +192,36 @@ Each `SiteAlgebra` method of this algebra combines some of these phases
 ### How each `SiteAlgebra` method is implemented
 
 This algebra's implementation of each `SiteAlgebra` method runs the
-phases its row names, bind first. Of the engine's arguments, it checks
-only each tensor it reads: that this algebra made it (else
-`CudaAlgebraError::ForeignTensor`, before the bind), since a tensor is
-freed through its own algebra's session, which waits only for that
-algebra's device work; and that it holds the elements the call asks for
-(else `CudaAlgebraError::InvalidNativeCall`, before any native object).
-The engine checks the others before it calls. Each method writes only
-the buffers it allocates and the algebra's own (its scratch, the gate's
-buffer), so its inputs are left unchanged, as the contract asks; an
-allocation that returns an input's buffer, which only a faulty allocator
-would, is refused (`CudaAlgebraError::InvalidNativeResult`).
-Each returns with the device idle, its stream and its copies waited for,
-so the engine may use a tensor at once and the next call may grow the
-scratch.
+phases its row names, bind first, and returns with the device idle, so the
+engine may use a tensor at once. It checks only the tensors it reads
+([`device_tensor.rs`](src/engine/cuda_algebra/device_tensor.rs)), the
+engine the other arguments, and leaves its inputs unchanged
+([`call_scope.rs`](src/engine/cuda_algebra/call_scope.rs) says how).
 
-| `SiteAlgebra` method  | Phases                                                                                                 | How                                                                                                                                                                                                                                                                                                                                                                                                                                    | Why                                                                                                                                                                                              |
-| --------------------- | ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `upload`              | bind; copy                                                                                             | a new device buffer, the host values copied into it                                                                                                                                                                                                                                                                                                                                                                                    | the sites live on the device, where they are factored                                                                                                                                            |
-| `read`                | bind; copy                                                                                             | the first `len` elements copied into a host vector, with no copy for none; refused with `CudaAlgebraError::InvalidNativeCall` when the tensor holds fewer                                                                                                                                                                                                                                                                              | the engine contracts the sites a read needs on the host; the check keeps the device from reading memory the tensor does not own                                                                  |
-| `duplicate`           | bind; copy                                                                                             | a new device buffer, the first `len` elements copied into it on the device; refused as `read` is                                                                                                                                                                                                                                                                                                                                       | a fork's sites change apart from its parent's, with no round trip through the host                                                                                                               |
-| `gate_split`          | bind; describe; copy (the gate); lend; factor; release                                                 | one `GateSplit`, cuTensorNet's reduced algorithm, with the values normalised and absorbed on the centre's side and the cutoff as a discarded weight, into factors sized by [Numerics](docs/engine.md#numerics); its report checked, a discarded weight rounded just below 0 read as nothing discarded                                                                                                                                  | one native call contracts the gate and splits the pair; a reported bond or discarded weight outside the contract's bounds is `CudaAlgebraError::InvalidNativeResult`, never passed to the engine |
-| `qr_move`             | bind; copy, prepare and contract (a one-site gate); describe; lend; factor; prepare; contract; release | the gate, if any, contracted into the site the centre leaves; one `TensorQR` of that site, its small factor contracted into the other site                                                                                                                                                                                                                                                                                             | a QR moves the centre exactly; a network costs a path search and a preparation, and a run's moves repeat their shapes, so each shape's is made once                                              |
-| `Drop` of a tensor    | bind and free; if the algebra is poisoned, kept by the session (no native call)                        | `cudaFree`, or, if the algebra is poisoned, the buffer kept by the session; if the bind fails, the buffer leaked, as its free needs that device; a failed bind or free is not returned, and debug builds write it to stderr                                                                                                                                                                                                            | `Drop` cannot return an error; every method returns with the device idle, so nothing uses the buffer, unless a failed method could not wait for the device                                       |
-| `Drop` of the algebra | bind; release of what it keeps; if poisoned, the device waited for first                               | the networks, the workspace descriptor, the lent memory, the gate's and singular values' buffers released; if poisoned, they are kept by the session, and released with what it kept before only once a wait for the device (its stream and its copies) succeeds; if the bind fails, nothing released (leaked); the device session closes once its last tensor is dropped too, but for a handle the library refuses to destroy (below) | the session's stream and handle are shared with the tensors, which free their own buffers; an unpoisoned algebra's device is idle                                                                |
+| `SiteAlgebra` method | Phases                                                                                                 | How                                                                                                                                                                                      | Why                                                                                                                                                                                              |
+| -------------------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `upload`             | bind; copy                                                                                             | a new device buffer, the host values copied into it                                                                                                                                      | the sites live on the device, where they are factored                                                                                                                                            |
+| `read`               | bind; copy                                                                                             | the first `len` elements copied into a host vector, refused when the tensor holds fewer                                                                                                  | the engine contracts the sites a read needs on the host; the check keeps the device from reading memory the tensor does not own                                                                  |
+| `duplicate`          | bind; copy                                                                                             | a new device buffer, the first `len` elements copied into it on the device, refused as `read` is                                                                                         | a fork's sites change apart from its parent's, with no round trip through the host                                                                                                               |
+| `gate_split`         | bind; describe; copy (the gate); lend; factor; release                                                 | one `GateSplit`, its report checked ([`gate_split.rs`](src/engine/cuda_algebra/gate_split.rs), [Numerics](docs/engine.md#numerics))                                                      | one native call contracts the gate and splits the pair; a reported bond or discarded weight outside the contract's bounds is `CudaAlgebraError::InvalidNativeResult`, never passed to the engine |
+| `qr_move`            | bind; copy, prepare and contract (a one-site gate); describe; lend; factor; prepare; contract; release | the gate, if any, contracted into the site the centre leaves, one `TensorQR` of it, its small factor contracted into the other site ([`qr_move.rs`](src/engine/cuda_algebra/qr_move.rs)) | a QR moves the centre exactly; a network costs a path search and a preparation, and a run's moves repeat their shapes, so each shape's is made once                                              |
 
-A method that fails also frees its outputs, once it has waited for the
-device, since the failed work may still write the call's buffers. If that
-wait fails too, nothing says when the device is done with them, with the
-method's inputs, or with the algebra's memory: the algebra is poisoned,
-every later method returns `CudaAlgebraError::Poisoned`, whatever its
-arguments, and a buffer the device may still use is freed only after a
-successful wait for the device, its stream and its copies (when the
-algebra is dropped, or else when its last tensor is); otherwise it is kept
-until one succeeds, or leaked.
+Dropping releases too, outside the `SiteAlgebra` methods; a `Drop`
+cannot return an error, so debug builds write a failed release to stderr:
 
-A release that fails with the device idle leaks its object, which is
-never retried; every other release is still made. In a method (the
-destroy of a call's descriptor, or of a kept network when the cache starts
-again), it fails only that method, which returns the error: the algebra is
-not poisoned, and the next method runs. On a library that refuses to
-destroy a handle while an object of it lives, any object leaked (so, or by
-a poisoned algebra) leaks the handle too, at the session's close; that
-failure, like any failed release in a `Drop`, is written to stderr in
-debug builds.
+- **a tensor:** bind, then `cudaFree`; if the bind fails, the buffer is
+  leaked, as its free needs that device
+  ([`device_tensor.rs`](src/engine/cuda_algebra/device_tensor.rs));
+- **the algebra:** bind, then the networks, the workspace descriptor, the
+  lent memory and the gate's and singular values' buffers released; if the
+  bind fails, nothing is released; the device session closes once the
+  last tensor is dropped too
+  ([`cuda_algebra.rs`](src/engine/cuda_algebra.rs)).
+
+A failed method frees its outputs once it has waited for the device; if
+that wait fails, the algebra is poisoned, and a failed release leaks its
+object: [docs/engine.md](docs/engine.md#when-a-method-or-a-release-fails)
+says what follows each.
 
 ## The discovery and loading of the libraries
 
@@ -359,15 +343,15 @@ component: `CUDA Runtime` and `CUDA driver` in the CUDA Runtime's,
 
 The [engine's tests](src/tests/engine.rs) run in CI, without a GPU, most
 on [fake libraries](src/engine/native_calls/fake_libraries.rs) that enforce
-cuTensorNet's call order and its rules on streams and copies; the fake
-libraries' [own tests](src/tests/engine/native_calls/fake_libraries.rs) pin
-how they simulate cuTensorNet's tensor API. On them, the
+cuTensorNet's call order and its rules on streams and copies; the
+[native calls' tests](src/tests/engine/native_calls.rs) pin how the fake
+libraries simulate cuTensorNet's tensor API. On them, the
 [CUDA algebra's tests](src/tests/engine/cuda_algebra.rs) run
 `canonical_mps`'s conformance kit, and check the algebra's release of every
 native object, its scratch, its failures and its refusals.
-[`tests/cuda_algebra_on_the_gpu.rs`](tests/cuda_algebra_on_the_gpu.rs) runs
+[`tests/cuda_mps_engine_on_the_gpu.rs`](tests/cuda_mps_engine_on_the_gpu.rs) runs
 the kit and `canonical_mps`'s engine circuits on a GPU, with the real
-libraries, and the fake libraries' tests include the cases they also run
+libraries, and the native calls' tests include the cases they also run
 on a GPU; these tests are ignored unless asked for (`--ignored`), as they
 need a GPU. The [unit tests](src/tests) drive each way discovery fails
 without NVIDIA's libraries, and
@@ -384,14 +368,14 @@ apart. Anything else is expected to work, but not verified.
 | Linux x86-64  | `discover`: `UnsupportedPlatform` elsewhere                  | Ubuntu 22.04 on an NVIDIA A100 host                                                              |
 | The libraries | `discover`: the exact versions of [Versions](#versions)      | from NVIDIA's apt packages, at the default paths, and from its pip wheels, through the overrides |
 | A CUDA driver | not checked: its version is reported only                    | NVIDIA's driver 580.178.04, from Ubuntu's packages                                               |
-| An NVIDIA GPU | `CudaAlgebra::new`: `CudaAlgebraError::NoDevice` without one | an A100 80GB: run pending (below)                                                                |
+| An NVIDIA GPU | `CudaAlgebra::new`: `CudaAlgebraError::NoDevice` without one | an A100 80GB (below)                                                                             |
 
-- **On an A100 80GB, run pending:** the run checks that `CudaAlgebra`
-  passes `canonical_mps`'s conformance kit; that `CudaMpsEngine` passes
-  `canonical_mps`'s engine conformance circuits and reads a capped circuit
-  as `CpuMpsEngine` does; and that the kit, the capped circuit and the fake
-  libraries' cases that also run on a GPU pass NVIDIA's `compute-sanitizer`
-  memcheck, with its leak check, and synccheck without error.
+- **On an A100 80GB:** `CudaAlgebra` passes `canonical_mps`'s
+  conformance kit; `CudaMpsEngine` passes `canonical_mps`'s engine
+  conformance circuits and reads a capped circuit as `CpuMpsEngine` does;
+  and the kit and the capped circuit pass NVIDIA's `compute-sanitizer`
+  memcheck, with its leak check, and synccheck without error. The native
+  calls' cases that also run on a GPU: rerun pending.
 - **Expected, not verified:** other x86-64 Linux distributions, with the
   libraries from NVIDIA's pip wheels or at a path an override gives (the
   default paths are those of NVIDIA's apt packages).

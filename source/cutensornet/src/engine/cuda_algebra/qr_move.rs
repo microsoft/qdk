@@ -5,12 +5,12 @@
 //! the call says so, factored by one cuTensorNet QR, and its small factor
 //! contracted into the other site.
 //!
+//! The QR's two factors are called the isometry and the small factor
+//! here, since `Q` is the right site's qubit's mode.
+//!
 //! The call's tensors, their extents and their mode labels (`l`, `m` and
 //! `r` the pair's left extent, bond and right extent; `k` the new bond,
 //! `min(m, 2l)` to the right and `min(m, 2r)` to the left):
-//!
-//! The QR's two factors are called the isometry and the small factor
-//! here, since `Q` is the right site's qubit's mode.
 //!
 //! | to the right                | extents     | modes                |
 //! | --------------------------- | ----------- | -------------------- |

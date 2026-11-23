@@ -3,7 +3,7 @@
 
 //! `MemoryCalls` of the fake libraries: device buffers, copies and
 //! workspaces, whose slots ask for what the fake was told
-//! (`FakeLibraries::set_workspace_bytes` and the setters beside it).
+//! (`FakeLibraries::set_workspace_slot_bytes`).
 
 use super::{FakeLibraries, Object, failed, id, is_device, pointer, slot_index, to_usize};
 use crate::engine::CudaAlgebraError;

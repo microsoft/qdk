@@ -14,11 +14,10 @@
 //! (`ForeignTensor`), and one shorter than the call reads
 //! (`InvalidNativeCall`).
 //!
-//! Three parts of the engine make it, so it sits beside them rather than in
-//! any one: the CUDA algebra (`cuda_algebra/`), the device session it runs
-//! in (`device_session.rs`), and the native calls they make
-//! (`native_calls/`), whose only users they are. Each case's doc names the
-//! parts that make it.
+//! Two parts of the engine make it, so it sits beside them rather than in
+//! either: the CUDA algebra (`cuda_algebra/`, its device session included)
+//! and the native calls it makes (`native_calls/`). Each case's doc names
+//! the parts that make it.
 //!
 //! When an operation and the cleanup after it both fail, both errors are
 //! kept (`combine_execution_and_cleanup`), so a cleanup never hides the
@@ -37,8 +36,7 @@ pub enum CudaAlgebraError {
     NoDevice,
 
     /// A CUDA Runtime or cuTensorNet call returned an error status: made by
-    /// the native calls, from the status a loaded library returns (or one
-    /// the fake libraries are told to return).
+    /// the native calls, from the status a library returned.
     #[error("{component} {operation} failed with status {status}: {message}")]
     NativeCallFailed {
         component: &'static str,

@@ -11,10 +11,8 @@
 //! ([`CallScope::finish`]): the outputs survive only a call that succeeds.
 //!
 //! A failed call may leave device work pending, which may still write the
-//! call's buffers: `finish` waits for it before releasing anything. When
-//! that wait itself fails, nothing tells when the device is done with
-//! them, so they are retired and the algebra is poisoned
-//! (`algebra_session.rs`).
+//! call's buffers: `finish` waits for it before releasing anything, and a
+//! failed wait poisons the algebra (`algebra_session.rs`).
 //!
 //! Every method leaves its input tensors unchanged, as `SiteAlgebra`'s
 //! contract asks: it writes only the buffers it allocates and the
@@ -26,13 +24,13 @@
 //! buffer, which the call does not free.
 
 use super::algebra_session::{AlgebraSession, NativeObject, Retired};
+use super::device_session::DeviceSession;
 use super::device_tensor::DeviceTensor;
 use super::extents::native_extents;
 use super::resources::AlgebraResources;
 use crate::engine::cuda_algebra_error::{
     CudaAlgebraError, combine_execution_and_cleanup, first_failure,
 };
-use crate::engine::device_session::DeviceSession;
 use crate::engine::native_calls::complex::{Complex64Abi, complex_bytes};
 use crate::engine::native_calls::tensor_calls::{SvdSetting, TensorModes};
 use crate::engine::native_calls::{NativeCalls, OpaqueHandle, Stream};
@@ -72,7 +70,7 @@ impl<'a> CallScope<'a> {
         }
     }
 
-    fn device_session(&self) -> &'a DeviceSession<dyn NativeCalls> {
+    fn device_session(&self) -> &'a DeviceSession {
         self.session.device_session()
     }
 

@@ -2,35 +2,26 @@
 // Licensed under the MIT License.
 
 //! [`FakeLibraries`]: cuTensorNet and the CUDA Runtime, simulated on the CPU
-//! for the tests of the native calls' callers (the device session and the
-//! CUDA algebra).
+//! for the tests of the native calls' callers.
 //!
 //! CI has no GPU, so the callers' real code (every call they make, in the
 //! order they make them) runs against these fake libraries, which implement
-//! `NativeCalls` as the loaded libraries do, one file per trait
-//! (`fake_libraries/session_calls.rs`, `fake_libraries/memory_calls.rs`,
-//! `fake_libraries/tensor_calls.rs`). It secures what a GPU run would
-//! otherwise be the first to show: a call out of cuTensorNet's order,
-//! memory freed while still in use, a read before the write is done. It is
-//! test support, not a test: it sits beside the traits it implements and
-//! the loaded libraries it stands in for, so its callers' tests reach it as
-//! they reach the loaded libraries, and it is compiled only with the tests,
-//! which live under `src/tests`. This file holds what the traits' files
-//! share: the objects the fake keeps, the checks every call goes through,
-//! and what a test sets and reads.
+//! `NativeCalls` as the loaded libraries do, one file per trait. They secure
+//! what a GPU run would otherwise be the first to show: a call out of
+//! cuTensorNet's order, memory freed while still in use, a read before the
+//! write is done. The fake is compiled only with the tests. This file holds
+//! what the traits' files share: the objects the fake keeps by id, the
+//! checks every call goes through, and what a test sets and reads.
 //!
-//! It keeps what cuTensorNet and the CUDA Runtime would keep, by id:
-//! streams, handles, buffers, workspaces, and the tensor API's objects,
-//! whose rules are in `fake_libraries/tensor_calls.rs`. It is strict about
-//! the order its callers call in, so a wrong order fails a test instead of
-//! passing silently; the rules on memory and streams:
+//! A misuse of the tensor API is refused with the status of the rule it
+//! breaks ([`FakeRule`]); those rules are in `fake_libraries/tensor_calls.rs`.
+//! The rules on memory, streams and handles, refused with status 1:
 //!
 //! - a buffer lent to a device slot of a live workspace is never freed:
 //!   the descriptor would hold freed memory;
-//! - a tensor call needs memory lent to every slot of its workspace that
-//!   asks for some, at least what the slot asks, and no copy still running
-//!   (`synchronize_copies`, the legacy stream), and the source of a copy
-//!   still running is not freed;
+//! - a tensor call runs with no copy still running (`synchronize_copies`,
+//!   the legacy stream), and the source of a copy still running is not
+//!   freed;
 //! - a tensor call runs on a live stream, and a stream is synchronized
 //!   only while live;
 //! - after a tensor call, no buffer is freed (`free`) until every stream
@@ -57,14 +48,9 @@
 //!   must be live; a handle is destroyed only once nothing of it is, so a
 //!   handle released too early is caught.
 //!
-//! It records the buffers lent to workspaces as device scratch, so a test
-//! can see how many are allocated. A workspace asks for [`WORKSPACE_BYTES`]
-//! of device scratch and nothing in its other slots, unless told other
-//! sizes. A misuse is refused with the status of the rule it breaks
-//! ([`FakeRule`]). A call can be made to fail with [`FakeLibraries::fail`],
-//! to test cleanup; and the device count, the free memory and the
-//! truncation a gate split reports can be set, to test what the callers do
-//! with what the library answers.
+//! What a test can set (a call made to fail, the device count, the free
+//! memory, a workspace's sizes, a gate split's truncation) and read (the
+//! device scratch allocated) are [`FakeLibraries`]' methods.
 
 mod dense_tensor;
 mod memory_calls;
@@ -79,11 +65,10 @@ use std::{
     ptr::NonNull,
     sync::{Mutex, MutexGuard},
 };
-use tensor_calls::{SizedFor, SvdConfig, TensorShape};
+use tensor_calls::{gate_split::SvdConfig, tensor_shape::TensorShape, workspace_sizing::SizedFor};
 
 /// The bytes `workspace_size` asks for in the device scratch, unless
-/// [`FakeLibraries::set_workspace_bytes`] or the setters beside it say
-/// otherwise.
+/// [`FakeLibraries::set_workspace_slot_bytes`] says otherwise.
 pub(crate) const WORKSPACE_BYTES: i64 = 1024;
 
 /// Every slot of a workspace descriptor.
@@ -122,17 +107,12 @@ struct Inner {
     copy_sources: Vec<usize>,
     /// The free device memory `memory_info` reports, if not 1 TiB.
     free_memory: Option<usize>,
-    /// The device scratch `workspace_size` asks for, if not
-    /// [`WORKSPACE_BYTES`].
-    workspace_bytes: Option<i64>,
-    /// The device scratch the setting above takes when the next QR runs.
-    workspace_bytes_after_qr: Option<i64>,
-    /// The bytes `workspace_size` asks for in each other slot: the device
-    /// cache and both host slots.
-    other_slot_bytes: i64,
     /// The bytes `workspace_size` asks for in a slot, by its index, when
-    /// set for that slot alone, whatever the settings above say.
+    /// set: otherwise [`WORKSPACE_BYTES`] in the device scratch, and none
+    /// elsewhere.
     slot_bytes: [Option<i64>; 4],
+    /// The slot and the bytes `slot_bytes` takes when the next QR runs.
+    slot_bytes_after_qr: Option<(WorkspaceSlot, i64)>,
     /// The handle each live object that takes one was created with.
     owners: BTreeMap<usize, usize>,
     /// The device count `device_count` reports, if not 1.
@@ -186,8 +166,8 @@ fn failed(operation: &'static str, message: &str) -> CudaAlgebraError {
 /// The rules of cuTensorNet and CUDA the fake refuses a misuse of, each
 /// with its own status, as a library's status names its error, so that a
 /// test checks which rule refused a call by its status, not by its
-/// message's wording. Other failures (a call made to fail, a missing
-/// object) have status 1.
+/// message's wording. Other failures (a rule on memory, streams or
+/// handles broken, a call made to fail, a missing object) have status 1.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum FakeRule {
     /// A tensor call ran with a workspace slot that asks for memory unlent.
@@ -347,30 +327,22 @@ impl FakeLibraries {
         inner.aliased_allocation = Some((occurrence, last));
     }
 
-    /// Makes every workspace ask for `bytes` of device scratch from now on.
-    pub(crate) fn set_workspace_bytes(&self, bytes: i64) {
-        self.lock().workspace_bytes = Some(bytes);
-    }
-
-    /// Makes every workspace ask for `bytes` of device scratch once the
-    /// next QR has run, as the setting above would then, so the
-    /// contraction a move of the centre runs after its QR grows the
-    /// scratch.
-    pub(crate) fn set_workspace_bytes_after_the_next_qr(&self, bytes: i64) {
-        self.lock().workspace_bytes_after_qr = Some(bytes);
-    }
-
-    /// Makes every workspace ask for `bytes` in each of its other slots
-    /// (the device cache and both host slots) from now on, instead of
-    /// none.
-    pub(crate) fn set_other_workspace_slot_bytes(&self, bytes: i64) {
-        self.lock().other_slot_bytes = bytes;
-    }
-
-    /// Makes every workspace ask for `bytes` in `slot` from now on,
-    /// whatever the settings above say.
+    /// Makes every workspace ask for `bytes` in `slot` from now on, instead
+    /// of [`WORKSPACE_BYTES`] in the device scratch and nothing elsewhere.
     pub(crate) fn set_workspace_slot_bytes(&self, slot: WorkspaceSlot, bytes: i64) {
         self.lock().slot_bytes[slot_index(slot)] = Some(bytes);
+    }
+
+    /// Makes every workspace ask for `bytes` in `slot` once the next QR has
+    /// run, as [`set_workspace_slot_bytes`](Self::set_workspace_slot_bytes)
+    /// would then, so that the contraction a move of the centre runs after
+    /// its QR asks for another size than the QR.
+    pub(crate) fn set_workspace_slot_bytes_after_the_next_qr(
+        &self,
+        slot: WorkspaceSlot,
+        bytes: i64,
+    ) {
+        self.lock().slot_bytes_after_qr = Some((slot, bytes));
     }
 
     fn lock(&self) -> MutexGuard<'_, Inner> {
@@ -468,13 +440,10 @@ impl Inner {
 
     /// The bytes every workspace asks for in `slot`.
     fn recommended_bytes(&self, slot: WorkspaceSlot) -> i64 {
-        if let Some(bytes) = self.slot_bytes[slot_index(slot)] {
-            return bytes;
-        }
-        match slot {
-            WorkspaceSlot::DeviceScratch => self.workspace_bytes.unwrap_or(WORKSPACE_BYTES),
-            _ => self.other_slot_bytes,
-        }
+        self.slot_bytes[slot_index(slot)].unwrap_or(match slot {
+            WorkspaceSlot::DeviceScratch => WORKSPACE_BYTES,
+            _ => 0,
+        })
     }
 
     fn live_scratch(&self) -> usize {

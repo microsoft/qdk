@@ -60,24 +60,23 @@
 //! network is created: a tensor that names one mode twice, and a network
 //! output label no input has, which has no extent to take.
 //!
-//! A gate split's report and outputs follow cuTensorNet's, for the settings
-//! `CudaAlgebra` makes, and only them: a discarded-weight cutoff, the kept
-//! values normalized (L2), and absorbed into U or V; a split under other
-//! settings is refused. The reduced extent is the lowest of the shared
-//! mode's extent in U's descriptor, the count of singular values (the SVD
-//! leaves out those of rounding's size) and the cutoff's rank, and U's and
-//! V's descriptors are given it. The full extent is θ's smaller side,
-//! whatever the SVD left out. The fake squares the singular values unscaled
-//! for the weights and the normalization, so it models splits whose
-//! singular values' squares neither overflow nor underflow an f64, as a
-//! normalized state's do (a zero product is outside them). It writes no
-//! singular value to their buffer. A test may replace the whole report, not
-//! the outputs (`FakeLibraries::misreport_truncation`).
+//! This file holds the calls, in the trait's one implementation, as
+//! `loaded_libraries/tensor_calls.rs` does; what they keep and check is in
+//! its folder: a descriptor's shape (`tensor_shape.rs`), a factorization's
+//! two outputs (`sides.rs`), the gate split's SVD (`gate_split.rs`), the
+//! call a workspace is sized for (`workspace_sizing.rs`), and a
+//! contraction network's lookups (`contraction_network.rs`).
+
+mod contraction_network;
+pub(super) mod gate_split;
+mod sides;
+pub(super) mod tensor_shape;
+pub(super) mod workspace_sizing;
 
 use super::{
     FakeLibraries, FakeRule, Inner, Object,
     dense_tensor::{DenseTensor, contract},
-    failed, id, refused, to_usize,
+    failed, id, refused, slot_index, to_usize,
 };
 use crate::engine::CudaAlgebraError;
 use crate::engine::native_calls::{
@@ -88,8 +87,11 @@ use crate::engine::native_calls::{
         SvdTruncation, TensorCalls, TensorModes, TensorOperand,
     },
 };
-use canonical_mps::dense_linalg::{MatrixRef, Qr, Svd};
-use num_complex::Complex64;
+use canonical_mps::dense_linalg::{MatrixRef, Qr};
+use gate_split::{Partition, Split, SvdConfig, split};
+use sides::Sides;
+use tensor_shape::TensorShape;
+use workspace_sizing::SizedFor;
 
 impl TensorCalls for FakeLibraries {
     fn create_tensor_descriptor(
@@ -381,8 +383,8 @@ impl TensorCalls for FakeLibraries {
         inner.write(q.data, &q_tensor, OPERATION)?;
         inner.write(r.data, &r_tensor, OPERATION)?;
         inner.queue_on(stream, [id(q.data), id(r.data)]);
-        if let Some(bytes) = inner.workspace_bytes_after_qr.take() {
-            inner.workspace_bytes = Some(bytes);
+        if let Some((slot, bytes)) = inner.slot_bytes_after_qr.take() {
+            inner.slot_bytes[slot_index(slot)] = Some(bytes);
         }
         Ok(())
     }
@@ -621,329 +623,6 @@ impl TensorCalls for FakeLibraries {
     }
 }
 
-/// A tensor descriptor's modes: the extent and the label of each.
-#[derive(Clone, Debug, PartialEq)]
-pub(super) struct TensorShape {
-    extents: Vec<i64>,
-    modes: Vec<i32>,
-}
-
-/// An SVD configuration's settings the fake acts on.
-#[derive(Clone, Copy, Debug, Default)]
-pub(super) struct SvdConfig {
-    /// Which factor absorbs the singular values; none returns them apart.
-    partition: Option<Partition>,
-    normalized: bool,
-    /// The discarded-weight cutoff, if set: any value, 0 included, asks
-    /// for a truncation by value.
-    cutoff: Option<f64>,
-}
-
-impl SvdConfig {
-    /// The partition and the cutoff of settings `CudaAlgebra` makes, the
-    /// only ones the fake splits under; other settings are refused.
-    fn the_algebras(self, operation: &'static str) -> Result<(Partition, f64), CudaAlgebraError> {
-        let (Some(partition), Some(cutoff), true) = (self.partition, self.cutoff, self.normalized)
-        else {
-            return Err(failed(
-                operation,
-                "the fake splits only under a cutoff, normalized, and absorbed into U or V",
-            ));
-        };
-        Ok((partition, cutoff))
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Partition {
-    Us,
-    Sv,
-}
-
-/// The call a workspace was last sized for, by its objects' ids.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum SizedFor {
-    /// A gate split: A, B, the gate, U and V, and the SVD config.
-    GateSplit {
-        descriptors: [usize; 5],
-        config: usize,
-    },
-    /// A QR: the input, Q and R.
-    Qr { descriptors: [usize; 3] },
-    /// A contraction of a network along an optimizer info's path.
-    Contraction { network: usize, info: usize },
-}
-
-impl TensorShape {
-    fn of(tensor: TensorModes<'_>, operation: &'static str) -> Result<Self, CudaAlgebraError> {
-        if tensor.extents.len() != tensor.modes.len() {
-            return Err(failed(operation, "extents and modes of different lengths"));
-        }
-        if tensor.extents.iter().any(|&extent| extent < 1) {
-            return Err(failed(operation, "an extent below 1"));
-        }
-        for (at, mode) in tensor.modes.iter().enumerate() {
-            if tensor.modes[..at].contains(mode) {
-                return Err(failed(operation, "a repeated mode"));
-            }
-        }
-        Ok(Self {
-            extents: tensor.extents.to_vec(),
-            modes: tensor.modes.to_vec(),
-        })
-    }
-
-    fn extent(&self, mode: i32) -> Option<i64> {
-        self.modes
-            .iter()
-            .position(|&m| m == mode)
-            .map(|at| self.extents[at])
-    }
-
-    /// The modes other than `shared`, and their extents.
-    fn free_modes(&self, shared: i32) -> (Vec<i32>, Vec<i64>) {
-        self.modes
-            .iter()
-            .zip(&self.extents)
-            .filter(|&(&mode, _)| mode != shared)
-            .map(|(&mode, &extent)| (mode, extent))
-            .unzip()
-    }
-
-    fn elements(&self) -> Result<usize, CudaAlgebraError> {
-        product(&self.extents)
-    }
-
-    fn dense(&self, data: Vec<Complex64>) -> Result<DenseTensor, CudaAlgebraError> {
-        Ok(DenseTensor {
-            extents: self
-                .extents
-                .iter()
-                .map(|&extent| to_usize(extent))
-                .collect::<Result<_, _>>()?,
-            modes: self.modes.clone(),
-            data,
-        })
-    }
-}
-
-/// The two outputs of a split (U and V, or Q and R): the one mode they
-/// share and its extent, and each one's other modes and their extents, the
-/// rows and the columns of the split's matrix.
-struct Sides {
-    shared: i32,
-    shared_extent: i64,
-    left: (Vec<i32>, Vec<i64>),
-    right: (Vec<i32>, Vec<i64>),
-}
-
-impl Sides {
-    fn of(
-        left: &TensorShape,
-        right: &TensorShape,
-        operation: &'static str,
-    ) -> Result<Self, CudaAlgebraError> {
-        let mut shared = left.modes.iter().filter(|mode| right.modes.contains(mode));
-        let (Some(&shared), None) = (shared.next(), shared.next()) else {
-            return Err(failed(operation, "the outputs share other than one mode"));
-        };
-        let shared_extent = left.extent(shared).unwrap_or(1);
-        if right.extent(shared) != Some(shared_extent) {
-            return Err(failed(operation, "the outputs' shared extents differ"));
-        }
-        Ok(Self {
-            shared,
-            shared_extent,
-            left: left.free_modes(shared),
-            right: right.free_modes(shared),
-        })
-    }
-
-    /// Fails unless a gate split's `inputs` (A, B and the gate, in that
-    /// order) form the graph cuTensorNet's gate split expects: each pair of
-    /// them shares a label (a fully connected graph); every label is either
-    /// shared by two or all three of them and in neither output, or in one
-    /// of them and one output's other modes (no label is summed alone, and
-    /// none is both contracted and kept); and a label of A alone is kept in
-    /// U (the left output), one of B alone in V, one of the gate alone in
-    /// either.
-    fn check_gate_split_labels(
-        &self,
-        inputs: &[&DenseTensor; 3],
-        operation: &'static str,
-    ) -> Result<(), CudaAlgebraError> {
-        let connected = |[first, second]: [usize; 2]| {
-            inputs[first]
-                .modes
-                .iter()
-                .any(|mode| inputs[second].modes.contains(mode))
-        };
-        if ![[0, 1], [0, 2], [1, 2]].into_iter().all(connected) {
-            return Err(refused(operation, FakeRule::GateSplitNotPairwiseConnected));
-        }
-        let on_left = |mode: &i32| self.left.0.contains(mode);
-        let on_right = |mode: &i32| self.right.0.contains(mode);
-        for (at, input) in inputs.iter().enumerate() {
-            for mode in &input.modes {
-                let count = inputs
-                    .iter()
-                    .filter(|other| other.modes.contains(mode))
-                    .count();
-                let fits = match (count, at) {
-                    (1, 0) => on_left(mode),
-                    (1, 1) => on_right(mode),
-                    (1, _) => on_left(mode) || on_right(mode),
-                    (2 | 3, _) => !on_left(mode) && !on_right(mode) && *mode != self.shared,
-                    _ => false,
-                };
-                if !fits {
-                    return Err(refused(operation, FakeRule::LabelOutsideGateSplitTopology));
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// The contraction of `inputs` as a column-major matrix, its rows the
-    /// left output's other modes and its columns the right's; and its rows
-    /// and columns.
-    fn matrix(
-        &self,
-        inputs: &[&DenseTensor],
-        operation: &'static str,
-    ) -> Result<(Vec<Complex64>, usize, usize), CudaAlgebraError> {
-        let modes = [self.left.0.as_slice(), self.right.0.as_slice()].concat();
-        let matrix = contract(inputs, &modes).map_err(|message| failed(operation, message))?;
-        let extents: Vec<usize> = [self.left.1.as_slice(), self.right.1.as_slice()]
-            .concat()
-            .into_iter()
-            .map(to_usize)
-            .collect::<Result<_, _>>()?;
-        if matrix.extents != extents {
-            return Err(failed(
-                operation,
-                "an output's extent differs from the inputs'",
-            ));
-        }
-        Ok((matrix.data, product(&self.left.1)?, product(&self.right.1)?))
-    }
-
-    /// The factors `matrices`, left (rows × `extent`) and right (`extent` ×
-    /// columns), both column-major, laid out in their descriptors' mode
-    /// orders `layouts`.
-    fn factors(
-        &self,
-        matrices: [Vec<Complex64>; 2],
-        extent: i64,
-        layouts: [&[i32]; 2],
-        operation: &'static str,
-    ) -> Result<[DenseTensor; 2], CudaAlgebraError> {
-        let [left, right] = matrices;
-        let left = TensorShape {
-            extents: [self.left.1.as_slice(), &[extent]].concat(),
-            modes: [self.left.0.as_slice(), &[self.shared]].concat(),
-        }
-        .dense(left)?;
-        let right = TensorShape {
-            extents: [&[extent], self.right.1.as_slice()].concat(),
-            modes: [&[self.shared], self.right.0.as_slice()].concat(),
-        }
-        .dense(right)?;
-        let laid_out = |matrix: &DenseTensor, layout: &[i32]| {
-            contract(&[matrix], layout).map_err(|message| failed(operation, message))
-        };
-        Ok([laid_out(&left, layouts[0])?, laid_out(&right, layouts[1])?])
-    }
-}
-
-/// A gate split's factors: U (rows×reduced) and V (reduced×cols), both
-/// column-major, one of them holding the kept singular values; and the
-/// weight the truncation dropped.
-struct Split {
-    left: Vec<Complex64>,
-    right: Vec<Complex64>,
-    reduced: usize,
-    discarded_weight: f64,
-}
-
-/// Factors the `rows`×`cols` column-major `theta` into at most
-/// `max_extent` singular values: drops the smallest whose squared sum is at
-/// most `cutoff`'s fraction of the total, normalizes the kept ones, and
-/// absorbs them into U or V, as `partition` says.
-fn split(
-    theta: &[Complex64],
-    rows: usize,
-    cols: usize,
-    max_extent: usize,
-    cutoff: f64,
-    partition: Partition,
-) -> Result<Split, &'static str> {
-    let Svd {
-        u,
-        singular_values: values,
-        v_adjoint,
-    } = Svd::of(MatrixRef::new(rows, cols, theta)).map_err(|_| "the SVD failed")?;
-    let (left, right) = (u.elements(), v_adjoint.elements());
-    let squares: Vec<f64> = values.iter().map(|value| value * value).collect();
-    let total: f64 = squares.iter().sum();
-    let rank = values.len();
-    let mut discarded = 0.0;
-    let dropped = squares
-        .iter()
-        .rev()
-        .take_while(|&&square| {
-            discarded += square;
-            discarded <= cutoff * total
-        })
-        .count();
-    let reduced = rank.min(max_extent).min((rank - dropped).max(1));
-    // A fold from +0.0: the sum of no squares would be -0.0.
-    let discarded_weight = squares[reduced..]
-        .iter()
-        .fold(0.0, |sum, square| sum + square)
-        / total;
-    let mut kept = values[..reduced].to_vec();
-    let norm = kept.iter().map(|value| value * value).sum::<f64>().sqrt();
-    for value in &mut kept {
-        *value /= norm;
-    }
-    let mut u_matrix = left[..rows * reduced].to_vec();
-    let mut v_matrix: Vec<Complex64> = (0..cols)
-        .flat_map(|col| (0..reduced).map(move |row| (row, col)))
-        .map(|(row, col)| right[row + col * rank])
-        .collect();
-    match partition {
-        Partition::Us => {
-            for (at, element) in u_matrix.iter_mut().enumerate() {
-                *element *= kept[at / rows];
-            }
-        }
-        Partition::Sv => {
-            for (at, element) in v_matrix.iter_mut().enumerate() {
-                *element *= kept[at % reduced];
-            }
-        }
-    }
-    Ok(Split {
-        left: u_matrix,
-        right: v_matrix,
-        reduced,
-        discarded_weight,
-    })
-}
-
-/// The number of elements of a tensor of `extents`; one whose count
-/// overflows `usize` is refused, as no buffer could hold it.
-fn product(extents: &[i64]) -> Result<usize, CudaAlgebraError> {
-    extents.iter().try_fold(1, |product: usize, &extent| {
-        product
-            .checked_mul(to_usize(extent)?)
-            .ok_or(CudaAlgebraError::ResourceSizeOverflow {
-                resource: "tensor elements",
-            })
-    })
-}
-
 impl Inner {
     /// The shape of `descriptor`, which must belong to `handle`.
     fn descriptor(
@@ -1003,111 +682,5 @@ impl Inner {
         {
             shape.extents[at] = extent;
         }
-    }
-
-    /// Records that `workspace`, which must belong to `handle`, is sized for
-    /// `call`.
-    fn size_for(
-        &mut self,
-        handle: OpaqueHandle,
-        workspace: OpaqueHandle,
-        call: SizedFor,
-        operation: &'static str,
-    ) -> Result<(), CudaAlgebraError> {
-        self.owned(handle, workspace, operation)?;
-        match self.objects.get_mut(&id(workspace)) {
-            Some(Object::Workspace { sized_for, .. }) => {
-                *sized_for = Some(call);
-                Ok(())
-            }
-            _ => Err(failed(operation, "no such workspace")),
-        }
-    }
-
-    /// Forgets the tensor call a workspace was sized for wherever `stale`,
-    /// given the workspace's id and that call, says the sizing no longer
-    /// holds, so the call is refused until the workspace is sized again.
-    pub(super) fn forget_sizings(&mut self, stale: impl Fn(usize, SizedFor) -> bool) {
-        for (&object, value) in &mut self.objects {
-            if let Object::Workspace { sized_for, .. } = value
-                && sized_for.is_some_and(|call| stale(object, call))
-            {
-                *sized_for = None;
-            }
-        }
-    }
-
-    /// Fails unless `workspace`, which must belong to `handle`, was last
-    /// sized for `call`.
-    fn sized_for(
-        &self,
-        handle: OpaqueHandle,
-        workspace: OpaqueHandle,
-        call: SizedFor,
-        operation: &'static str,
-    ) -> Result<(), CudaAlgebraError> {
-        self.owned(handle, workspace, operation)?;
-        match self.objects.get(&id(workspace)) {
-            Some(Object::Workspace { sized_for, .. }) if *sized_for == Some(call) => Ok(()),
-            Some(Object::Workspace { .. }) => {
-                Err(refused(operation, FakeRule::WorkspaceNotSizedForTheCall))
-            }
-            _ => Err(failed(operation, "no such workspace")),
-        }
-    }
-
-    /// The network an optimizer info, which must belong to `handle`, is
-    /// for, and whether it holds a path.
-    fn optimizer_info(
-        &self,
-        handle: OpaqueHandle,
-        info: OpaqueHandle,
-        operation: &'static str,
-    ) -> Result<(usize, bool), CudaAlgebraError> {
-        self.owned(handle, info, operation)?;
-        match self.objects.get(&id(info)) {
-            Some(&Object::OptimizerInfo { network, optimized }) => Ok((network, optimized)),
-            _ => Err(failed(operation, "no such optimizer info")),
-        }
-    }
-
-    /// The info whose path `network`, which must belong to `handle`, was
-    /// last optimized to, and, once prepared, the device scratch bytes lent
-    /// at its last preparation.
-    fn network(
-        &self,
-        handle: OpaqueHandle,
-        network: OpaqueHandle,
-        operation: &'static str,
-    ) -> Result<(Option<usize>, Option<i64>), CudaAlgebraError> {
-        self.owned(handle, network, operation)?;
-        match self.objects.get(&id(network)) {
-            Some(&Object::Network { path, prepared, .. }) => Ok((path, prepared)),
-            _ => Err(failed(operation, "no such network")),
-        }
-    }
-
-    /// Fails unless `info` holds an optimized path of `network`.
-    fn path_of(
-        &self,
-        handle: OpaqueHandle,
-        network: OpaqueHandle,
-        info: OpaqueHandle,
-        operation: &'static str,
-    ) -> Result<(), CudaAlgebraError> {
-        self.owned(handle, network, operation)?;
-        match self.optimizer_info(handle, info, operation)? {
-            (of, _) if of != id(network) => Err(failed(
-                operation,
-                "the optimizer info is for another network",
-            )),
-            (_, false) => Err(failed(operation, "the path is not optimized")),
-            _ => Ok(()),
-        }
-    }
-
-    /// Whether a live object is `is_part` of `whole`.
-    fn has_part(&self, whole: usize, is_part: impl Fn(&Object, usize) -> bool) -> bool {
-        self.objects.values().any(|object| is_part(object, whole))
     }
 }

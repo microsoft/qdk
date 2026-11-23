@@ -6,7 +6,7 @@
 //! first failure.
 
 use super::*;
-use crate::engine::cuda_algebra::NETWORKS_KEPT;
+use crate::engine::cuda_algebra::policy::NETWORKS_KEPT;
 
 /// A release that fails with the device idle: at the algebra's drop (a
 /// buffer's free), in a split (a descriptor's destroy), or in a move when

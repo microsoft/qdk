@@ -22,14 +22,10 @@
 //!   and again when the session ends (the algebra and its last tensor
 //!   dropped);
 //! - if neither wait succeeds, they are leaked, never freed.
-//!
-//! So a buffer the device may still use is freed only after a successful
-//! wait for the device (its stream and its copies); otherwise it is kept
-//! until one succeeds, or leaked.
 
+use super::device_session::DeviceSession;
 use super::resources::AlgebraResources;
 use crate::engine::cuda_algebra_error::{CudaAlgebraError, first_failure, report_failed_release};
-use crate::engine::device_session::DeviceSession;
 use crate::engine::native_calls::{NativeCalls, OpaqueHandle};
 use std::cell::RefCell;
 
@@ -38,7 +34,7 @@ use std::cell::RefCell;
 /// and what that work's buffers keep until a wait succeeds (the module's
 /// header says what follows).
 pub(super) struct AlgebraSession {
-    device_session: DeviceSession<dyn NativeCalls>,
+    device_session: DeviceSession,
     unwaited: RefCell<Option<UnwaitedWork>>,
 }
 
@@ -88,14 +84,14 @@ impl Retired {
 }
 
 impl AlgebraSession {
-    pub(super) fn new(device_session: DeviceSession<dyn NativeCalls>) -> Self {
+    pub(super) fn new(device_session: DeviceSession) -> Self {
         Self {
             device_session,
             unwaited: RefCell::new(None),
         }
     }
 
-    pub(super) fn device_session(&self) -> &DeviceSession<dyn NativeCalls> {
+    pub(super) fn device_session(&self) -> &DeviceSession {
         &self.device_session
     }
 

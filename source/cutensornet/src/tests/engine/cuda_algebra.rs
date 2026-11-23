@@ -15,7 +15,7 @@
 //! through the algebra's methods. What a read returns is the kit's rule;
 //! unlike the CPU algebra's, this algebra's read copies to the host, so no
 //! test pins a borrow. The kit and the engine's circuits also run on a GPU
-//! (`tests/cuda_algebra_on_the_gpu.rs`).
+//! (`tests/cuda_mps_engine_on_the_gpu.rs`).
 
 mod call_scope;
 mod cleanups;
@@ -26,7 +26,9 @@ mod scratch;
 
 use crate::engine::CudaAlgebraError;
 use crate::engine::cuda_algebra::{CudaAlgebra, DeviceTensor};
-use crate::engine::native_calls::{NativeCalls, SvdTruncation, fake_libraries::FakeLibraries};
+use crate::engine::native_calls::{
+    NativeCalls, fake_libraries::FakeLibraries, tensor_calls::SvdTruncation,
+};
 use canonical_mps::site_algebra::{
     CentreSide, GateSplitCall, GateSplitOutcome, QrMoveCall, QrMoveOutcome, SiteAlgebra,
     conformance,

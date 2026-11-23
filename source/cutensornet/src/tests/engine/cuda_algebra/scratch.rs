@@ -9,8 +9,8 @@
 //! cannot lend, and freed when the algebra closes.
 
 use super::*;
-use crate::engine::native_calls::WorkspaceSlot;
 use crate::engine::native_calls::fake_libraries::WORKSPACE_BYTES;
+use crate::engine::native_calls::memory_calls::WorkspaceSlot;
 
 /// A split the scratch tests repeat: any call that lends a workspace would
 /// do.
@@ -37,11 +37,11 @@ fn the_algebras_buffers_grow_only_when_a_call_asks_for_more() {
     // A repeated split allocates its pair and its two factors alone.
     assert_eq!(libraries.count("allocate") - after_the_first, 2 * 4);
     assert_eq!(libraries.scratch_buffers(), 1);
-    libraries.set_workspace_bytes(4 * WORKSPACE_BYTES);
+    libraries.set_workspace_slot_bytes(WorkspaceSlot::DeviceScratch, 4 * WORKSPACE_BYTES);
     split_once(&algebra).expect("the split asking for more");
     assert_eq!(libraries.scratch_buffers(), 2);
     assert_eq!(libraries.live_scratch(), 1);
-    libraries.set_workspace_bytes(WORKSPACE_BYTES);
+    libraries.set_workspace_slot_bytes(WorkspaceSlot::DeviceScratch, WORKSPACE_BYTES);
     split_once(&algebra).expect("the split asking for less");
     assert_eq!(libraries.scratch_buffers(), 2);
 
@@ -85,7 +85,7 @@ fn the_algebras_buffers_grow_only_when_a_call_asks_for_more() {
 fn a_grown_scratch_frees_the_smaller_only_once_nothing_uses_it() {
     let (algebra, libraries) = algebra();
     split_once(&algebra).expect("a split");
-    libraries.set_workspace_bytes(4 * WORKSPACE_BYTES);
+    libraries.set_workspace_slot_bytes(WorkspaceSlot::DeviceScratch, 4 * WORKSPACE_BYTES);
     let grown = split_once(&algebra);
     assert!(grown.is_ok(), "a split after a split: {grown:?}");
 
@@ -94,8 +94,11 @@ fn a_grown_scratch_frees_the_smaller_only_once_nothing_uses_it() {
     for centre in [CentreSide::Left, CentreSide::Right] {
         for gate in gates {
             let (algebra, libraries) = super::algebra();
-            libraries.set_workspace_bytes(64);
-            libraries.set_workspace_bytes_after_the_next_qr(WORKSPACE_BYTES);
+            libraries.set_workspace_slot_bytes(WorkspaceSlot::DeviceScratch, 64);
+            libraries.set_workspace_slot_bytes_after_the_next_qr(
+                WorkspaceSlot::DeviceScratch,
+                WORKSPACE_BYTES,
+            );
             let moved = Move {
                 a: &a,
                 b: &b,
@@ -139,7 +142,13 @@ fn every_slot_a_call_asks_memory_for_is_lent_it() {
     );
     let (algebra, libraries) = algebra();
     for bytes in [512, 768, 1000, 1256, 2000, 2256, 4096] {
-        libraries.set_other_workspace_slot_bytes(bytes);
+        for slot in [
+            WorkspaceSlot::DeviceCache,
+            WorkspaceSlot::HostScratch,
+            WorkspaceSlot::HostCache,
+        ] {
+            libraries.set_workspace_slot_bytes(slot, bytes);
+        }
         let lent = split_once(&algebra);
         assert!(lent.is_ok(), "{bytes} bytes: {lent:?}");
     }
@@ -217,7 +226,7 @@ fn a_slot_size_the_algebra_cannot_lend_fails_only_its_call() {
 fn a_scratch_the_workspace_failed_to_take_is_freed_at_close() {
     let (algebra, libraries) = algebra();
     split_once(&algebra).expect("a split");
-    libraries.set_workspace_bytes(4 * WORKSPACE_BYTES);
+    libraries.set_workspace_slot_bytes(WorkspaceSlot::DeviceScratch, 4 * WORKSPACE_BYTES);
     libraries.fail("set_workspace", libraries.count("set_workspace") + 1);
     let failed = split_once(&algebra);
     assert!(

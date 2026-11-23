@@ -17,8 +17,8 @@
 //! (status 7 on the A100). A slot that asks for a negative size fails the
 //! call before its tensor work runs, as a result the library may not give.
 
+use super::device_session::DeviceSession;
 use crate::engine::cuda_algebra_error::{CudaAlgebraError, first_failure};
-use crate::engine::device_session::DeviceSession;
 use crate::engine::native_calls::{NativeCalls, OpaqueHandle, memory_calls::WorkspaceSlot};
 use std::ptr::NonNull;
 
@@ -54,7 +54,7 @@ impl Scratch {
     /// No device work may be pending: a growth frees the smaller buffer.
     pub(super) fn lend(
         &mut self,
-        device_session: &DeviceSession<dyn NativeCalls>,
+        device_session: &DeviceSession,
         workspace: OpaqueHandle,
         check_allocation: &dyn Fn(OpaqueHandle) -> Result<OpaqueHandle, CudaAlgebraError>,
     ) -> Result<(), CudaAlgebraError> {
@@ -117,7 +117,7 @@ impl Scratch {
         &mut self,
         index: usize,
         bytes: usize,
-        device_session: &DeviceSession<dyn NativeCalls>,
+        device_session: &DeviceSession,
         workspace: OpaqueHandle,
         slot: WorkspaceSlot,
         check_allocation: &dyn Fn(OpaqueHandle) -> Result<OpaqueHandle, CudaAlgebraError>,
