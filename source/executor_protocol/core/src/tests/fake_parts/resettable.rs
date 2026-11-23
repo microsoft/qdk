@@ -103,7 +103,9 @@ impl Adapter for AncillaReuse {
 
 /// A translating adapter of [`QubitLimited`] to [`Resettable`], as a
 /// compiler pass inserting mid-circuit resets: it requires below the
-/// qubits that arrive, with a reset, and sends each gate as it came.
+/// qubits that arrive, with a reset. The tests compose it only above parts
+/// with no reset, which refuse every run at `ready`, so it never adapts:
+/// its `adapt` panics.
 pub(crate) struct ResetInsertion;
 
 impl TranslatingAdapter for ResetInsertion {
@@ -132,28 +134,12 @@ impl TranslatingAdapter for ResetInsertion {
 
     async fn adapt(
         &mut self,
-        batches: &[Batch<'_, QubitLimited>],
-        seed: Seed,
-        below: &mut impl Executor<Accepts = Resettable>,
-        readouts: &mut [BatchReadouts<QubitLimited>],
+        _: &[Batch<'_, QubitLimited>],
+        _: Seed,
+        _: &mut impl Executor<Accepts = Resettable>,
+        _: &mut [BatchReadouts<QubitLimited>],
     ) -> Result<(), ExecuteError> {
-        let sent: Vec<Batch<'_, Resettable>> = (batches.iter())
-            .map(|batch| {
-                Batch::new(batch.shots, batch.instructions, batch.readout_slots())
-                    .checked_if(batch.is_checked())
-            })
-            .collect();
-        let mut sent_readouts: Vec<BatchReadouts<Resettable>> = (batches.iter())
-            .map(|batch| BatchReadouts::new(batch.shots.len(), batch.readout_slots()))
-            .collect();
-        below.execute(&sent, seed, &mut sent_readouts).await?;
-        for (below, above) in sent_readouts.iter().zip(readouts) {
-            for shot in 0..below.shots() {
-                above.row_mut(shot).copy_from_slice(below.row(shot));
-                above.set_conditions(shot, below.conditions(shot));
-            }
-        }
-        Ok(())
+        unreachable!("a reset insertion is composed only above parts with no reset, so none adapts")
     }
 }
 

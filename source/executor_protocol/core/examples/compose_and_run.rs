@@ -145,8 +145,8 @@ impl BoundaryCompatible for CoinGates {
 impl InstructionSet for CoinGates {
     type Instruction = Gate;
     type SetCapabilities = Qubits;
-    /// The qubits a shot holds, prepared once per run, against which each
-    /// instruction of a checked batch is checked.
+    /// The qubits a shot holds, prepared once per run, which each
+    /// instruction of a checked batch is checked against.
     type Requirement = u32;
     type Fault = QubitBeyond;
     /// A bit read, or none.

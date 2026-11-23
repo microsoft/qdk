@@ -18,7 +18,7 @@ use crate::{BoundaryMismatch, CompositionFaults, Features, PartId, ResourceMisma
 use super::driver_joins::{NO_X, bits_over, instructions, part, program, short_batches};
 
 /// Faults of each kind, a set's and a resource's at one pair included,
-/// and a set's short on two needs at one pair, with parts named by their
+/// and a set short of two needs at one pair, with parts named by their
 /// types, or, as a part built at run time is, by
 /// what it was built from: each fault names its parts by those names, in
 /// its fields and in its message, beside each mismatch's own message,
