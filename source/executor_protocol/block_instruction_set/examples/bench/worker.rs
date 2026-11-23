@@ -49,7 +49,7 @@ pub(crate) fn bench(size: &Size, program: &[BlockInstruction], checked: bool) {
                 ProgramInBatches::new(MixGates::set(), program, &slots, QUBITS, batch)
                     .checked_if(checked);
             in_batches.timed = true;
-            let received = run_once(in_batches.on(&mut worker));
+            let received = run_once(in_batches.limited().on(&mut worker));
             assert_eq!(worker.finish(), expected, "the worker counted the program");
             received.call_times
         });
@@ -59,9 +59,9 @@ pub(crate) fn bench(size: &Size, program: &[BlockInstruction], checked: bool) {
                 ProgramInBatches::new(MixGates::set(), program, &slots, QUBITS, batch)
                     .checked_if(checked);
             in_batches.timed = true;
-            let received = run_once(in_batches.on(&mut profiler));
+            let received = run_once(in_batches.limited().on(&mut profiler));
             assert_eq!(
-                profiler.profile, expected,
+                profiler.part.profile, expected,
                 "the profiler counted the program"
             );
             received.call_times

@@ -92,7 +92,7 @@ pub(crate) fn run_chain(
     let in_batches =
         ProgramInBatches::new(MixGates::set(), program, slots, QUBITS, batch).checked_if(checked);
     black_box(send_down(chain, in_batches, &mut profiler));
-    profiler.profile
+    profiler.part.profile
 }
 
 /// Runs `in_batches` down `chain`, over `executor`.
@@ -105,12 +105,13 @@ fn send_down<E: Executor<Accepts = BlockInstructionSet>>(
         Chain::Direct => {
             // The chain's executor is sent no batch: `Direct` sends past it.
             let unused = Profiler::new(Resources::unconstrained());
-            run_once(Direct(in_batches, executor).on(unused))
+            run_once(Direct(in_batches, executor).limited().on(unused))
         }
-        Chain::Bare | Chain::Limited(_) => run_once(in_batches.on(executor)),
-        Chain::OneAdapter => run_once(in_batches.through(Forward::new()).on(executor)),
+        Chain::Bare | Chain::Limited(_) => run_once(in_batches.limited().on(executor)),
+        Chain::OneAdapter => run_once(in_batches.limited().through(Forward::new()).on(executor)),
         Chain::TwoAdapters => run_once(
             in_batches
+                .limited()
                 .through(Forward::new())
                 .through(Forward::new())
                 .on(executor),

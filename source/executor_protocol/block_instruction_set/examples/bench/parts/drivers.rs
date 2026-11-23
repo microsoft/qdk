@@ -12,8 +12,8 @@ use block_instruction_set::{
 };
 use executor_protocol_core::prelude::*;
 use executor_protocol_core::{
-    Batch, BatchReadouts, Capabilities, CompositionFaults, DriveError, ExecuteError, Features,
-    Readouts, Resources, RunRequirement, Runner, Seed, ShotSet,
+    Batch, BatchReadouts, Capabilities, CompositionFaults, DriveError, DriverLimits, ExecuteError,
+    Features, Readouts, Resources, RunRequirement, Runner, Seed, ShotSet,
 };
 
 use crate::workload::SEED;
@@ -130,14 +130,6 @@ impl Driver for ProgramInBatches<'_> {
         &self.sends
     }
 
-    /// Its qubits and readout parities, whatever the run: it does not pass
-    /// the run's one shot and fixed seed below, which every executor of
-    /// the bench takes, so the timings that include a run's start leave
-    /// out checking them.
-    fn requires(&self, _run: &RunRequirement) -> Capabilities<BlockInstructionSet> {
-        self.requires.clone()
-    }
-
     fn bind(&mut self, below: OpcodeMap) {
         assert!(below == self.identity, "the receiver's set is the driver's");
     }
@@ -152,6 +144,16 @@ impl Driver for ProgramInBatches<'_> {
     ) -> Result<Vec<Received>, DriveError> {
         let received = self.send(below, shots, seed, false).await?;
         Ok(vec![received])
+    }
+}
+
+impl DriverLimits for ProgramInBatches<'_> {
+    /// Its qubits and readout parities, whatever the run: it does not pass
+    /// the run's one shot and fixed seed below, which every executor of
+    /// the bench takes, so the timings that include a run's start leave
+    /// out checking them.
+    fn requires(&self, _run: &RunRequirement) -> Capabilities<BlockInstructionSet> {
+        self.requires.clone()
     }
 }
 
@@ -171,7 +173,8 @@ pub(crate) fn slots_per_batch(
 
 /// [`ProgramInBatches`] sending to an executor of its own, past the chain
 /// it is composed with, awaiting each `execute` itself: the baseline. A
-/// driver, because only a run gives a seed to call `execute` with.
+/// driver, because only a run gives a seed to call `execute` with; it
+/// requires what its [`ProgramInBatches`] does.
 pub(crate) struct Direct<'p, E>(pub(crate) ProgramInBatches<'p>, pub(crate) E);
 
 impl<E: Executor<Accepts = BlockInstructionSet>> Driver for Direct<'_, E> {
@@ -179,10 +182,6 @@ impl<E: Executor<Accepts = BlockInstructionSet>> Driver for Direct<'_, E> {
 
     fn sends(&self) -> &BlockInstructionSet {
         self.0.sends()
-    }
-
-    fn requires(&self, run: &RunRequirement) -> Capabilities<BlockInstructionSet> {
-        self.0.requires(run)
     }
 
     fn bind(&mut self, below: OpcodeMap) {
@@ -203,6 +202,12 @@ impl<E: Executor<Accepts = BlockInstructionSet>> Driver for Direct<'_, E> {
         // run's shots on it.
         executor.end_shots(shots);
         Ok(vec![received])
+    }
+}
+
+impl<E: Executor<Accepts = BlockInstructionSet>> DriverLimits for Direct<'_, E> {
+    fn requires(&self, run: &RunRequirement) -> Capabilities<BlockInstructionSet> {
+        self.0.requires(run)
     }
 }
 

@@ -14,7 +14,8 @@ use block_instruction_set::{
 };
 use executor_protocol_core::prelude::*;
 use executor_protocol_core::{
-    Batch, BatchReadouts, Capabilities, ExecuteError, Features, Resources, Seed, ShotSet,
+    Batch, BatchReadouts, Capabilities, ExecuteError, ExecutorLimits, Features, Limited, Resources,
+    Seed, ShotSet,
 };
 
 use super::{MixGates, PhysicalGates};
@@ -67,7 +68,7 @@ impl BatchKinds {
 
 impl Profiler {
     /// A profiler accepting `MixGates` and providing `resources`.
-    pub(crate) fn new(resources: Resources) -> Self {
+    pub(crate) fn new(resources: Resources) -> Limited<Self> {
         Self {
             accepts: MixGates::set(),
             provides: Capabilities::new(
@@ -77,6 +78,7 @@ impl Profiler {
             ),
             profile: Profile::default(),
         }
+        .limited()
     }
 }
 
@@ -139,10 +141,6 @@ impl Executor for Profiler {
         &self.accepts
     }
 
-    fn provides(&self) -> &Capabilities<BlockInstructionSet> {
-        &self.provides
-    }
-
     async fn execute(
         &mut self,
         batches: &[Batch<'_, BlockInstructionSet>],
@@ -155,6 +153,12 @@ impl Executor for Profiler {
             self.profile.record(batch.instructions, batch.is_checked());
         }
         Ok(())
+    }
+}
+
+impl ExecutorLimits for Profiler {
+    fn provides(&self) -> &Capabilities<BlockInstructionSet> {
+        &self.provides
     }
 }
 
