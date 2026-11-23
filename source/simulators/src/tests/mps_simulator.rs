@@ -33,13 +33,13 @@ use tensornet::reference::ExactReference;
 use tensornet::{MpsEngine, MpsShape};
 
 use crate::bytecode::encoding::{
-    OPID_CX, OPID_H, OPID_MOVE, OPID_MRESETZ, OPID_MZ, OPID_SWAP, OPID_X,
+    OPID_CX, OPID_H, OPID_MOVE, OPID_MRESETZ, OPID_MZ, OPID_RX, OPID_SWAP, OPID_X,
 };
 use crate::mps_simulator::qubit_order::QubitOrder;
 use crate::mps_simulator::{DEFAULT_MAX_BOND_DIMENSION, MpsResumer, MpsResumerError};
 use programs::{
-    bytecode, coin_copied_by_a_branch, coins, gate1, gate2, measure, mz, program, program_with,
-    reset, ret,
+    bytecode, coin_copied_by_a_branch, coins, gate, gate1, gate2, measure, mz, program,
+    program_with, reset, ret,
 };
 use reference_spy::{Call, ReferenceSpy};
 
@@ -270,9 +270,9 @@ fn a_move_changes_no_state() {
 
 /// A shot's records depend only on the resumer's seed and the shot's id:
 /// not on the shots beside it, whose draws split them into other groups,
-/// nor on its place among them, nor on earlier runs, even one
-/// an engine's failure ended. Each row compares a shot's records in one
-/// scene with its records in another.
+/// nor on its place among them, nor on earlier runs, even one an engine's
+/// failure or refusal, or the stop flag, ended. Each row compares a shot's
+/// records in one scene with its records in another.
 #[test]
 fn a_shots_records_depend_only_on_the_seed_and_the_shot() {
     let mut rows: Vec<(String, Records, Records)> = Vec::new();
@@ -330,6 +330,46 @@ fn a_shots_records_depend_only_on_the_seed_and_the_shot() {
             new.clone(),
         ));
     }
+
+    // After a run the engine refused, as on a new resumer: 8 shots of two
+    // coins, after a rotation by an angle that is not finite.
+    let shots = QirShotId::first(8);
+    let new = run(&mut new_resumer(), &coins(2), &shots).expect("the program runs");
+    for angle in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        let mut resumer = new_resumer();
+        let block = [gate(OPID_RX, 0, 0, angle), mz(0), ret()];
+        run(&mut resumer, &program(1, &[&block]), &ids(&[2, 0]))
+            .expect_err("the engine refuses the rotation");
+        let next = run(&mut resumer, &coins(2), &shots).expect("the program runs");
+        rows.push((
+            format!("after a run that refused rx by {angle}, as on a new resumer"),
+            next,
+            new.clone(),
+        ));
+    }
+
+    // After runs the stop flag ended, once it is cleared, as on a new
+    // resumer: shots 3, 1 and 2 of four coins, after three stopped runs.
+    let shots = ids(&[3, 1, 2]);
+    let stop_flag = Arc::new(AtomicBool::new(true));
+    let mut resumer =
+        MpsResumer::new(ReferenceSpy::new(), 7).with_stop_flag(Arc::clone(&stop_flag));
+    for stopped in [coins(4), program(1, &[&[ret()]]), coins(4)] {
+        run(&mut resumer, &stopped, &shots).expect_err("the flag stops the run");
+    }
+    stop_flag.store(false, Ordering::Relaxed);
+    let cleared = run(&mut resumer, &coins(4), &shots).expect("a cleared flag stops nothing");
+    let new = run(
+        &mut MpsResumer::new(ReferenceSpy::new(), 7),
+        &coins(4),
+        &shots,
+    )
+    .expect("the program runs");
+    rows.push((
+        "after stopped runs, the flag cleared, as on a new resumer".to_string(),
+        cleared,
+        new,
+    ));
 
     for (scene, records, expected) in rows {
         assert_eq!(records, expected, "{scene}");

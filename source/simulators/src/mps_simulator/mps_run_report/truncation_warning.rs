@@ -14,6 +14,7 @@ use super::TRUNCATION_TOLERANCE;
 /// in the header of `mps_simulator/mps_run_report.rs`. It displays as the
 /// message a user reads.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct TruncationWarning {
     /// The most weight a shot lost: 1 − its retained weight.
     pub lost_weight: f64,

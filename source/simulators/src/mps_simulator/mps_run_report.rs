@@ -43,6 +43,7 @@ pub const TRUNCATION_TOLERANCE: f64 = 1e-3;
 ///
 /// [`MpsResumer::last_run`]: super::MpsResumer::last_run
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct MpsRunReport {
     /// The largest bond a state held where a sequence of gates ended,
     /// before the measurements after it

@@ -210,7 +210,7 @@ by their own tests. All run in every `cargo test`.
 The module runs wherever `qdk_simulators` builds, on the engine its caller
 gives.
 
-| Engine                                                                                               | Where it runs         | Tests run here                            |
-| ---------------------------------------------------------------------------------------------------- | --------------------- | ----------------------------------------- |
-| An engine on the host CPU, such as `tensornet`'s exact reference or `canonical_mps`'s `CpuMpsEngine` | Linux, macOS, Windows | on `tensornet`'s exact reference          |
-| An engine on an NVIDIA GPU, over cuTensorNet ([its loading](../../../cutensornet/README.md))         | Linux x86-64          | none: a GPU run is the engine's to verify |
+| Engine                                                                                                               | Where it runs         | Tests run here                            |
+| -------------------------------------------------------------------------------------------------------------------- | --------------------- | ----------------------------------------- |
+| An engine on the host CPU, such as `tensornet`'s exact reference or `canonical_mps`'s `CpuMpsEngine`                 | Linux, macOS, Windows | on `tensornet`'s exact reference          |
+| An engine on an NVIDIA GPU, such as `cutensornet`'s [`CudaMpsEngine`](../../../cutensornet/README.md#the-mps-engine) | Linux x86-64          | none: a GPU run is the engine's to verify |
