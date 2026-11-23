@@ -28,7 +28,7 @@ fn check_qr(a: &Matrix) {
 /// A thin QR gives back its matrix, with orthonormal columns in `Q` and
 /// `R` upper trapezoidal, on tall, wide, square and single-row shapes.
 #[test]
-fn decomposes_by_qr() {
+fn a_thin_qr_gives_back_the_matrix_with_orthonormal_q() {
     for (seed, &(rows, cols)) in (1..).zip(&SHAPES) {
         check_qr(&matrix(rows, cols, seed));
     }
@@ -37,7 +37,7 @@ fn decomposes_by_qr() {
 /// The zero matrix, which has no largest entry to scale by, decomposes
 /// with `R = 0`.
 #[test]
-fn decomposes_the_zero_matrix() {
+fn the_zero_matrix_has_a_zero_r() {
     for &(rows, cols) in &SHAPES {
         check_qr(&Matrix::new(rows, cols, vec![c(0.0, 0.0); rows * cols]));
     }

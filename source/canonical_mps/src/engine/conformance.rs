@@ -22,7 +22,8 @@
 //!
 //! Each function builds the engine on the algebra it is given, at the
 //! cutoff its circuit needs, and asserts its rule, so a test calls it and
-//! nothing else. It needs the `conformance` feature.
+//! nothing else. The circuits' sites are drawn from one fixed seed, which
+//! a broken rule's panic names. It needs the `conformance` feature.
 
 use crate::site_algebra::SiteAlgebra;
 use crate::{CanonicalMpsEngine, CanonicalMpsState};
@@ -57,12 +58,17 @@ pub(crate) fn assert_untruncated_circuit_agrees_on<A: SiteAlgebra>(engine: &Cano
     let mut exact_state = reference.prepare(&full_capacity(sites)).expect("prepare");
     let mut next = xorshift(SEED);
     let agree = |state: &CanonicalMpsState<A>, exact_state: &ReferenceState| {
-        assert_reads_agree(engine, state, exact_state, 1e-10);
+        if let Some(disagreement) = disagreeing_read(engine, state, exact_state, 1e-10) {
+            panic!("circuit seed {SEED:#x}: {disagreement}");
+        }
         let value = engine.expectation(state, &mixed_string()).expect("value");
         let expected = reference
             .expectation(exact_state, &mixed_string())
             .expect("value");
-        assert!((value - expected).norm() < 1e-10, "{value} vs {expected}");
+        assert!(
+            (value - expected).norm() < 1e-10,
+            "circuit seed {SEED:#x}: expectation {value} vs {expected}"
+        );
     };
     for step in 0..120 {
         let x = f64::from(u32::try_from(step).expect("small"));
@@ -91,7 +97,10 @@ pub(crate) fn assert_untruncated_circuit_agrees_on<A: SiteAlgebra>(engine: &Cano
     }
     agree(&state, &exact_state);
     let shape = engine.shape(&state).expect("shape");
-    assert!(shape.fits_within(&capacity(sites, 64)), "{shape:?}");
+    assert!(
+        shape.fits_within(&capacity(sites, 64)),
+        "circuit seed {SEED:#x}: {shape:?}"
+    );
 }
 
 /// A circuit of weak entangling gates on 8 sites, mostly far apart, at a
@@ -147,15 +156,18 @@ pub fn assert_truncated_circuit_stays_within_its_truncation_bound<A: SiteAlgebra
         .sum();
     assert!(
         tvd > 1e-5,
-        "precondition: the cap truncates, so the distributions differ \
-         (TVD {tvd:e})"
+        "circuit seed {SEED:#x}: precondition: the cap truncates, so the \
+         distributions differ (TVD {tvd:e})"
     );
     assert!(
         bound < 0.2,
-        "precondition: the bound is far below 1, so the check is not \
-         vacuous (bound {bound:e})"
+        "circuit seed {SEED:#x}: precondition: the bound is far below 1, so \
+         the check is not vacuous (bound {bound:e})"
     );
-    assert!(tvd <= bound, "TVD {tvd:e} above the bound {bound:e}");
+    assert!(
+        tvd <= bound,
+        "circuit seed {SEED:#x}: TVD {tvd:e} above the bound {bound:e}"
+    );
 }
 
 /// The seed of every circuit's choice of sites.
@@ -163,20 +175,35 @@ const SEED: u64 = 0x2545_F491_4F6C_DD1D;
 
 /// Each site's P(One) on `state` and on the exact reference's `exact_state`
 /// agree within `tolerance`.
+#[cfg(test)]
 pub(crate) fn assert_reads_agree<A: SiteAlgebra>(
     engine: &CanonicalMpsEngine<A>,
     state: &CanonicalMpsState<A>,
     exact_state: &ReferenceState,
     tolerance: f64,
 ) {
+    if let Some(disagreement) = disagreeing_read(engine, state, exact_state, tolerance) {
+        panic!("{disagreement}");
+    }
+}
+
+/// The first site whose P(One) on `state` and on the exact reference's
+/// `exact_state` differ by `tolerance` or more, with both values, or `None`.
+fn disagreeing_read<A: SiteAlgebra>(
+    engine: &CanonicalMpsEngine<A>,
+    state: &CanonicalMpsState<A>,
+    exact_state: &ReferenceState,
+    tolerance: f64,
+) -> Option<String> {
     let reference = ExactReference::new();
-    for site in 0..exact_state.site_count() {
+    (0..exact_state.site_count()).find_map(|site| {
         let p = engine.probability_of_one(state, site).expect("P(One)");
         let q = reference
             .probability_of_one(exact_state, site)
             .expect("P(One)");
-        assert!((p - q).abs() < tolerance, "site {site}: {p} vs {q}");
-    }
+        let agree = (p - q).abs() < tolerance;
+        (!agree).then(|| format!("site {site}: P(One) {p} vs {q}"))
+    })
 }
 
 /// The probability of every outcome of `sites` qubits, the outcome's bit

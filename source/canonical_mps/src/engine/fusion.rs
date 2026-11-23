@@ -8,29 +8,14 @@
 //! rotation's CNOTs, a Trotter step's ladder. Applying each gate by its
 //! own split costs a factorisation per gate; gathering the gates of a run
 //! on up to [`WINDOW_SITES`] sites into one operator costs one
-//! application for the run. The rules, stated for callers on
-//! [`CanonicalMpsEngine`] (Fusion):
+//! application for the run. The rules (which gates join, when the window
+//! is applied, where it leaves the centre) are stated for callers on
+//! [`CanonicalMpsEngine`] (Fusion). Here, [`flush_window`] applies a
+//! window on two neighbours by one split ([`splits`](super::splits)),
+//! with the centre moved onto the pair first, and any other window as a
+//! matrix product operator across its span ([`mpo`](super::mpo)).
 //!
-//! - **What joins.** A two-site gate joins the window when the window's
-//!   sites and its own number at most [`WINDOW_SITES`]; otherwise the
-//!   window is applied and the gate opens a new one. A one-site gate on a
-//!   site of the window multiplies into it; on another site it waits on
-//!   its site, as before any window (`chain`), and a gate that brings the
-//!   site into the window applies after it.
-//! - **How it is applied.** A window on two neighbours is one
-//!   [`gate_split`](SiteAlgebra::gate_split)
-//!   ([`truncation`](super::truncation)), with the centre moved onto the
-//!   pair first; any other window, on
-//!   sites further apart or on three sites, is applied as a matrix product
-//!   operator across its span ([`mpo`](super::mpo)).
-//! - **When.** The first operation the window does not serve applies it
-//!   ([`flush_window`](CanonicalMpsEngine::flush_window)), toward the
-//!   site that operation names, so the operation finds the centre there
-//!   or close.
-//!
-//! Without fusion (the tests' comparison), each two-site gate is its own
-//! window, applied at once, and leaves the centre on the side of its sites
-//! nearer where the centre was.
+//! [`flush_window`]: CanonicalMpsEngine::flush_window
 
 use super::{CanonicalMpsEngine, CanonicalMpsError, chain::Chain, gate_products};
 use crate::site_algebra::{CentreSide, SiteAlgebra};

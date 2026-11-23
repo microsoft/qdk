@@ -47,7 +47,7 @@ mod support;
 
 use canonical_mps::{CpuAlgebra, CpuMpsEngine, DEFAULT_CUTOFF};
 use support::{
-    Res,
+    ExampleResult,
     agreement::agreement,
     args::{flag, number, order, qubits},
     circuit::Circuit,
@@ -58,7 +58,7 @@ use support::{
 };
 use tensornet::MpsEngine;
 
-fn main() -> Res<()> {
+fn main() -> ExampleResult<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let number = |name: &str, default: usize| number(&args, name, default);
     let (label, circuit): (String, Circuit) = if let Some(path) = flag(&args, "--gates") {

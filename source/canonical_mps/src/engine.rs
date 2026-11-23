@@ -21,45 +21,35 @@
 //! a gate costs what its sites and the distance the centre moves cost, not
 //! the chain's length.
 //!
-//! Each operation moves the centre only as far as it must, by its part:
+//! Each operation moves the centre only as far as it must. The engine's
+//! parts:
 //!
-//! - [`state`]: the engine's state, [`CanonicalMpsState`], which holds
-//!   the chain;
-//! - [`chain`]: the sites, the centre, the gates still pending, and the
-//!   state's statistics;
-//! - [`fusion`]: a one-site gate waits, pending, on its site, and two-site
-//!   gates on up to three sites, neighbours or not, gather into the
-//!   pending window, which the first operation it does not serve applies
-//!   at once;
-//! - [`gate_products`]: the arithmetic of the pending gates, on the host;
-//! - [`truncation`]: the split of two neighbours, a gate applied, by one
-//!   [`gate_split`](SiteAlgebra::gate_split), the one place where the
-//!   state's bonds are truncated; it applies a window on two neighbours,
-//!   and leaves the centre on the side it is asked for;
-//! - [`mpo`]: any other window, applied as a matrix product operator
-//!   across its span, compressed back by splits;
-//! - [`centre_moves`]: moving the centre by one
-//!   [`qr_move`](SiteAlgebra::qr_move) per site crossed, which carries the
-//!   pending gate of the site it leaves;
-//! - [`host_site`]: a site's elements on the host, its pending gate
-//!   applied, on which the MPO, the measurement and the expectation
-//!   compute;
-//! - [`measurement`]: probabilities, projections and conditional
-//!   probabilities, at the centre;
-//! - [`expectation`]: an observable's expectation, all its terms in one
-//!   walk;
-//! - [`statistics`]: what a state's history cost: its splits, moves of
-//!   the centre and MPO applications, and its largest bonds;
-//! - [`policy`]: the default cutoff and the operator's rank cutoff,
-//!   with their reasons;
-//! - [`error`]: why an operation was refused or failed;
-//! - `conformance`: the circuits that check a backend under the engine
-//!   against the exact reference, which the `conformance` feature makes
-//!   public.
+//! ```text
+//! engine.rs            CanonicalMpsEngine: each MpsEngine method
+//!   state.rs           CanonicalMpsState, which holds the chain
+//!   chain.rs           the sites, the centre, the pending gates, the
+//!                      statistics
+//!   fusion.rs          the pending window: which gates join it, when it
+//!                      is applied
+//!   gate_products.rs   the pending gates' arithmetic, on the host
+//!   splits.rs          a gate on two neighbours by one gate_split, the one
+//!                      place the state's bonds are truncated
+//!   mpo.rs             any other window, as a matrix product operator
+//!   centre_moves.rs    the centre moved by one qr_move per site crossed
+//!   host_site.rs       a site's elements on the host, its pending gate
+//!                      applied
+//!   measurement.rs     probabilities and projections, at the centre
+//!   expectation.rs     an observable's expectation, in one walk
+//!   statistics.rs      CanonicalMpsStatistics: what a state's history cost
+//!   policy.rs          DEFAULT_CUTOFF and the operator's rank cutoff, with
+//!                      their reasons
+//!   error.rs           CanonicalMpsError: refusals and failures
+//!   conformance.rs     the circuits that check a backend under the engine
+//!                      (feature `conformance`)
+//! ```
 //!
-//! Each method the contract checks, here, first calls its
-//! `tensornet::checks` function, so the algebra never sees a refused call,
-//! then calls its part.
+//! Each method the contract checks first calls its `tensornet::checks`
+//! function, so the algebra never sees a refused call, then calls its part.
 
 mod centre_moves;
 mod chain;
@@ -73,9 +63,9 @@ mod host_site;
 mod measurement;
 mod mpo;
 mod policy;
+mod splits;
 mod state;
 mod statistics;
-mod truncation;
 
 pub use error::CanonicalMpsError;
 pub use policy::DEFAULT_CUTOFF;
@@ -98,22 +88,22 @@ use tensornet::{MpsEngine, MpsShape, PauliSum, checks, sampling};
 /// contract sets for every backend.
 ///
 /// **Truncation.** Every split drops a tail of singular values within the
-/// engine's cutoff, never the largest value, and keeps at most the
-/// capacity's bond at its cut (the `χ` of the chain a caller asks for in
-/// [`MpsEngine::prepare`]). A split normalises the values it keeps,
-/// so the chain keeps a norm of about 1, and multiplies the state's
-/// retained weight by the share of the squared values they held, which
+/// engine's cutoff, never the largest value, and keeps at most the capacity's
+/// bond at its cut (the `χ` of the chain a caller asks for in
+/// [`MpsEngine::prepare`]). A split normalises the values it keeps, so the
+/// chain keeps a norm of about 1, and multiplies the state's retained weight by
+/// the share of the squared values they held, which
 /// [`MpsEngine::retained_weight`] reports. An MPO's factorisation of its
-/// window's operator (Sites far apart) also drops the operator's values
-/// at or below `1e-12` times its largest, which that weight does not
-/// count. A split that would take that weight below the smallest normal
-/// `f64` fails with [`CanonicalMpsError::WeightUnderflow`]: the contract
-/// keeps the weight
-/// above zero, because callers divide by it. A gate may drift from norm 1
-/// within the unitarity check's tolerance; on the centre's site it divides
-/// out, as the reads divide by the squared norm at the centre, elsewhere it
-/// shifts reads by at most that order. A projection divides its site by the
-/// norm of what it kept, and leaves the retained weight unchanged.
+/// window's operator (Sites far apart) also drops the operator's values at or
+/// below its rank cutoff (`OPERATOR_RANK_CUTOFF`, in the engine's `policy.rs`)
+/// times its largest, which that weight does not count. A split that would take
+/// that weight below the smallest normal `f64` fails with
+/// [`CanonicalMpsError::WeightUnderflow`]: the contract keeps the weight above
+/// zero, because callers divide by it. A gate may drift from norm 1 within the
+/// unitarity check's tolerance; on the centre's site it divides out, as the
+/// reads divide by the squared norm at the centre, elsewhere it shifts reads by
+/// at most that order. A projection divides its site by the norm of what it
+/// kept, and leaves the retained weight unchanged.
 ///
 /// **Fusion.** Two-site gates gather into a pending window of up to three
 /// sites, neighbours or not: a gate joins while the window's sites and its
@@ -147,8 +137,8 @@ use tensornet::{MpsEngine, MpsShape, PauliSum, checks, sampling};
 /// while the span is multiplied, its bonds reach up to the capacity's
 /// times the operator's bond (at most 4), which
 /// [`CanonicalMpsState::statistics`] reports apart from the bonds at
-/// rest. The crate's `docs/distant_sites.md` lists other ways to apply
-/// gates to sites far apart, with what is known of each.
+/// rest. The crate's `docs/distant_sites.md` compares this with routing
+/// the sites together by SWAP gates.
 ///
 /// **Failures.** After a failure the state is unspecified, as
 /// [`MpsEngine`] says, and the caller must drop it: an application of the
@@ -208,7 +198,8 @@ impl<A: SiteAlgebra> CanonicalMpsEngine<A> {
     /// The same engine, fusing when `fuses` (Fusion on
     /// [`CanonicalMpsEngine`]). The crate's users always get fusion;
     /// `with_fusion(false)` applies each two-site gate at once, as a window
-    /// of its own, which the crate's tests compare with.
+    /// of its own, and leaves the centre on the side of its sites nearer
+    /// where the centre was, which the crate's tests compare with.
     #[cfg(test)]
     #[must_use]
     pub(crate) fn with_fusion(self, fuses: bool) -> Self {

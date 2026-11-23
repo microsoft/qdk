@@ -3,8 +3,10 @@
 
 //! The exact state vector the examples compare the engine with.
 
+use num_complex::Complex64;
+
 use super::{
-    C, c,
+    c,
     circuit::{Circuit, Op},
     gates::{pauli_x, pauli_y, pauli_z},
 };
@@ -12,7 +14,7 @@ use tensornet::Pauli;
 
 /// A state vector, qubit `q` as bit `q` of the index.
 pub struct StateVector {
-    pub psi: Vec<C>,
+    pub psi: Vec<Complex64>,
 }
 
 impl StateVector {
@@ -30,7 +32,7 @@ impl StateVector {
         state
     }
 
-    fn apply(&mut self, qubits: &[usize], m: &[C]) {
+    fn apply(&mut self, qubits: &[usize], m: &[Complex64]) {
         match *qubits {
             [q] => {
                 let s = 1 << q;

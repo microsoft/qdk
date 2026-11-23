@@ -4,10 +4,9 @@
 //! [`CanonicalMpsStatistics`]: what a state's history cost, which the chain
 //! counts as its splits, moves of the centre and MPO applications happen.
 
-/// What the splits and moves of a state's history cost: how many splits it
-/// took, how many pending windows went as a matrix product operator, how
-/// many times the centre moved by one site, and the largest bonds the
-/// chain held, at rest and while such a window was applied.
+/// What a state's history cost in the backend's factorisations and in
+/// bonds: the figures that show a caller whether the capacity's `χ` or
+/// the cutoff bounded a run.
 ///
 /// Every split keeps at most the capacity's bond at its cut: with one `χ`
 /// at every cut, a largest bond at rest below `χ` says the capacity cut
@@ -17,9 +16,7 @@
 /// the operator's bond (Sites far apart on
 /// [`CanonicalMpsEngine`](super::CanonicalMpsEngine)), which
 /// [`MpsEngine::shape`](tensornet::MpsEngine::shape) never shows: the
-/// larger of the two figures is the largest bond the state held. The
-/// splits and the moves of the centre count the backend's factorisations
-/// (`gate_split`, `qr_move`), one call each.
+/// larger of the two figures is the largest bond the state held.
 ///
 /// With fusion, the window's gates count when the window is applied.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

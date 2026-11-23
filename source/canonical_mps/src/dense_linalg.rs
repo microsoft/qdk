@@ -7,11 +7,9 @@
 //! host computations (the MPO of a gate, the expectation's contractions)
 //! need.
 //!
-//! General SVDs have returned factors that do not give back the matrix,
-//! without reporting a failure, on rank-deficient matrices with repeated
-//! singular values. [`Svd::of`] either answers factors checked against the
-//! matrix, to the bounds of LAPACK's SVD tests, or reports a failure
-//! ([`SvdError`]); it leaves out only singular values of rounding's size.
+//! [`Svd::of`] either answers factors checked against the matrix, or
+//! reports a failure ([`SvdError`]); why, and what it guarantees, is in
+//! [`Svd`]'s module.
 //!
 //! - [`Matrix`], [`MatrixRef`]: a dense complex matrix, owned or borrowed,
 //!   column-major, with its product ([`Matrix::product`]) and adjoint
@@ -27,7 +25,7 @@
 //! library's SVD and QR).
 //!
 //! Each computes on the calling thread. `docs/dense_linalg.md` gives the
-//! SVD's guarantees and steps.
+//! SVD's steps.
 
 pub(crate) mod kernels;
 mod matrix;

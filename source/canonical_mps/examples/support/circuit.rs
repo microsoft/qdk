@@ -4,13 +4,16 @@
 //! A circuit: its steps on qubits, each gate as a matrix for the engine,
 //! and each projection on a recorded value.
 
-use super::C;
+use num_complex::Complex64;
 
 /// One step of a circuit, on qubits.
 pub enum Op {
     /// A gate on one or two qubits, its matrix row-major with `qubits[0]`
     /// the most significant.
-    Gate { qubits: Vec<usize>, matrix: Vec<C> },
+    Gate {
+        qubits: Vec<usize>,
+        matrix: Vec<Complex64>,
+    },
     /// A projection on the value a recorded shot drew, with the
     /// probability the recording read.
     Project {
@@ -36,14 +39,14 @@ impl Circuit {
         }
     }
 
-    pub fn one(&mut self, qubit: usize, matrix: [C; 4]) {
+    pub fn one(&mut self, qubit: usize, matrix: [Complex64; 4]) {
         self.ops.push(Op::Gate {
             qubits: vec![qubit],
             matrix: matrix.to_vec(),
         });
     }
 
-    pub fn two(&mut self, a: usize, b: usize, matrix: [C; 16]) {
+    pub fn two(&mut self, a: usize, b: usize, matrix: [Complex64; 16]) {
         self.ops.push(Op::Gate {
             qubits: vec![a, b],
             matrix: matrix.to_vec(),

@@ -9,7 +9,7 @@ use crate::dense_linalg::{Matrix, MatrixRef};
 
 /// A matrix built element by element is stored column by column.
 #[test]
-fn from_fn_fills_column_by_column() {
+fn from_fn_lays_entries_out_column_major() {
     let index = [0.0, 1.0, 2.0];
     let m = Matrix::from_fn(2, 3, |i, j| c(index[i], index[j]));
     let expected =
@@ -85,7 +85,7 @@ fn a_product_is_the_naive_product() {
 /// rather than read past the first one's columns.
 #[test]
 #[should_panic(expected = "the product of a 2 × 3 and a 2 × 3 matrix")]
-fn multiplies_only_matching_shapes() {
+fn a_product_of_mismatched_shapes_panics() {
     let a = matrix(2, 3, 1);
     let _ = Matrix::product(a.view(), a.view());
 }

@@ -35,9 +35,8 @@ pub mod state_vector;
 use num_complex::Complex64;
 use std::error::Error;
 
-pub type C = Complex64;
-pub type Res<T> = Result<T, Box<dyn Error>>;
+pub type ExampleResult<T> = Result<T, Box<dyn Error>>;
 
-pub fn c(re: f64, im: f64) -> C {
-    C::new(re, im)
+pub fn c(re: f64, im: f64) -> Complex64 {
+    Complex64::new(re, im)
 }
