@@ -3,8 +3,8 @@
 
 //! [`SplitMix64`]: the generator the shared sampler
 //! ([`sample_by_conditionals`](super::sample_by_conditionals))
-//! draws its uniforms from, and the tests their streams. Both need streams
-//! of numbers from a `u64` seed that are the same on every run.
+//! draws its uniforms from, and the tests their random circuits from. Both
+//! need streams of numbers from a `u64` seed that are the same on every run.
 //!
 //! It is `SplitMix64` (Steele, Lea and Flood, 2014), written here rather
 //! than taken from a dependency: small, and fixed by this crate, so a

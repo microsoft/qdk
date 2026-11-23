@@ -153,8 +153,8 @@ impl ReferenceState {
     /// The rank of the state as a matrix with sites 0..=cut as rows and
     /// the rest as columns, or 1 when it is 0: the bond an exact chain
     /// needs at that cut. Gaussian elimination with partial pivoting; a
-    /// pivot below 1e-10 in magnitude counts as zero, so this is the
-    /// numerical rank at absolute tolerance 1e-10.
+    /// pivot below `ZERO` in magnitude counts as zero: the numerical rank
+    /// at that absolute tolerance.
     fn schmidt_rank(&self, cut: usize) -> usize {
         const ZERO: f64 = 1e-10;
         let low = cut + 1;

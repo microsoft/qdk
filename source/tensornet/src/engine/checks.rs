@@ -95,9 +95,9 @@ pub fn apply(site_count: usize, sites: &[usize], matrix: &[Complex64]) -> Result
             actual: matrix.len(),
         });
     }
-    // The sparse simulator's rule. If this check ever costs too much beside
-    // an engine's work, the fallback is a `Unitary` matrix type, checked once
-    // when built, that `apply` takes; not an unchecked `apply`.
+    // If this check ever costs too much beside an engine's work, the
+    // fallback is a `Unitary` matrix type, checked once when built, that
+    // `apply` takes; not an unchecked `apply`.
     let deviation = unitarity_deviation(matrix, 1 << sites.len());
     if deviation <= UNITARITY_TOLERANCE {
         Ok(())

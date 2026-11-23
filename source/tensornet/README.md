@@ -203,11 +203,10 @@ its sampler and a default `conditional_probability_of_one`:
 ## Tests
 
 The crate's tests are in [`src/tests/`](src/tests/), one file per module
-with run-time behaviour, the sampler's covering its generator: each check
-refuses each fault and accepts its
-edges, the shared sampler draws the published `SplitMix64` stream, and the
-reference's chain has the Schmidt ranks a singular value decomposition
-gives on random circuits.
+with run-time behaviour: each check refuses each fault and accepts its
+edges, the shared sampler draws the published `SplitMix64` stream (so its
+tests cover the generator), and the reference's chain has the Schmidt
+ranks a singular value decomposition gives on random circuits.
 
 ## Files
 

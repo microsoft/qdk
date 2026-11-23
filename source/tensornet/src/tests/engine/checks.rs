@@ -153,52 +153,55 @@ fn apply_refuses_an_operator_on_three_sites() {
     );
 }
 
-/// The number of sites is checked first: three sites, one out of range and
-/// one repeated, with an empty matrix, are refused as too many sites; and
-/// so are 32 sites, for which `4^32` would not fit a `usize`.
+/// Calls with several faults, each refused for the one checked first: the
+/// number of sites, then the sites, then the matrix's length, then its
+/// unitarity. The rows: three sites, one out of range and one repeated,
+/// with an empty matrix; 32 sites, for which `4^32` would not fit a
+/// `usize`; no site with an empty matrix, whose length is not 1; a site
+/// out of range with a one-site matrix on two sites; and the 2×2 projector
+/// diag(1, 0) on two sites, which, read as rows of a 4×4 matrix, is the
+/// one row [1, 0, 0, 0], whose deviation from unitary is 0.
 #[test]
-fn apply_refuses_too_many_sites_whatever_the_sites_and_the_matrix() {
-    assert_eq!(
-        checks::apply(2, &[0, 5, 0], &[]),
-        Err(Refusal::TooManySites { sites: 3 })
-    );
-    let sites: Vec<usize> = (0..32).collect();
-    assert_eq!(
-        checks::apply(32, &sites, &[c(1.0, 0.0)]),
-        Err(Refusal::TooManySites { sites: 32 })
-    );
-}
-
-/// No site is checked before the matrix: an empty matrix, whose length is
-/// not 1, is no other refusal.
-#[test]
-fn apply_refuses_no_site_whatever_the_matrix() {
-    assert_eq!(checks::apply(2, &[], &[]), Err(Refusal::NoSites));
-}
-
-/// The sites are checked before the matrix: a site out of range, with a
-/// one-site matrix on two sites, is refused as out of range.
-#[test]
-fn apply_refuses_a_site_out_of_range_whatever_the_matrix() {
-    assert_eq!(
-        checks::apply(2, &[0, 2], &hadamard()),
-        Err(Refusal::SiteOutOfRange { site: 2, sites: 2 })
-    );
-}
-
-/// Read as rows of a 4×4 matrix, the 2×2 projector diag(1, 0) is the one
-/// row [1, 0, 0, 0], whose deviation from unitary is 0: its length is the
-/// fault, whatever its entries.
-#[test]
-fn apply_refuses_a_matrix_of_the_wrong_length_whatever_its_entries() {
-    assert_eq!(
-        checks::apply(2, &[0, 1], &diagonal(1.0, 0.0)),
-        Err(Refusal::MatrixLength {
-            sites: 2,
-            expected: 16,
-            actual: 4
-        })
-    );
+fn apply_refuses_the_first_fault_in_the_order_it_checks() {
+    let thirty_two: Vec<usize> = (0..32).collect();
+    let cases: [(usize, &[usize], Vec<Complex64>, Refusal); 5] = [
+        (
+            2,
+            &[0, 5, 0],
+            Vec::new(),
+            Refusal::TooManySites { sites: 3 },
+        ),
+        (
+            32,
+            &thirty_two,
+            vec![c(1.0, 0.0)],
+            Refusal::TooManySites { sites: 32 },
+        ),
+        (2, &[], Vec::new(), Refusal::NoSites),
+        (
+            2,
+            &[0, 2],
+            hadamard().to_vec(),
+            Refusal::SiteOutOfRange { site: 2, sites: 2 },
+        ),
+        (
+            2,
+            &[0, 1],
+            diagonal(1.0, 0.0).to_vec(),
+            Refusal::MatrixLength {
+                sites: 2,
+                expected: 16,
+                actual: 4,
+            },
+        ),
+    ];
+    for (site_count, sites, matrix, refusal) in cases {
+        assert_eq!(
+            checks::apply(site_count, sites, &matrix),
+            Err(refusal),
+            "{sites:?}"
+        );
+    }
 }
 
 /// A measurement's projector passed as a gate: it is the right length, so
@@ -366,20 +369,16 @@ fn expectation_accepts_factors_in_range_and_the_identity_alone() {
     assert_eq!(checks::expectation(1, &z_terms(&[])), Ok(()));
 }
 
-/// Every term is checked, not only the first.
+/// Every factor of every term is checked, not only the first: a site out
+/// of range in a later term, and in a later factor of a term.
 #[test]
-fn expectation_refuses_a_factor_out_of_range_in_a_later_term() {
-    assert_eq!(
-        checks::expectation(2, &z_terms(&[&[0], &[1], &[7]])),
-        Err(Refusal::SiteOutOfRange { site: 7, sites: 2 })
-    );
-}
-
-/// Every factor of a term is checked, not only its first.
-#[test]
-fn expectation_refuses_a_later_factor_out_of_range() {
-    assert_eq!(
-        checks::expectation(2, &z_terms(&[&[0], &[1, 7]])),
-        Err(Refusal::SiteOutOfRange { site: 7, sites: 2 })
-    );
+fn expectation_refuses_any_factor_out_of_range() {
+    let cases: [&[&[usize]]; 2] = [&[&[0], &[1], &[7]], &[&[0], &[1, 7]]];
+    for terms in cases {
+        assert_eq!(
+            checks::expectation(2, &z_terms(terms)),
+            Err(Refusal::SiteOutOfRange { site: 7, sites: 2 }),
+            "{terms:?}"
+        );
+    }
 }

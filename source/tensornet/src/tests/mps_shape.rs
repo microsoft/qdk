@@ -43,12 +43,7 @@ fn the_bond_at_a_cut_is_the_right_extent_of_its_left_site() {
 fn a_site_or_cut_past_the_chain_is_none() {
     let shape = shape(vec![vec![2, 4], vec![4, 2]]);
     assert_eq!((shape.physical_dim(2), shape.bond_dim(1)), (None, None));
-}
-
-/// The largest cut a caller can name, one below which overflows.
-#[test]
-fn a_cut_at_the_largest_machine_word_is_none() {
-    let shape = shape(vec![vec![2, 4], vec![4, 2]]);
+    // The largest cut, whose `cut + 1` would overflow.
     assert_eq!(shape.bond_dim(usize::MAX), None);
 }
 
