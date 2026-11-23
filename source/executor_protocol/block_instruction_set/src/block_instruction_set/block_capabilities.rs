@@ -16,12 +16,16 @@ use crate::BlockType;
 /// use readout parities, resolved per shot as it runs
 /// ([`Bit::Parity`](crate::Bit::Parity)).
 ///
-/// Required, a count is the most the part's shots reach, and `true` says
-/// they use readout parities, `false` that they do not; provided, a count
-/// is the most the part takes, and `false` says it cannot take readout
-/// parities, `true` that it can. A part that does not state one neither
-/// needs nor limits it. A checked batch, though, may use no block of a
-/// type the requirement arriving at its receiver does not state.
+/// A value reads per side, as the core's `docs/capabilities.md` says. As
+/// a requirement, what arrives at a part from above, a count is the most
+/// the shots reach, and `true` says they use readout parities, `false`
+/// that they do not; a field left unstated is no need. As a provision,
+/// the limits a part states (`Some` of it), a count is the most the part
+/// takes, and `false` says it cannot take readout parities, `true` that
+/// it can; a field left unstated is no limit. A part that limits nothing
+/// provides `None`, not a value. A checked batch, though, may use no
+/// block of a type the requirement arriving at its receiver does not
+/// state.
 ///
 /// Built from [`NONE`](Self::NONE), which states nothing, with the
 /// builders below.
@@ -35,9 +39,10 @@ pub struct BlockCapabilities {
 }
 
 impl BlockCapabilities {
-    /// Nothing stated: required, no need of any; provided, no limit on
-    /// any. What a part leaves unstated, composition cannot refuse a chain
-    /// on.
+    /// Nothing stated: as a requirement, no need of any, which fits every
+    /// provision (the set's `needs_nothing`); inside a provision, no limit
+    /// on any. What a part leaves unstated, composition cannot refuse a
+    /// chain on.
     pub const NONE: Self = Self {
         blocks: BTreeMap::new(),
         readout_parity: None,

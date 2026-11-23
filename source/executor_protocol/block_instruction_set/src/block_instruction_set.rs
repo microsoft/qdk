@@ -77,7 +77,7 @@ pub use pauli::Pauli;
 pub use readout_value::{ReadoutFailure, ReadoutValue};
 pub use shot_conditions::ShotConditions;
 
-use executor_protocol_core::{Capabilities, Features, ReadoutSlots, Resources};
+use executor_protocol_core::ReadoutSlots;
 use layout::Layout;
 use std::collections::BTreeMap;
 use std::fmt;
@@ -257,7 +257,7 @@ impl BlockInstructionSet {
 /// of a receiver is read from the required [`BlockCapabilities`].
 impl executor_protocol_core::InstructionSet for BlockInstructionSet {
     type Instruction = BlockInstruction;
-    type Capabilities = BlockCapabilities;
+    type SetCapabilities = BlockCapabilities;
     type Requirement = BlockRequirement;
     type Fault = InstructionFault;
     type Readout = ReadoutValue;
@@ -265,13 +265,9 @@ impl executor_protocol_core::InstructionSet for BlockInstructionSet {
 
     const UNWRITTEN_READOUT: ReadoutValue = ReadoutValue::Missing(ReadoutFailure::Other);
 
-    fn unconstrained() -> &'static Capabilities<Self> {
-        static UNCONSTRAINED: Capabilities<BlockInstructionSet> = Capabilities::new(
-            Resources::unconstrained(),
-            Features::unconstrained(),
-            BlockCapabilities::NONE,
-        );
-        &UNCONSTRAINED
+    /// [`BlockCapabilities::NONE`]: no block and no readout parity needed.
+    fn needs_nothing() -> BlockCapabilities {
+        BlockCapabilities::NONE
     }
 
     /// The readout slots of the instruction at its opcode

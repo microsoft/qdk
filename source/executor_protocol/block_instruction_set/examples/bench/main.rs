@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 //! What the protocol costs, per instruction and per `execute`, against a
-//! driver that calls its executor itself, in four benches, each in its
+//! driver that calls its executor itself, in three benches, each in its
 //! file:
 //!
 //! - `chains`: one driver on four chains, batches of 1 to 10 000
@@ -11,26 +11,22 @@
 //! - `checks`: a batch's checks, whether a boundary without them costs
 //!   anything per instruction, building an instruction by name, and the
 //!   count of a batch's instructions against a most provided;
-//! - `lowering`: a lowering adapter, each logical instruction sent as
-//!   three physical;
 //! - `worker`: an executor that answers from a worker thread: the time
 //!   of a call, which includes copying its batches to the worker.
 //!
 //! The executors only count what they get, so the time is the protocol's
 //! and the parts' own. Each variant is checked on every run: it must count
 //! what the program holds, received in batches checked as its flag asks
-//! (or, in `lowering`, answer what the direct call answers, and its
-//! composing must compose; in `checks`, building by name must build the
-//! program's instructions, compared once before it is timed, and count
-//! them on every run). It runs once untimed before it is timed, and keeps
+//! (in `checks`, building by name must build the program's instructions,
+//! compared once before it is timed, and count them on every run). It runs once untimed before it is timed, and keeps
 //! the best of 7. `worker` has no untimed run, and keeps the best of up to
-//! 5 runs' median call. `chains`, `lowering` and `worker` send every batch
+//! 5 runs' median call. `chains` and `worker` send every batch
 //! unchecked, the default, or
 //! [`checked`](executor_protocol_core::Batch::checked) with `--checked`;
 //! `checks` runs both. `chains`, `checks` and `worker` draw the common
 //! mix, or the parity-heavy one with `--parity-heavy`. Run it with
 //! `cargo run --release --example bench`, followed by at most one of
-//! `chains`, `checks`, `lowering` and `worker`, and the flags.
+//! `chains`, `checks` and `worker`, and the flags.
 //!
 //! The parts the benches compose are in `parts`, the mix they draw in
 //! `workload`, and how a variant is timed in `timing`.
@@ -44,7 +40,6 @@
 
 mod chains;
 mod checks;
-mod lowering;
 mod parts;
 mod timing;
 mod worker;
@@ -56,12 +51,10 @@ use workload::{Mix, build, draws};
 
 /// How much each bench runs.
 struct Size {
-    /// The mix's instructions, for `chains`, `checks` and `worker`.
+    /// The mix's instructions.
     instructions: usize,
     /// The timed runs of each variant, of which the best is kept.
     repeats: usize,
-    /// `lowering`'s logical rounds, of 6 instructions each.
-    rounds: usize,
     /// `worker`'s most calls per batch size.
     most_calls: usize,
 }
@@ -70,7 +63,6 @@ struct Size {
 const FULL: Size = Size {
     instructions: 4_000_000,
     repeats: 7,
-    rounds: 2_000,
     most_calls: 20_000,
 };
 
@@ -79,12 +71,11 @@ const FULL: Size = Size {
 const TINY: Size = Size {
     instructions: 3_000,
     repeats: 1,
-    rounds: 4,
     most_calls: 10,
 };
 
 /// The benches, by the names `main` takes.
-const BENCHES: [&str; 4] = ["chains", "checks", "lowering", "worker"];
+const BENCHES: [&str; 3] = ["chains", "checks", "worker"];
 
 /// The flag that sends every batch checked.
 const CHECKED: &str = "--checked";
@@ -113,9 +104,7 @@ fn main() {
     if let Some(only) = only
         && (benches.len() > 1 || !BENCHES.contains(&only.as_str()))
     {
-        eprintln!(
-            "no bench {only:?}: the benches are chains, checks, lowering and worker, one at most"
-        );
+        eprintln!("no bench {only:?}: the benches are chains, checks and worker, one at most");
         std::process::exit(2);
     }
     run(&FULL, only.map(String::as_str), checked, mix);
@@ -123,45 +112,37 @@ fn main() {
 
 /// Runs the benches, or only the one named `only`, each batch
 /// [`checked`](executor_protocol_core::Batch::checked) if `checked` (`checks`
-/// runs both), `chains`, `checks` and `worker` on `mix`.
+/// runs both), on `mix`.
 fn run(size: &Size, only: Option<&str>, checked: bool, mix: Mix) {
     let wants = |bench: &str| only.is_none_or(|only| only == bench);
     println!("an instruction is {} bytes", size_of::<BlockInstruction>());
-    if wants("chains") || wants("lowering") || wants("worker") {
+    if wants("chains") || wants("worker") {
         println!(
-            "chains, lowering and worker: batches {}",
+            "chains and worker: batches {}",
             if checked { "checked" } else { "unchecked" }
         );
     }
-    if wants("chains") || wants("checks") || wants("lowering") {
-        println!(
-            "chains, checks and lowering: the best of {} runs",
-            size.repeats
-        );
+    if wants("chains") || wants("checks") {
+        println!("chains and checks: the best of {} runs", size.repeats);
     }
-    if wants("chains") || wants("checks") || wants("worker") {
-        println!(
-            "chains, checks and worker: {} instructions of the {} mix",
-            size.instructions,
-            match mix {
-                Mix::Common => "common",
-                Mix::ParityHeavy => "parity-heavy",
-            },
-        );
-        let draws = draws(size.instructions, mix);
-        let program = build(&draws);
-        if wants("chains") {
-            chains::bench(size, &program, checked);
-        }
-        if wants("checks") {
-            checks::bench(size, &draws, &program);
-        }
-        if wants("worker") {
-            worker::bench(size, &program, checked);
-        }
+    println!(
+        "{} instructions of the {} mix",
+        size.instructions,
+        match mix {
+            Mix::Common => "common",
+            Mix::ParityHeavy => "parity-heavy",
+        },
+    );
+    let draws = draws(size.instructions, mix);
+    let program = build(&draws);
+    if wants("chains") {
+        chains::bench(size, &program, checked);
     }
-    if wants("lowering") {
-        lowering::bench(size, checked);
+    if wants("checks") {
+        checks::bench(size, &draws, &program);
+    }
+    if wants("worker") {
+        worker::bench(size, &program, checked);
     }
 }
 
@@ -170,8 +151,8 @@ mod tests {
     use super::*;
 
     /// Every bench, at a tiny size, on each mix, with its batches
-    /// unchecked and checked: each variant must count, or answer, what the
-    /// direct call does, so the tables compare the same work.
+    /// unchecked and checked: each variant must count what the direct call
+    /// does, so the tables compare the same work.
     #[test]
     fn every_variant_does_the_same_work_at_a_tiny_size() {
         for mix in [Mix::Common, Mix::ParityHeavy] {

@@ -9,16 +9,14 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::task::{Poll, Waker};
 use std::thread::{self, JoinHandle};
 
-use block_instruction_set::{
-    BlockCapabilities, BlockInstruction, BlockInstructionSet, Opcode, ReadoutValue,
-};
+use block_instruction_set::{BlockCapabilities, BlockInstruction, BlockInstructionSet, Opcode};
 use executor_protocol_core::prelude::*;
 use executor_protocol_core::{
     Batch, BatchReadouts, Capabilities, ExecuteError, ExecutorLimits, Features, Resources, Seed,
     ShotSet, StatesLimits,
 };
 
-use super::{MixGates, PhysicalGates};
+use super::MixGates;
 use crate::workload::MIX;
 
 /// An executor of `MixGates` that counts each opcode, the highest qubit and
@@ -49,14 +47,6 @@ pub(crate) struct BatchKinds {
 }
 
 impl BatchKinds {
-    /// The kinds of batches received, only `checked` ones or only
-    /// unchecked ones.
-    pub(crate) fn only(checked: bool) -> Self {
-        let mut kinds = Self::default();
-        kinds.record(checked);
-        kinds
-    }
-
     fn record(&mut self, checked: bool) {
         if checked {
             self.checked = true;
@@ -157,76 +147,8 @@ impl Executor for Profiler {
 }
 
 impl ExecutorLimits for Profiler {
-    fn provides(&self) -> &Capabilities<BlockInstructionSet> {
-        &self.provides
-    }
-}
-
-/// An executor of `PhysicalGates` that only counts what it gets, answering
-/// each `mz` by its place in the stream, so that two chains sending the same
-/// stream get the same readouts; it notes the kinds of batches it gets, and
-/// may record the stream.
-pub(crate) struct Sink {
-    accepts: BlockInstructionSet,
-    /// The instructions seen so far.
-    pub(crate) seen: u64,
-    pub(crate) kinds: BatchKinds,
-    pub(crate) record: Option<Vec<BlockInstruction>>,
-}
-
-impl Sink {
-    pub(crate) fn new() -> Self {
-        Self {
-            accepts: PhysicalGates::set(),
-            seen: 0,
-            kinds: BatchKinds::default(),
-            record: None,
-        }
-    }
-
-    pub(crate) fn recording() -> Self {
-        Self {
-            record: Some(Vec::new()),
-            ..Self::new()
-        }
-    }
-}
-
-impl Executor for Sink {
-    type Accepts = BlockInstructionSet;
-
-    fn accepts(&self) -> &BlockInstructionSet {
-        &self.accepts
-    }
-
-    async fn execute(
-        &mut self,
-        batches: &[Batch<'_, BlockInstructionSet>],
-        _seed: Seed,
-        readouts: &mut [BatchReadouts<BlockInstructionSet>],
-    ) -> Result<(), ExecuteError> {
-        // Each batch's readouts come shaped with a slot per `mz`; every
-        // shot gets the same values, written in the first row, then copied.
-        for (batch, batch_readouts) in batches.iter().zip(readouts) {
-            self.kinds.record(batch.is_checked());
-            let mut slot = 0;
-            for instruction in batch.instructions {
-                self.seen += 1;
-                if instruction.opcode == PhysicalGates::MZ {
-                    batch_readouts.row_mut(0)[slot] = ReadoutValue::from(self.seen % 5 < 2);
-                    slot += 1;
-                }
-            }
-            if let Some(record) = &mut self.record {
-                record.extend_from_slice(batch.instructions);
-            }
-            for shot in 1..batch_readouts.shots() {
-                for slot in 0..slot {
-                    batch_readouts.row_mut(shot)[slot] = batch_readouts.row(0)[slot];
-                }
-            }
-        }
-        Ok(())
+    fn provides(&self) -> Option<&Capabilities<BlockInstructionSet>> {
+        Some(&self.provides)
     }
 }
 

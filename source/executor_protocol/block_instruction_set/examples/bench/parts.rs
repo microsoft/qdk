@@ -6,9 +6,8 @@
 //!
 //! - drivers: [`ProgramInBatches`], which sends a program in batches, and
 //!   [`Direct`], which sends it past the chain, the baseline;
-//! - adapters: [`Forward`], which forwards every batch, and
-//!   [`Repetition3`], a toy lowering, run through `Lowered`;
-//! - executors: [`Profiler`] and [`Sink`], which count what they get, and
+//! - adapters: [`Forward`], which forwards every batch;
+//! - executors: [`Profiler`], which counts what it gets, and
 //!   [`FromWorker`], which answers from a worker thread.
 
 mod adapters;
@@ -38,26 +37,5 @@ instruction_set! {
         SWAP = swap(qubit, qubit),
         RESET = reset(qubit),
         X_IF = x_if(qubit; c: Bit),
-    }
-}
-
-instruction_set! {
-    /// A code's logical instructions, each logical qubit a block of three
-    /// physical ones.
-    pub(crate) LogicalGates {
-        PREPARE_Z = prepare_z(qubit),
-        X = x(qubit),
-        CX = cx(qubit, qubit),
-        MEASURE_Z = measure_z(qubit) -> 1 outcome,
-    }
-}
-
-instruction_set! {
-    /// The physical instructions the lowering sends.
-    pub(crate) PhysicalGates {
-        RESET = reset(qubit),
-        X = x(qubit),
-        CX = cx(qubit, qubit),
-        MZ = mz(qubit) -> 1 outcome,
     }
 }
