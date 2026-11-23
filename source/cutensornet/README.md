@@ -355,12 +355,12 @@ library's file name, when `discover_with` is given one, is tried before the
 default paths. An absolute packaged or default path is skipped when nothing
 exists there, including when part of it is a file rather than a directory;
 it fails discovery when the process cannot access it, for instance behind a
-directory it may not search, or when what is there is not a library, a
-directory for instance; a bare file name is searched for on the system
-loader's usual path, and skipped when the loader reports no file of that
-name (glibc reports so too when its search found only files of that name it
-could not use, such as another machine's). A library that is found but fails
-to load, for instance for a missing dependency, fails discovery.
+directory it may not search or at a symlink loop, or when what is there is
+not a library, a directory for instance; a bare file name is searched for on
+the system loader's usual path, and skipped when the loader reports no file
+of that name (glibc reports so too when its search found only files of that
+name it could not use, such as another machine's). A library that is found
+but fails to load, for instance for a missing dependency, fails discovery.
 
 ### Versions
 

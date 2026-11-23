@@ -45,11 +45,12 @@ impl SymbolResolver for OpenLibraryFile {
 /// passes through a regular file as if it were a directory. Anything else
 /// there, a directory for instance, is opened, and the loader's refusal is
 /// the library's [`LibraryFault::LoadFailed`]. One the process cannot
-/// access (a directory on it the process may not search) is the library's
-/// [`LibraryFault::InaccessiblePath`], as a file may be there. A bare file
-/// name is searched for by the system loader, and skipped when the loader
-/// reports no file of that name ([`no_file_of_that_name`]). Any other
-/// failure is the library's.
+/// access is the library's [`LibraryFault::InaccessiblePath`], not skipped:
+/// behind a directory the process may not search a file may be there, and
+/// a symlink loop is a link, not nothing. A bare file name is searched for
+/// by the system loader, and skipped when the loader reports no file of
+/// that name ([`no_file_of_that_name`]). Any other failure is the
+/// library's.
 pub(crate) fn load_library(paths: Vec<PathBuf>) -> Result<OpenLibraryFile, LibraryFault> {
     for path in &paths {
         if path.is_absolute() {

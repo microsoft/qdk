@@ -64,7 +64,7 @@ fn a_library_the_system_loader_refuses_is_a_load_failure() {
 /// exist, and one that passes through a regular file as if it were a
 /// directory.
 #[test]
-fn a_default_path_whose_metadata_cannot_be_read_is_skipped() {
+fn a_default_path_that_does_not_exist_is_skipped() {
     let (path, _remove) = not_a_shared_object("second-default");
     let (file, _remove_file) = not_a_shared_object("file-as-directory");
     for absent in [
@@ -81,35 +81,33 @@ fn a_default_path_whose_metadata_cannot_be_read_is_skipped() {
     }
 }
 
-/// A packaged file the process cannot access (its directory may not be
-/// searched) may be there, so it is reported as a path the process cannot
-/// access, not skipped for a later candidate the user did not mean to load.
+/// A candidate the process cannot access is reported as a path it cannot
+/// access, not skipped for a later candidate the user did not mean to load:
+/// a symlink loop, and a path in a directory the process may not search,
+/// where a file may be.
 #[test]
 fn a_path_the_process_cannot_access_is_reported() {
-    use std::os::unix::fs::PermissionsExt;
-    let directory = unique_temp_path("unsearchable");
-    std::fs::create_dir(&directory).expect("the temporary directory is writable");
-    let hidden = directory.join("libcudart.so.12");
-    std::fs::write(&hidden, b"").expect("the new directory is writable");
-    let (later, _remove) = not_a_shared_object("after-unsearchable");
-    let set_mode = |mode| {
-        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(mode))
-            .expect("the test owns the directory");
-    };
-    set_mode(0o000);
-    let hidden_from_this_process = hidden.try_exists().is_err();
-    let fault = load_library(vec![hidden.clone(), later]).err();
-    set_mode(0o700);
-    std::fs::remove_file(&hidden).expect("the test created the file");
-    std::fs::remove_dir(&directory).expect("the test created the directory");
-    // A process run as root searches any directory: the scene cannot be set.
-    if !hidden_from_this_process {
-        return;
+    let (later, _remove) = not_a_shared_object("after-inaccessible");
+    let (looping, locked_dir, _remove_unreadable) = super::unreadable_paths();
+    let mut inaccessible = vec![("a symlink loop", looping)];
+    // Root reads a directory whatever its mode, so the row runs only where
+    // the mode applies.
+    if std::fs::read_dir(&locked_dir).is_err() {
+        inaccessible.push((
+            "a file in a directory the process cannot search",
+            locked_dir.join("libcudart.so.12"),
+        ));
     }
-    assert!(
-        matches!(&fault, Some(LibraryFault::InaccessiblePath { path, .. }) if *path == hidden),
-        "{fault:?}"
-    );
+    for (case, candidate) in inaccessible {
+        let fault = load_library(vec![candidate.clone(), later.clone()]).err();
+        assert!(
+            matches!(
+                &fault,
+                Some(LibraryFault::InaccessiblePath { path, .. }) if *path == candidate
+            ),
+            "{case}: {fault:?}"
+        );
+    }
 }
 
 /// A default file name the system loader does not find on its search path

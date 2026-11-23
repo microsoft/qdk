@@ -99,18 +99,17 @@ pub enum LibraryFault {
         reason: &'static str,
     },
 
-    /// No candidate path named a file of the library: the metadata of an
-    /// absolute path could not be read (no file there, a symlink loop, or a
-    /// directory the process cannot search), and for a bare file name the
-    /// system loader reported no file of that name (README, "Where the
-    /// libraries are looked for").
+    /// No candidate path named a file of the library: nothing exists at an
+    /// absolute path (or part of it is a file rather than a directory), and
+    /// for a bare file name the system loader reported no file of that name
+    /// (README, "Where the libraries are looked for").
     #[error("not found; attempted {attempted:?}")]
     NotFound { attempted: Vec<PathBuf> },
 
     /// A candidate path the process cannot access to see whether a file is
     /// there: for instance, a directory on it that the process may not
-    /// search. A file may be there, so the later candidates are not tried.
-    /// `message` is the system's error.
+    /// search, or a symlink loop. Something is there, or may be, so the
+    /// later candidates are not tried. `message` is the system's error.
     #[error("cannot access {path:?}: {message}")]
     InaccessiblePath { path: PathBuf, message: String },
 

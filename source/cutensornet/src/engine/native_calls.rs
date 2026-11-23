@@ -2,9 +2,8 @@
 // Licensed under the MIT License.
 
 //! [`NativeCalls`]: the calls to the CUDA Runtime and cuTensorNet that a
-//! canonical MPS on the GPU needs, and the two implementations that answer
-//! them. The setup check reads the devices through three of them (the
-//! count, the selection and the memory read).
+//! canonical MPS on the GPU needs. The setup check reads the devices
+//! through three of them (the count, the selection and the memory read).
 //!
 //! The code that makes these calls must run where it is tested, and CI has
 //! no GPU. So it makes each native call through these traits, and is the
