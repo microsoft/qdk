@@ -47,7 +47,7 @@ pub(super) enum RunFailure {
     Value(String),
     /// The run: a trap or a stop (made by [`of`](Self::of)), or a defect, a
     /// run thread that panicked (by
-    /// [`lost_run`](super::detached_run::lost_run)). `RuntimeError`.
+    /// [`panicked_run`](super::detached_run::panicked_run)). `RuntimeError`.
     Runtime(String),
 }
 
@@ -56,7 +56,9 @@ pub(super) enum RunFailure {
 const WITHOUT_A_GPU: &str = "engine=\"cpu\" runs without a GPU.";
 
 impl RunFailure {
-    /// The failure a run's `error` is.
+    /// The failure `error` is: the engine failing is `Os`; the engine
+    /// refusing a call, or the program or the settings at fault, `Value`;
+    /// anything else, a stop or a trap among them, `Runtime`.
     #[expect(
         clippy::match_same_arms,
         reason = "a trap is matched by name, so that its exception is chosen, not a default"

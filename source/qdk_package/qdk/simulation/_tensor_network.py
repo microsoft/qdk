@@ -83,8 +83,7 @@ class Sample:
 # The queries `tensornetwork_qir` answers. Planned: other queries
 # (expectation values; the current state, to read it or to run on from it)
 # will join `Sample`, and a run will take an initial state in place of all
-# zeros (a Néel or Hartree–Fock state, or one another method found);
-# signatures name `Sample` until then.
+# zeros (a Néel or Hartree–Fock state, or one another method found).
 Query = Sample
 
 
@@ -184,14 +183,15 @@ def tensornetwork_qir(
     The run leaves the Python thread, and Ctrl-C stops it between batches
     of gates (a batch: the gates and measurements a program runs until it
     next reads or records a result the batch measured into, or writes one
-    again).
-    A Base profile program that measures into each result once and records
-    its results only after its last measurement is one batch: a Ctrl-C
-    during it lets the group of shots under way run it to its end, and
-    stops each group a measurement split off before it runs on. Noise is
-    not yet supported by this method, and is planned: a call to a noise
-    intrinsic (a function with the ``qdk_noise`` attribute) or to readout
-    noise, or a loss check, raises ``ValueError``.
+    again). A Base profile program that measures into each result once and
+    records its results only after its last measurement is one batch.
+    Ctrl-C during such a batch lets the group of shots under way finish it,
+    and stops the groups the batch's measurements split off before they run
+    on.
+
+    Noise is not yet supported by this method, and is planned: a call to a
+    noise intrinsic (a function with the ``qdk_noise`` attribute) or to
+    readout noise, or a loss check, raises ``ValueError``.
 
     :param input: The QIR program, Base or Adaptive profile, as text or
         bitcode.

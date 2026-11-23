@@ -40,7 +40,7 @@ const SIGNAL_CHECK: Duration = Duration::from_millis(100);
 /// the flag, waits for `run` to end, and raises the signal's exception.
 /// Otherwise gives what `run` gives, its failure raised as
 /// [`RunFailure::into_py_err`] says; a `run` that panics raises
-/// `RuntimeError` ([`lost_run`]).
+/// `RuntimeError` ([`panicked_run`]).
 pub(super) fn run_detached<T, F>(py: Python<'_>, run: F) -> PyResult<T>
 where
     T: Send,
@@ -79,7 +79,7 @@ where
                 // A panic is a defect, so its `RuntimeError` is raised even
                 // after an interrupt: the defect is what needs reporting.
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    return Err(lost_run(run_thread).into_py_err());
+                    return Err(panicked_run(run_thread).into_py_err());
                 }
             }
         }
@@ -90,17 +90,17 @@ where
 /// which it does only by panicking: `RuntimeError`, with the panic's
 /// message. The thread is joined here, as `std::thread::scope` would
 /// otherwise panic in turn, raising a `PanicException` instead.
-pub(super) fn lost_run<T>(run_thread: ScopedJoinHandle<'_, T>) -> RunFailure {
-    let lost = "the tensor-network run ended without an outcome";
+pub(super) fn panicked_run<T>(run_thread: ScopedJoinHandle<'_, T>) -> RunFailure {
+    let no_outcome = "the tensor-network run ended without an outcome";
     let Err(panic) = run_thread.join() else {
-        return RunFailure::Runtime(lost.to_string());
+        return RunFailure::Runtime(no_outcome.to_string());
     };
     let message = panic
         .downcast_ref::<&str>()
         .map(|message| (*message).to_string())
         .or_else(|| panic.downcast_ref::<String>().cloned());
     RunFailure::Runtime(match message {
-        Some(message) => format!("{lost}: {message}"),
-        None => lost.to_string(),
+        Some(message) => format!("{no_outcome}: {message}"),
+        None => no_outcome.to_string(),
     })
 }
