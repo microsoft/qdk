@@ -18,9 +18,7 @@
 //! ([`AvailabilityError::Unusable`]), carry an [`AvailabilityReport`], with
 //! one [`LibraryReport`](crate::LibraryReport) per library: where it was
 //! loaded from, the versions it reports, its faults, the other copies
-//! visible beside it, and where the copy tried was found. The report is in
-//! `report`, and each library's entry, made where the library is opened,
-//! in `libraries::report`; the error, and the message it shows, in `error`.
+//! visible beside it, and where the copy tried was found.
 //!
 //! Discovery names no library: `libraries::LoadedLibraries` lists the
 //! libraries a GPU run needs, in the order they are opened, and each

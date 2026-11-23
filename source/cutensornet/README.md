@@ -21,11 +21,11 @@ without making NVIDIA software part of the QDK. The problem includes:
   is missing and what to fix.
 
 The crate solves these with `canonical_mps`'s engine on a cuTensorNet
-algebra, and with libraries opened at run time. The engine's rules are
-written once, in `canonical_mps`; this crate writes only the five tensor
-operations of its `SiteAlgebra` trait, run by cuTensorNet on one GPU,
-with the sites in the GPU's memory. cuTensorNet and the CUDA Runtime are
-never linked: they are opened at run time and checked
+algebra. The engine's rules are written once, in `canonical_mps`; this
+crate writes only the five tensor operations of its `SiteAlgebra` trait,
+run by cuTensorNet on one GPU, with the sites in the GPU's memory. The
+crate never links cuTensorNet or the CUDA Runtime: it opens them at run
+time and checks them
 ([discovery](#the-discovery-and-loading-of-the-libraries)), which returns
 the loaded libraries, on which an engine opens, or why they cannot be
 used: every fault it found, or, off Linux x86-64, that the platform is
@@ -62,8 +62,8 @@ Today the crate holds:
 
 The extension points are an MPS simulation method and a library. An MPS
 simulation method, written once against `tensornet::MpsEngine`, runs on
-this engine as on `canonical_mps`'s `CpuMpsEngine`, and gets the GPU for
-free. A library bound later is one module under
+this engine as on `canonical_mps`'s `CpuMpsEngine`, and runs on the GPU
+unchanged. A library bound later is one module under
 [`src/libraries/`](src/libraries), listed in `LoadedLibraries`, implementing
 [`NativeLibrary`](src/libraries.rs) for discovery and
 [`LibrarySetupGuide`](src/libraries/setup_guide.rs) for the setup check
@@ -415,14 +415,17 @@ on a GPU; these tests are ignored unless asked for (`--ignored`), as they
 need a GPU.
 
 The [unit tests](src/tests) drive each way discovery fails without
-NVIDIA's libraries, on any Unix host: missing and refused libraries,
-missing functions, failed version probes, refused versions, and bad
-override variables, each reported with the others; and each problem the
-[GPU setup check](#the-gpu-setup-check) finds, with its advice
-([`src/tests/gpu_setup.rs`](src/tests/gpu_setup.rs)), on CUDA devices the
-tests make up. [`tests/availability.rs`](tests/availability.rs) discovers
-the audited libraries where they are installed and, on a host with a CUDA
-device, finds the setup ready.
+NVIDIA's libraries: on any Unix host, refused libraries, missing
+functions, failed version probes, refused versions, and bad override
+variables, each reported with the others; on Linux with glibc, the tests
+that need a library open or glibc's messages: a library found nowhere, an
+opened library at fault reported with its path, and what discovery
+concludes from each library's faults. On any Unix host, they also drive
+each problem the [GPU setup check](#the-gpu-setup-check) finds, with its
+advice ([`src/tests/gpu_setup.rs`](src/tests/gpu_setup.rs)), on CUDA
+devices the tests make up. [`tests/availability.rs`](tests/availability.rs)
+discovers the audited libraries where they are installed and, on a host
+with a CUDA device, finds the setup ready.
 
 ## Platforms
 
