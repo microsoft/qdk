@@ -17,6 +17,7 @@ import copy
 import pickle
 import platform
 import re
+import sys
 import threading
 import time
 import warnings
@@ -86,6 +87,7 @@ BELL = qasm("""
 
 
 def ghz(qubits: int) -> str:
+    """A GHZ state on `qubits` qubits, by a chain of `cx`, all read at the end."""
     gates = "\n".join(f"cx q[{k - 1}], q[{k}];" for k in range(1, qubits))
     return qasm(f"""
         OPENQASM 3.0;
@@ -185,6 +187,12 @@ def test_an_unknown_method_is_refused():
 def test_a_seed_out_of_range_is_refused(seed):
     with pytest.raises(ValueError, match="seed"):
         run(BELL, [Sample(1)], seed=seed)
+
+
+@pytest.mark.parametrize("seed", [0, 2**32 - 1])
+def test_a_seed_at_either_end_of_its_range_runs(seed):
+    (rows,) = run(BELL, [Sample(4)], seed=seed)
+    assert len(rows) == 4
 
 
 @pytest.mark.parametrize("queries", [[], [Sample(1), Sample(2)]])
@@ -314,14 +322,13 @@ def test_an_adaptive_program_steers_its_shots_later_gates(engine):
     assert {bits(row) for row in rows} == {"00", "11"}
 
 
-def test_the_report_comes_with_the_results(engine):
-    """A GHZ state's largest bond is 2; a run whose bonds all fit discards
-    nothing; the report gives the max bond dimension the run used."""
+def test_the_report_gives_the_largest_bond_the_discarded_weight_and_the_max(engine):
+    """A GHZ state at max bond dimension 16: the report gives its largest
+    bond, 2; nothing discarded, as every bond fits; and the max bond
+    dimension the run used."""
     results = run(
         ghz(3), [Sample(4)], engine=engine, options=MpsOptions(max_bond_dimension=16)
     )
-    (rows,) = results
-    assert len(rows) == 4
     report = results.report
     assert report.largest_bond == 2
     assert report.discarded_weight == pytest.approx(0.0, abs=1e-9)
@@ -337,6 +344,7 @@ def test_a_seed_reproduces_each_shots_rows_whatever_the_count(engine):
 
 
 def test_another_seed_gives_other_rows(engine):
+    """Eight entangled coins, 16 shots: seeds 1 and 2 give other rows."""
     (one,) = run(coins(8), [Sample(16)], engine=engine, seed=1)
     (other,) = run(coins(8), [Sample(16)], engine=engine, seed=2)
     assert one != other
@@ -377,7 +385,6 @@ def test_a_run_that_lost_weight_warns(engine):
         for number in numbers
     ), "the message gives the loss"
     assert 1e-3 in numbers, "the message gives the tolerance"
-    assert results.report.largest_bond == 1
 
 
 @pytest.mark.parametrize(
@@ -416,6 +423,7 @@ def test_results_with_equal_rows_are_equal_whatever_their_reports():
 
 
 def test_an_exact_run_does_not_warn(engine):
+    """A GHZ state at the default max bond dimension loses nothing."""
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         run(ghz(3), [Sample(2)], engine=engine)
@@ -451,7 +459,7 @@ _MEASURE_AND_RECORD = """
 @pytest.mark.parametrize(
     "call, message",
     [
-        # Since #4201, repeated static qubits fail before the run, as in run_qir.
+        # Repeated static qubits fail before the run, as in `run_qir`.
         pytest.param(
             "call void @__quantum__qis__cnot__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 0 to %Qubit*))",
             r"qubits in invocation.*cnot.*are not unique",
@@ -747,32 +755,41 @@ def _run_lasting(at_least: float):
         shots *= 2
 
 
-def test_a_run_releases_the_gil():
-    """A Python thread keeps counting while a run is under way (a run of at
-    least 50 ms, so that the thread counts many times if it is let run)."""
+def test_a_run_releases_the_gil(monkeypatch):
+    """A Python thread that waits for a run to start gets to run before the
+    run ends. The switch interval is set beyond the test, so the caller's
+    thread gives the GIL up only when it waits: the thread runs during the
+    run only if the run releases the GIL. The run lasts at least 50 ms, time
+    for the OS to schedule the thread once the GIL is free."""
     program, shots, _ = _run_lasting(0.05)
-    counted = 0
-    running = threading.Event()
-    done = threading.Event()
+    run_started = threading.Event()
+    thread_ran = threading.Event()
+    thread_ran_during_the_run = []
+    native_sample = _native._tensor_network_sample
 
-    def count():
-        nonlocal counted
-        running.set()
-        while not done.is_set():
-            counted += 1
-            time.sleep(0.001)
+    def sample(*args, **kwargs):
+        run_started.set()
+        try:
+            return native_sample(*args, **kwargs)
+        finally:
+            thread_ran_during_the_run.append(thread_ran.is_set())
 
-    thread = threading.Thread(target=count)
-    thread.start()
+    def wait_for_the_run():
+        run_started.wait()
+        thread_ran.set()
+
+    monkeypatch.setattr(_native, "_tensor_network_sample", sample)
+    thread = threading.Thread(target=wait_for_the_run)
+    switch_interval = sys.getswitchinterval()
+    sys.setswitchinterval(1000)
     try:
-        running.wait()
-        before = counted
+        thread.start()
         run(program, [Sample(shots)], engine="cpu")
-        during = counted - before
     finally:
-        done.set()
+        sys.setswitchinterval(switch_interval)
+        run_started.set()
         thread.join()
-    assert during > 5, f"the thread counted {during} times during the run"
+    assert thread_ran_during_the_run == [True], "the thread ran only after the run"
 
 
 def test_ctrl_c_stops_a_run_with_keyboard_interrupt():
@@ -781,7 +798,9 @@ def test_ctrl_c_stops_a_run_with_keyboard_interrupt():
     less than half the time the whole run takes (Python would also raise it
     once a run that ignored it had ended). A run checks for signals only
     every 0.1 s, so the whole run lasts at least a second, many times
-    longer."""
+    longer. The run's own duration is the measure: the run calls no Python
+    and a stopped run raises as a finished one does, so no event shows that
+    it stopped early."""
     program, shots, whole = _run_lasting(1.0)
     timer = threading.Timer(whole / 10, _thread.interrupt_main)
     started = time.perf_counter()

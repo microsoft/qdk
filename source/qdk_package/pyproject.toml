@@ -39,10 +39,9 @@ qre = ["pandas>=2.1"]
 # generated and audited; and the cuBLAS and cuSOLVER wheels, which
 # cuTensorNet's library needs to load but its wheel does not declare,
 # pinned to the versions an A100 ran the engine with from wheels.
-# `qdk/simulation/_tensor_network.py` finds cuTensorNet and the CUDA
-# Runtime (`_PACKAGED_LIBRARIES`); cuTensorNet's library finds cuBLAS and
-# cuSOLVER itself, in their wheels' folders. Not in `all`: the libraries
-# run only with an NVIDIA GPU and driver.
+# `qdk/simulation/_tensor_network.py` (`_PACKAGED_LIBRARIES`) says which of
+# these libraries the QDK opens, and who finds the others. Not in `all`:
+# the libraries run only with an NVIDIA GPU and driver.
 tensornetwork = [
   "cutensornet-cu12==2.13.0; platform_system == 'Linux' and platform_machine == 'x86_64'",
   "nvidia-cuda-runtime-cu12==12.9.*; platform_system == 'Linux' and platform_machine == 'x86_64'",

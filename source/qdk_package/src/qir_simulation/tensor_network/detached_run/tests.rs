@@ -2,9 +2,9 @@
 // Licensed under the MIT License.
 
 //! Which Python exception a run thread that panicked raises
-//! ([`lost_run`]), a defect the package's Python tests cannot cause.
+//! ([`panicked_run`]), a defect the package's Python tests cannot cause.
 
-use super::{RunFailure, lost_run};
+use super::{RunFailure, panicked_run};
 
 /// A run thread that panics (a defect) raises `RuntimeError` with the
 /// panic's message, rather than a `PanicException` from the thread scope,
@@ -25,7 +25,7 @@ fn a_run_that_panics_is_a_runtime_error_with_its_message() {
         ("formatted", formatted, "a defect of shot 3"),
     ];
     for (case, defect, expected) in cases {
-        let failure = std::thread::scope(|scope| lost_run(scope.spawn(defect)));
+        let failure = std::thread::scope(|scope| panicked_run(scope.spawn(defect)));
         assert!(
             matches!(&failure, RunFailure::Runtime(message) if message.contains(expected)),
             "{case}: a run that panics is a RuntimeError with the panic's message: {failure:?}"

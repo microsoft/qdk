@@ -10,14 +10,9 @@
 //! hours. This module joins the pieces that run it, so that no Python code
 //! knows engines or resumers and no Rust crate knows Python: the program,
 //! decoded from the dict `AdaptiveProfilePass(Bytecode.Bit64)` writes, is
-//! built as a `QirProgram` (every fault reported), and `MpsResumer` runs
-//! its shots on the engine the caller named, off the Python thread.
-//!
-//! Two kinds of method meet here. An _MPS simulation method_ is the
-//! algorithm that runs a program's gates, measurements and shots on an
-//! MPS; this module runs `qdk_simulators`' (`MpsResumer`). It calls the
-//! _`MpsEngine` methods_ (`apply`, `project`, `probability_of_one`, …), the
-//! operations the trait declares and each engine implements.
+//! built as a `QirProgram` (every fault reported), and `MpsResumer`, the
+//! MPS simulation method, runs its shots on the engine the caller named,
+//! off the Python thread.
 //!
 //! The engine is chosen by name: `"gpu"`, the canonical MPS engine on CUDA
 //! device 0 (`CudaMpsEngine`, on cuTensorNet), whose libraries discovery
@@ -161,14 +156,11 @@ type RunResults = (Vec<Vec<OutputRecord>>, MpsRunReport);
 
 /// The run on the GPU engine, on CUDA device 0, with the libraries
 /// discovery finds (trying the `packaged` files). When discovery fails, the
-/// run raises the setup check's report: the check is made again for it, so
-/// the text is the check's by construction. The check runs the same
-/// discovery, on the same files and variables, so while the loading
-/// conditions stay the same it normally fails as this one did and its
-/// report shows the faults discovery found; a file or a variable changed
-/// between the two, or a load that failed for a passing reason (the
-/// process out of memory or file handles, say), could make it differ.
-/// Discovery loads the libraries, so it runs with the GIL released.
+/// run raises the setup check's report, made again so that the text is the
+/// check's. With the same files and variables it fails as discovery did; a
+/// file or variable changed in between, or a load failing for a passing
+/// reason (the process out of memory or file handles, say), could make it
+/// differ. Discovery loads the libraries, so it runs with the GIL released.
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn gpu_run(
     py: Python<'_>,
