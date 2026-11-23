@@ -10,10 +10,10 @@ repository.workspace = true
 [dependencies]
 executor_protocol_core = { path = "../core" }
 # `union` lays a small vector's inline items over its heap pointer with no
-# tag word, which saves 16 bytes per instruction, at the size the assertion
-# after the `Blocks` and `Arguments` aliases pins, in
+# tag word, which keeps an instruction at the size the assertion after the
+# `Blocks` and `Arguments` aliases pins, in
 # `src/block_instruction_set/block_instruction.rs`, whose comment says why
-# small vectors. Cargo unifies features across the workspace, so other
+# small vectors and what `union` saves. Cargo unifies features across the workspace, so other
 # crates' small vectors get it too in a shared build.
 smallvec = { workspace = true, features = ["union"] }
 

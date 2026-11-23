@@ -619,13 +619,12 @@ fn malformed_pauli_text_is_refused() {
     }
 }
 
-/// A part forwards instructions by copying them: with up to three blocks
-/// and three arguments, held inline, and its text, Pauli and a readout
-/// parity of more than five readouts shared, a copy of an instruction with
-/// no selection allocates nothing.
+/// A part forwards instructions by copying them: a copy of a small
+/// instruction allocates nothing. Small means up to three blocks and three
+/// arguments, held inline, and no `select`; its text, Pauli and a readout
+/// parity of more than five readouts are shared, not copied.
 #[test]
-fn copying_an_instruction_with_no_selection_and_up_to_three_blocks_and_arguments_allocates_nothing()
-{
+fn copying_a_small_instruction_without_a_select_allocates_nothing() {
     for parity in [Argument::recent(1), Argument::parity(1..=8, true)] {
         let instruction = BlockInstruction {
             opcode: Opcode::__from_macro(0),

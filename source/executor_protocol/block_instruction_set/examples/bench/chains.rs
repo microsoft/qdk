@@ -107,7 +107,7 @@ fn send_down<E: Executor<Accepts = BlockInstructionSet>>(
 ) -> Received {
     match chain {
         Chain::Direct => {
-            // The chain's executor is sent no batch: `ChainBypass` sends past it.
+            // `ChainBypass` sends past the chain's executor, which gets no batch.
             let unused = Profiler::new(Resources::nothing_stated());
             run_once(
                 ChainBypass(in_batches, executor)

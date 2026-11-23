@@ -23,26 +23,27 @@
 //! [`instruction_set!`](crate::instruction_set), a set known only at run
 //! time resolves them once with [`BlockInstructionSet::opcode`].
 //!
-//! A set is checked once, when it is built ([`BlockInstructionSet::new`]), which
-//! refuses every fault of its declaration at once ([`DeclarationFault`]), and
-//! derives each instruction's check. Its submodules hold the rest of the
-//! vocabulary: an instruction's declaration (`instruction_def`) and its
-//! place in the set (`opcode`), the kinds of blocks (`block_type`) and an
-//! instruction's operands of them (`block_operand`), its classical inputs
-//! (`parameter`), Pauli operators (`pauli`), what an instruction does
-//! (`meaning`), each instruction's check (`instruction_check`), the
-//! instructions a batch holds and their checks (`block_instruction`), the fit of one
-//! set to another (`fit`), the translation of opcodes it gives
-//! (`opcode_map`), the set's capabilities, the blocks of each type a shot
-//! holds and readout parities (`block_capabilities`), what the shots
-//! require of a receiver, as an instruction's check reads it
-//! (`block_requirement`), one readout's value or why it is lost
-//! (`readout_value`), and what a part found suspect in a shot
-//! (`shot_conditions`).
+//! A set is checked once, when it is built ([`BlockInstructionSet::new`]),
+//! which refuses every fault of its declaration at once
+//! ([`DeclarationFault`]), and derives each instruction's check. Its
+//! submodules hold the rest of the vocabulary: an instruction's declaration
+//! (`instruction_def`) and its place in the set (`opcode`), the kinds of
+//! blocks (`block_type`) and an instruction's operands of them
+//! (`block_operand`), its classical inputs (`parameter`), Pauli operators
+//! (`pauli`), what an instruction does (`meaning`), each instruction's
+//! check (`instruction_check`), the instructions a batch holds and their
+//! checks (`block_instruction`), the fit of one set to another (`fit`), the
+//! translation of opcodes it gives (`opcode_map`), the set's capabilities,
+//! the blocks of each type a shot holds and readout parities
+//! (`block_capabilities`), what the shots require of a receiver, as an
+//! instruction's check reads it (`block_requirement`), one readout's value
+//! or why it is lost (`readout_value`), and what a part found suspect in a
+//! shot (`shot_conditions`).
 //!
 //! What the protocol asks of an instruction set, and when it asks, is in
 //! the core's (`executor_protocol_core`) `docs/instruction-sets.md`; when
-//! two of these sets fit is in `fit`.
+//! two of these sets fit is in [`InstructionMismatch`] and
+//! `BlockInstructionSet`'s `BoundaryCompatible::fits`.
 
 mod block_capabilities;
 mod block_instruction;
