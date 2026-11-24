@@ -96,6 +96,22 @@ class ISATransform(ABC):
         """
         ...
 
+    @classmethod
+    def source_isa_alternatives(cls) -> list[ISARequirements]:
+        """
+        Return alternative requirements accepted only from an explicit source.
+
+        An implementation ISA that comes from a ``source`` query other than the
+        architecture root may satisfy either :meth:`required_isa` or one of
+        these alternatives.  They are not applied to the root, because the
+        graph search would otherwise match them against every instruction
+        already in the provenance graph.
+
+        Returns:
+            list[ISARequirements]: Alternative requirements; empty by default.
+        """
+        return []
+
     @abstractmethod
     def provided_isa(
         self, impl_isa: ISA, ctx: ISAContext
@@ -118,6 +134,8 @@ class ISATransform(ABC):
         cls,
         impl_isa: ISA | Iterable[ISA],
         ctx: ISAContext,
+        *,
+        explicit_source: bool = False,
         **kwargs: Any,
     ) -> Generator[ISA, None, None]:
         """
@@ -129,14 +147,20 @@ class ISATransform(ABC):
         Args:
             impl_isa (ISA | Iterable[ISA]): One or more implementation ISAs.
             ctx (ISAContext): The enumeration context.
+            explicit_source (bool): Whether the ISAs come from an explicit
+                ``source`` query, which also admits
+                :meth:`source_isa_alternatives`.
             **kwargs: Arguments passed to parameter enumeration.
 
         Yields:
             ISA: Valid provided ISAs.
         """
+        requirements = [cls.required_isa()]
+        if explicit_source:
+            requirements += cls.source_isa_alternatives()
         isas = [impl_isa] if isinstance(impl_isa, ISA) else impl_isa
         for isa in isas:
-            if not isa.satisfies(cls.required_isa()):
+            if not any(isa.satisfies(r) for r in requirements):
                 continue
 
             for component in _enumerate_instances(cls, **kwargs):

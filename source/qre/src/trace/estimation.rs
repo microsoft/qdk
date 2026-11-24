@@ -389,11 +389,15 @@ pub fn estimate_with_graph(
             let matching_nodes = nodes
                 .iter()
                 .filter(|&&node| {
-                    // Filter out nodes that don't meet the constraint bounds.
+                    // Filter out nodes that don't meet the constraint bounds.  The
+                    // encoding check keeps physical architecture instructions (e.g. a
+                    // raw T gate) from standing in for logical requirements, matching
+                    // `InstructionConstraint::is_satisfied_by`.
                     let instruction = graph_lock.instruction(node);
-                    constraint.error_rate().is_none_or(|c| {
-                        c.evaluate(&instruction.error_rate(Some(1), &[]).unwrap_or(0.0))
-                    })
+                    instruction.encoding() == constraint.encoding()
+                        && constraint.error_rate().is_none_or(|c| {
+                            c.evaluate(&instruction.error_rate(Some(1), &[]).unwrap_or(0.0))
+                        })
                 })
                 .map(|&node| {
                     let instruction = graph_lock.instruction(node);

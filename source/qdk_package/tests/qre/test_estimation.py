@@ -10,12 +10,14 @@ import pytest
 
 from qdk.estimator import LogicalCounts
 from qdk.qre import (
+    Application,
     LatticeSurgery,
     PSSPC,
+    Trace,
     estimate,
 )
 from qdk.qre._estimation import _EstimationCollection, _zero_results_warning_message
-from qdk.qre.instruction_ids import T
+from qdk.qre.instruction_ids import CCX, MEAS_Z, T
 from qdk.qre.application import QSharpApplication
 from qdk.qre.models import (
     SurfaceCode,
@@ -25,6 +27,37 @@ from qdk.qre.models import (
 )
 
 from .conftest import ExampleFactory
+
+
+class _FixedTrace(Application[None]):
+    def __init__(self, trace: Trace):
+        self._trace = trace
+
+    def get_trace(self, parameters: None) -> Trace:
+        return self._trace
+
+
+def _adder_frontier(use_graph: bool) -> list[tuple[int, int, float]]:
+    # 9 Toffolis (36 T states), few enough that a raw 1e-4 physical T gate
+    # fits the error budget on its own.
+    trace = Trace(30)
+    trace.add_block(9).add_operation(CCX, [0, 1, 2])
+    trace.add_block(9).add_operation(MEAS_Z, [0])
+    results = estimate(
+        _FixedTrace(trace),
+        GateBased(error_rate=1e-4, gate_time=100, measurement_time=500),
+        SurfaceCode.q() * RoundBasedFactory.q(use_cache=False),
+        max_error=0.01,
+        use_graph=use_graph,
+    )
+    return sorted((r.qubits, r.runtime, r.factories[T].error_rate) for r in results)
+
+
+def test_graph_estimation_never_consumes_physical_t():
+    """The graph search must respect the encoding of instruction constraints."""
+    frontier = _adder_frontier(use_graph=True)
+    assert all(error != pytest.approx(1e-4) for _, _, error in frontier)
+    assert frontier == _adder_frontier(use_graph=False)
 
 
 def test_zero_results_warning_suggests_expanding_isa_search_space():
