@@ -214,7 +214,12 @@ class _ComponentQuery(ISAQuery):
             ISA: A generated ISA instance.
         """
         for isa in self.source.enumerate(ctx):
-            yield from self.component.enumerate_isas(isa, ctx, **self.kwargs)
+            yield from self.component.enumerate_isas(
+                isa,
+                ctx,
+                explicit_source=not isinstance(self.source, RootNode),
+                **self.kwargs,
+            )
 
     def populate(self, ctx: ISAContext) -> int:
         """
@@ -230,9 +235,34 @@ class _ComponentQuery(ISAQuery):
             int: The starting node index of this component's own additions.
         """
         source_start = self.source.populate(ctx)
-        impl_isas = ctx._provenance.query_satisfying(
-            self.component.required_isa(), min_node_idx=source_start
+        impl_isas = list(
+            ctx._provenance.query_satisfying(
+                self.component.required_isa(), min_node_idx=source_start
+            )
         )
+        if not isinstance(self.source, RootNode):
+            # Alternatives must come from the source itself; unlike the base
+            # requirements they do not fall back to instructions elsewhere in
+            # the graph (e.g. T states of an unrelated factory).
+            alternatives = []
+            for requirements in self.component.source_isa_alternatives():
+                ids = [c.id for c in requirements]
+                alternatives += [
+                    isa
+                    for isa in ctx._provenance.query_satisfying(
+                        requirements, min_node_idx=source_start
+                    )
+                    if all((isa.node_index(i) or 0) >= source_start for i in ids)
+                ]
+            if alternatives:
+                # The source matched, so drop base matches that only came
+                # from the fallback to the rest of the graph.
+                ids = [c.id for c in self.component.required_isa()]
+                impl_isas = [
+                    isa
+                    for isa in impl_isas
+                    if all((isa.node_index(i) or 0) >= source_start for i in ids)
+                ] + alternatives
         own_start = ctx._provenance.raw_node_count()
         for instance in _enumerate_instances(self.component, **self.kwargs):
             ctx._transforms[id(instance)] = instance

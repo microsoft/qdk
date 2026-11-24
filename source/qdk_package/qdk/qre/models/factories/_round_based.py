@@ -110,6 +110,13 @@ class RoundBasedFactory(ISATransform):
             constraint(T),
         )
 
+    @classmethod
+    def source_isa_alternatives(cls) -> list[ISARequirements]:
+        # A logical T state from an explicit source, e.g.
+        # ``RoundBasedFactory.q(source=Litinski19Factory.q())``, is distilled
+        # further by logical units.
+        return [ISARequirements(constraint(T, encoding=LOGICAL))]
+
     def provided_isa(
         self, impl_isa: ISA, ctx: ISAContext
     ) -> Generator[ISA, None, None]:

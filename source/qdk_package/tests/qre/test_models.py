@@ -35,6 +35,7 @@ from qdk.qre.instruction_ids import (
 )
 from qdk.qre.models import (
     GateBased,
+    GSJ24Factory,
     Majorana,
     NeutralAtom,
     RoundBasedFactory,
@@ -1153,6 +1154,48 @@ class TestRoundBasedFactory:
         assert total_time == 478_235_000
         assert abs(total_error - 0.000_880_967_766_732_897_4) < 1e-8
         assert count == 301
+
+    def test_distils_logical_t_from_explicit_source(self):
+        """A logical (cultivated) T source is distilled further by logical units."""
+        arch = GateBased(error_rate=1e-3, gate_time=50, measurement_time=100)
+        query = RoundBasedFactory.q(
+            use_cache=False,
+            code_query=SurfaceCode.q(distance=[9, 11]),
+            source=GSJ24Factory.q(),
+        )
+
+        isas = list(query.enumerate(arch.context()))
+        assert len(isas) == 160
+        assert all(isa[T].encoding == LOGICAL for isa in isas)
+        cultivated = next(GSJ24Factory.q().enumerate(arch.context()))[T]
+        assert min(isa[T].expect_error_rate() for isa in isas) < (
+            cultivated.expect_error_rate()
+        )
+
+        # The graph search adds exactly the same factories.
+        ctx = arch.context()
+        start = query.populate(ctx)
+        assert ctx._provenance.raw_node_count() - start == len(isas)
+
+    def test_source_alternatives_do_not_fall_back(self):
+        """A logical T from outside the source is not distilled again."""
+        # Majorana has no CNOT, so GSJ24Factory yields nothing.
+        code_query = ThreeAux.q(distance=[9])
+
+        def cultivated():
+            return RoundBasedFactory.q(
+                use_cache=False, code_query=code_query, source=GSJ24Factory.q()
+            )
+
+        alone = Majorana().context()
+        start = cultivated().populate(alone)
+        added_alone = alone._provenance.raw_node_count() - start
+
+        ctx = Majorana().context()
+        RoundBasedFactory.q(use_cache=False, code_query=code_query).populate(ctx)
+        start = cultivated().populate(ctx)
+        assert ctx._provenance.raw_node_count() - start == added_alone
+        assert not list(cultivated().enumerate(Majorana().context()))
 
 
 # ---------------------------------------------------------------------------
