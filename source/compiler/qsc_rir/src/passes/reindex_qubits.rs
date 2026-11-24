@@ -15,18 +15,17 @@ use crate::{
     rir::{Block, CallableId, CallableType, Instruction, Literal, Operand, Program},
 };
 
-#[derive(Clone, Copy)]
-enum CallableToAdd {
-    M,
-    CX,
-    H,
-    S,
-    SAdj,
-}
-
 /// Reindexes qubits after they have been measured or reset. This ensures there is no qubit reuse in
 /// the program. As part of the pass, reset callables are removed and mresetz calls are replaced with
 /// mz calls.
+///
+/// When a measured qubit is reused later in the block:
+/// - Single-qubit measurements (`m`, `mx`, `my`) first transfer the qubit's state, in the measurement
+///   basis, to a fresh qubit that replaces it.
+/// - Joint measurements (`mxx`, `myy`, `mzz`, `mzy`) are decomposed into a parity check: each qubit is
+///   entangled with a fresh ancilla in its measurement basis, and the ancilla is measured with `mz`.
+///   The measured qubits keep their IDs, since only the ancilla is measured.
+///
 /// Note that this pass has several assumptions:
 /// 1. Only one callable has a body, which is the entry point callable.
 /// 2. The entry point callable is a single block.
@@ -37,15 +36,7 @@ pub(crate) fn reindex_qubits(program: &mut Program) {
     validate_assumptions(program);
 
     // Get measurement callable IDs if they exist in the program
-    let mut measurement_ids = MeasurementIds {
-        mz: find_callable(program, "__quantum__qis__m__body"),
-        mx: find_callable(program, "__quantum__qis__mx__body"),
-        my: find_callable(program, "__quantum__qis__my__body"),
-        mresetz: find_callable(program, "__quantum__qis__mresetz__body"),
-    };
-    if measurement_ids.mresetz.is_some() && measurement_ids.mz.is_none() {
-        measurement_ids.mz = Some(add_callable(program, CallableToAdd::M));
-    }
+    let measurement_ids = MeasurementIds::from_program(program);
 
     let mut pass = ReindexQubitPass::new(
         measurement_ids,
@@ -60,8 +51,12 @@ pub(crate) fn reindex_qubits(program: &mut Program) {
     };
 
     // Reverse walk program instructions to check for qubit reuse and measurement bases. This avoids
-    // nested loops over instructions later when reindexing.
-    pass.scan_for_qubit_reuse(program, &block);
+    // nested loops over instructions later when reindexing. Add `mz` if the pass needs it and the
+    // program doesn't already declare it.
+    if pass.scan_for_qubit_reuse(program, &block) {
+        pass.measurement_ids
+            .set_mz(add_callable(program, CallableToAdd::M));
+    }
 
     // Add any callables required for reindexing based on the measurement bases.
     pass.find_add_required_callables(program);
@@ -71,10 +66,24 @@ pub(crate) fn reindex_qubits(program: &mut Program) {
     program.blocks.insert(block_id, block);
     program.num_qubits = pass.highest_used_id + 1;
 
-    // All reset function calls should be removed, so remove them from the callables.
+    // All reset function and joint measurement calls should be removed, so remove them from the callables.
     program.callables.retain(|id, callable| {
-        callable.call_type != CallableType::Reset && Some(id) != pass.measurement_ids.mresetz
+        callable.call_type != CallableType::Reset
+            && Some(id) != pass.measurement_ids.mresetz
+            && !matches!(
+                pass.measurement_ids.kind(id),
+                Some(MeasurementKind::Joint(_, _))
+            )
     });
+}
+
+#[derive(Clone, Copy)]
+enum CallableToAdd {
+    M,
+    CX,
+    H,
+    S,
+    SAdj,
 }
 
 #[derive(Default)]
@@ -85,35 +94,85 @@ struct GateIds {
     sadj: Option<CallableId>,
 }
 
+/// How a measurement callable acts on its qubit arguments, in argument order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MeasurementKind {
+    /// One qubit measured in the given basis, without reset (`m`, `mx`, `my`).
+    Single(MeasurementBasis),
+    /// Parity of two qubits, with one basis per qubit argument (`mxx`, `myy`, `mzz`, `mzy`).
+    Joint(MeasurementBasis, MeasurementBasis),
+    /// Z measurement followed by reset (`mresetz`); always rewritten to `mz` by this pass.
+    ResetZ,
+}
+
+/// Measurement callables recognized by this pass, by QIR name.
+const MEASUREMENT_CALLABLES: [(&str, MeasurementKind); 8] = {
+    use MeasurementBasis::{X, Y, Z};
+    use MeasurementKind::{Joint, ResetZ, Single};
+    [
+        ("__quantum__qis__m__body", Single(Z)),
+        ("__quantum__qis__mx__body", Single(X)),
+        ("__quantum__qis__my__body", Single(Y)),
+        ("__quantum__qis__mresetz__body", ResetZ),
+        ("__quantum__qis__mxx__body", Joint(X, X)),
+        ("__quantum__qis__myy__body", Joint(Y, Y)),
+        ("__quantum__qis__mzz__body", Joint(Z, Z)),
+        ("__quantum__qis__mzy__body", Joint(Z, Y)),
+    ]
+};
+
+/// The measurement callables declared in the program, keyed by callable ID.
 struct MeasurementIds {
+    id_map: FxHashMap<CallableId, MeasurementKind>,
+    /// Kept separately because the pass emits `mz` calls directly.
     mz: Option<CallableId>,
-    mx: Option<CallableId>,
-    my: Option<CallableId>,
+    /// Kept separately because `mresetz` is removed from the callables after the pass.
     mresetz: Option<CallableId>,
 }
 
 impl MeasurementIds {
-    fn basis(&self, call_id: CallableId) -> Option<MeasurementBasis> {
-        if self.mx == Some(call_id) {
-            Some(MeasurementBasis::X)
-        } else if self.my == Some(call_id) {
-            Some(MeasurementBasis::Y)
-        } else if self.mz == Some(call_id) {
-            Some(MeasurementBasis::Z)
-        } else {
-            None
+    /// Collects the program's measurement callables in a single scan of its callables.
+    fn from_program(program: &Program) -> Self {
+        let mut id_map = FxHashMap::default();
+        let mut mz = None;
+        let mut mresetz = None;
+        for (callable_id, callable) in program.callables.iter() {
+            if let Some(&(_, kind)) = MEASUREMENT_CALLABLES
+                .iter()
+                .find(|(name, _)| *name == callable.name)
+            {
+                id_map.insert(callable_id, kind);
+                match kind {
+                    MeasurementKind::Single(MeasurementBasis::Z) => mz = Some(callable_id),
+                    MeasurementKind::ResetZ => mresetz = Some(callable_id),
+                    _ => (),
+                }
+            }
+        }
+        Self {
+            id_map,
+            mz,
+            mresetz,
         }
     }
 
-    fn is_measurement(&self, call_id: CallableId) -> bool {
-        self.mx == Some(call_id) || self.my == Some(call_id) || self.mz == Some(call_id)
+    /// Returns the measurement kind of `call_id`, or `None` if it isn't a recognized measurement.
+    fn kind(&self, call_id: CallableId) -> Option<MeasurementKind> {
+        self.id_map.get(&call_id).copied()
+    }
+
+    /// Records an `mz` callable added by the pass, keeping `kind` consistent with `mz`.
+    fn set_mz(&mut self, call_id: CallableId) {
+        self.mz = Some(call_id);
+        self.id_map
+            .insert(call_id, MeasurementKind::Single(MeasurementBasis::Z));
     }
 }
 
 struct ReindexQubitPass {
     measurement_ids: MeasurementIds,
     gate_ids: GateIds,
-    instrs_to_transfer: FxHashMap<usize, MeasurementBasis>,
+    instrs_to_transfer: FxHashSet<usize>,
     bases_to_transfer: FxHashSet<MeasurementBasis>,
     highest_used_id: u32,
 }
@@ -123,15 +182,19 @@ impl ReindexQubitPass {
         Self {
             measurement_ids,
             gate_ids: GateIds::default(),
-            instrs_to_transfer: FxHashMap::default(),
+            instrs_to_transfer: FxHashSet::default(),
             bases_to_transfer: FxHashSet::default(),
             highest_used_id,
         }
     }
 
-    fn scan_for_qubit_reuse(&mut self, program: &Program, block: &Block) {
+    /// Finds the measurements whose qubits are reused later in the block, and the bases needed to
+    /// reindex them. Returns `true` if the pass needs an `mz` callable that the program doesn't
+    /// declare yet: to replace `mresetz`, or to measure the ancilla of a reindexed joint measurement.
+    fn scan_for_qubit_reuse(&mut self, program: &Program, block: &Block) -> bool {
+        let mut add_mz = false;
         let mut bases_needed = FxHashSet::default();
-        let mut instrs_to_reindex = FxHashMap::default();
+        let mut instrs_to_reindex = FxHashSet::default();
         let mut qubits_seen: FxHashSet<u32> = FxHashSet::default();
 
         let instrs = &block.0;
@@ -143,11 +206,22 @@ impl ReindexQubitPass {
                     _ => None,
                 });
 
-                if let Some(basis) = self.measurement_ids.basis(*call_id)
-                    && qubits.clone().any(|qubit| qubits_seen.contains(&qubit))
-                {
-                    bases_needed.insert(basis);
-                    instrs_to_reindex.insert(i, basis);
+                if let Some(kind) = self.measurement_ids.kind(*call_id) {
+                    if let MeasurementKind::Single(b) = kind
+                        && qubits.clone().any(|qubit| qubits_seen.contains(&qubit))
+                    {
+                        bases_needed.insert(b);
+                        instrs_to_reindex.insert(i);
+                    }
+                    if let MeasurementKind::Joint(b1, b2) = kind {
+                        // Joint measurements are always reindexed to a parity check using ancillary qubit.
+                        bases_needed.insert(b1);
+                        bases_needed.insert(b2);
+                        add_mz = true;
+                    }
+                    if kind == MeasurementKind::ResetZ {
+                        add_mz = true;
+                    }
                 }
 
                 if callable.call_type == CallableType::Reset {
@@ -163,6 +237,7 @@ impl ReindexQubitPass {
         }
         self.instrs_to_transfer = instrs_to_reindex;
         self.bases_to_transfer = bases_needed;
+        add_mz && self.measurement_ids.mz.is_none()
     }
 
     fn find_add_required_callables(&mut self, program: &mut Program) {
@@ -236,51 +311,57 @@ impl ReindexQubitPass {
                         .collect::<Vec<_>>();
                     used_qubits.extend(ids_used.iter());
 
-                    if self.measurement_ids.is_measurement(*call_id) {
-                        if let Some(&basis) = self.instrs_to_transfer.get(&i) {
-                            // Since the call was to m* and the qubit is reused later in the block,
-                            // the new qubit replacing this one must mirror the old qubit's state.
-                            // Achieve this by entangling the qubits using relevant basis transformations
-                            // and a CNOT gate before the m* call.
-                            let old_qubit_id = match new_args.first() {
-                                Some(Operand::Literal(Literal::Qubit(id))) => *id,
-                                _ => panic!("Expected the first argument to be a qubit literal"),
-                            };
-                            self.emit_state_transfer_instrs(
-                                block,
-                                basis,
-                                old_qubit_id,
-                                next_qubit_id,
-                                metadata.clone(),
-                            );
-                            self.highest_used_id = self.highest_used_id.max(next_qubit_id);
-                        } else {
-                            // The call was to m* and the qubit is not reused later in the block, so
-                            // there is no need to remap it at all as this is the last operation. Skip
-                            // the rest of the logic.
-                            block.0.push(Instruction::Call(
-                                *call_id,
-                                new_args,
-                                None,
-                                metadata.clone(),
-                            ));
-                            continue;
+                    if let Some(kind) = self.measurement_ids.kind(*call_id) {
+                        match kind {
+                            MeasurementKind::Single(basis) => {
+                                if self.instrs_to_transfer.contains(&i) {
+                                    // Since the call was to m* and the qubit is reused later in the block, the new qubit replacing this
+                                    // one must mirror the old qubit's state. Achieve this by entangling the qubits using relevant basis
+                                    // transformations and a CNOT gate before the m* call.
+                                    self.emit_state_transfer_instrs(
+                                        block,
+                                        basis,
+                                        qubit_arg(&new_args, 0),
+                                        next_qubit_id,
+                                        metadata.clone(),
+                                    );
+                                    push_instr(block, *call_id, new_args, metadata.clone());
+                                    self.highest_used_id = self.highest_used_id.max(next_qubit_id);
+                                } else {
+                                    // The call was to m* and the qubit is not reused later in the block, so there is no need to remap it at
+                                    // all as this is the last operation. Skip the rest of the logic.
+                                    push_instr(block, *call_id, new_args, metadata.clone());
+                                    continue;
+                                }
+                            }
+                            MeasurementKind::Joint(basis_1, basis_2) => {
+                                // Since the call was to m** replace it with a parity check on a fresh ancilla.
+                                self.emit_parity_check(
+                                    block,
+                                    next_qubit_id,
+                                    metadata.clone(),
+                                    &new_args,
+                                    [basis_1, basis_2],
+                                );
+                                self.highest_used_id = self.highest_used_id.max(next_qubit_id);
+                                next_qubit_id += 1;
+                                continue;
+                            }
+                            MeasurementKind::ResetZ => {
+                                push_instr(
+                                    block,
+                                    self.measurement_ids
+                                        .mz
+                                        .expect("MZ must be set if MResetZ is used"),
+                                    new_args,
+                                    metadata.clone(),
+                                );
+                            }
                         }
-                    }
-
-                    // If the call was to mresetz, replace with mz.
-                    let call_id = if Some(*call_id) == self.measurement_ids.mresetz {
-                        self.measurement_ids
-                            .mz
-                            .expect("MZ must be set if MResetZ is present")
                     } else {
-                        *call_id
-                    };
-
-                    block
-                        .0
-                        .push(Instruction::Call(call_id, new_args, None, metadata.clone()));
-                    if program.get_callable(call_id).call_type == CallableType::Measurement {
+                        push_instr(block, *call_id, new_args, metadata.clone());
+                    }
+                    if program.get_callable(*call_id).call_type == CallableType::Measurement {
                         // Generate any new qubit ids after a measurement.
                         for arg in args {
                             if let Operand::Literal(Literal::Qubit(qubit_id)) = arg {
@@ -298,6 +379,34 @@ impl ReindexQubitPass {
         }
     }
 
+    fn emit_parity_check(
+        &mut self,
+        block: &mut Block,
+        next_qubit_id: u32,
+        metadata: Option<Box<InstructionDbgMetadata>>,
+        new_args: &[Operand],
+        bases: [MeasurementBasis; 2],
+    ) {
+        for (index, basis) in bases.into_iter().enumerate() {
+            self.emit_parity_transfer_instrs(
+                block,
+                basis,
+                qubit_arg(new_args, index),
+                next_qubit_id,
+                metadata.clone(),
+            );
+        }
+        let mz_id = self
+            .measurement_ids
+            .mz
+            .expect("MZ must be set if joint measurement is used");
+        let ancilla_args = vec![
+            Operand::Literal(Literal::Qubit(next_qubit_id)),
+            new_args[2], // Result ID
+        ];
+        push_instr(block, mz_id, ancilla_args, metadata);
+    }
+
     /// Emits basis-dependent measurement state-transfer gates, with the new qubit in |0⟩.
     /// In execution order:
     /// - Z: CNOT from the old qubit to the new qubit.
@@ -311,7 +420,7 @@ impl ReindexQubitPass {
     /// # Panics
     /// Panics if the required gate IDs are not set.
     fn emit_state_transfer_instrs(
-        &mut self,
+        &self,
         block: &mut Block,
         basis: MeasurementBasis,
         old_qubit_id: u32,
@@ -383,6 +492,86 @@ impl ReindexQubitPass {
                 metadata,
             ));
         }
+    }
+
+    fn emit_parity_transfer_instrs(
+        &self,
+        block: &mut Block,
+        basis: MeasurementBasis,
+        old_qubit_id: u32,
+        ancilla_qubit_id: u32,
+        metadata: Option<Box<InstructionDbgMetadata>>,
+    ) {
+        // For Y, map the old qubit's basis to X before the X-basis transfer.
+        if basis == MeasurementBasis::Y {
+            block.0.push(Instruction::Call(
+                self.gate_ids
+                    .sadj
+                    .expect("SAdj must be set if Y-basis reindexing is required"),
+                vec![Operand::Literal(Literal::Qubit(old_qubit_id))],
+                None,
+                metadata.clone(),
+            ));
+        }
+        if basis == MeasurementBasis::X || basis == MeasurementBasis::Y {
+            block.0.push(Instruction::Call(
+                self.gate_ids
+                    .h
+                    .expect("H must be set if X-basis reindexing is required"),
+                vec![Operand::Literal(Literal::Qubit(old_qubit_id))],
+                None,
+                metadata.clone(),
+            ));
+        }
+        block.0.push(Instruction::Call(
+            self.gate_ids
+                .cx
+                .expect("CX must be set if any reindexing is required"),
+            vec![
+                Operand::Literal(Literal::Qubit(old_qubit_id)),
+                Operand::Literal(Literal::Qubit(ancilla_qubit_id)),
+            ],
+            None,
+            metadata.clone(),
+        ));
+        if basis == MeasurementBasis::X || basis == MeasurementBasis::Y {
+            block.0.push(Instruction::Call(
+                self.gate_ids
+                    .h
+                    .expect("H must be set if X-basis reindexing is required"),
+                vec![Operand::Literal(Literal::Qubit(old_qubit_id))],
+                None,
+                metadata.clone(),
+            ));
+        }
+        if basis == MeasurementBasis::Y {
+            block.0.push(Instruction::Call(
+                self.gate_ids
+                    .s
+                    .expect("S must be set if Y-basis reindexing is required"),
+                vec![Operand::Literal(Literal::Qubit(old_qubit_id))],
+                None,
+                metadata,
+            ));
+        }
+    }
+}
+
+fn push_instr(
+    block: &mut Block,
+    call_id: CallableId,
+    new_args: Vec<Operand>,
+    metadata: Option<Box<InstructionDbgMetadata>>,
+) {
+    block
+        .0
+        .push(Instruction::Call(call_id, new_args, None, metadata));
+}
+
+fn qubit_arg(args: &[Operand], index: usize) -> u32 {
+    match args.get(index) {
+        Some(Operand::Literal(Literal::Qubit(id))) => *id,
+        _ => panic!("Expected argument {index} to be a qubit literal"),
     }
 }
 

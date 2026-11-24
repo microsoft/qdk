@@ -294,11 +294,6 @@ operation M(qubit : Qubit) : Result {
 /// where
 /// $$ \ket{+} = \frac{\ket{0} + \ket{1}}{\sqrt{2}} $$
 /// $$ \ket{-} = \frac{\ket{0} - \ket{1}}{\sqrt{2}} $$
-///
-/// Equivalent to:
-/// ```qsharp
-/// Measure([PauliX], [qubit]);
-/// ```
 operation MX(qubit : Qubit) : Result {
     __quantum__qis__mx__body(qubit)
 }
@@ -328,11 +323,6 @@ operation MX(qubit : Qubit) : Result {
 /// where
 /// $$ \ket{i} = \frac{\ket{0} + i\ket{1}}{\sqrt{2}} $$
 /// $$ \ket{-i} = \frac{\ket{0} - i\ket{1}}{\sqrt{2}} $$
-///
-/// Equivalent to:
-/// ```qsharp
-/// Measure([PauliY], [qubit]);
-/// ```
 operation MY(qubit : Qubit) : Result {
     __quantum__qis__my__body(qubit)
 }

@@ -229,4 +229,84 @@ operation IsLossResult(res : Result) : Bool {
     __quantum__rt__read_loss(res)
 }
 
-export MeasureAllZ, MeasureEachZ, MResetEachZ, MResetX, MResetY, MResetZ, MeasureInteger, MeasureBigInt, MResetZChecked, IsLossResult;
+/// # Summary
+/// Jointly measures two qubits in the `X ⊗ X` basis.
+///
+/// # Description
+/// Measures the observable `X ⊗ X` on two qubits.
+/// This operation does not reset the measured qubits to the |0⟩ state,
+/// leaving them in the state that corresponds to the measurement result.
+///
+/// # Input
+/// ## target_1
+/// The first qubit to be jointly measured.
+/// ## target_2
+/// The second qubit to be jointly measured.
+///
+/// # Output
+/// The result of measuring in the `X ⊗ X` basis.
+operation MXX(target_1 : Qubit, target_2 : Qubit) : Result {
+    __quantum__qis__mxx__body(target_1, target_2)
+}
+
+/// # Summary
+/// Jointly measures two qubits in the `Y ⊗ Y` basis.
+///
+/// # Description
+/// Measures the observable `Y ⊗ Y` on two qubits.
+/// This operation does not reset the measured qubits to the |0⟩ state,
+/// leaving them in the state that corresponds to the measurement result.
+///
+/// # Input
+/// ## target_1
+/// The first qubit to be jointly measured.
+/// ## target_2
+/// The second qubit to be jointly measured.
+///
+/// # Output
+/// The result of measuring in the `Y ⊗ Y` basis.
+operation MYY(target_1 : Qubit, target_2 : Qubit) : Result {
+    __quantum__qis__myy__body(target_1, target_2)
+}
+
+/// # Summary
+/// Jointly measures two qubits in the `Z ⊗ Z` basis.
+///
+/// # Description
+/// Measures the observable `Z ⊗ Z` on two qubits.
+/// This operation does not reset the measured qubits to the |0⟩ state,
+/// leaving them in the state that corresponds to the measurement result.
+///
+/// # Input
+/// ## target_1
+/// The first qubit to be jointly measured.
+/// ## target_2
+/// The second qubit to be jointly measured.
+///
+/// # Output
+/// The result of measuring in the `Z ⊗ Z` basis.
+operation MZZ(target_1 : Qubit, target_2 : Qubit) : Result {
+    __quantum__qis__mzz__body(target_1, target_2)
+}
+
+/// # Summary
+/// Jointly measures two qubits in the `Z ⊗ Y` basis.
+///
+/// # Description
+/// Measures the observable `Z ⊗ Y` on two qubits.
+/// This operation does not reset the measured qubits to the |0⟩ state,
+/// leaving them in the state that corresponds to the measurement result.
+///
+/// # Input
+/// ## target_1
+/// The first qubit, subject to `Z` basis, in the joint measurement.
+/// ## target_2
+/// The second qubit, subject to `Y` basis, in the joint measurement.
+///
+/// # Output
+/// The result of measuring in the `Z ⊗ Y` basis.
+operation MZY(target_1 : Qubit, target_2 : Qubit) : Result {
+    __quantum__qis__mzy__body(target_1, target_2)
+}
+
+export MeasureAllZ, MeasureEachZ, MResetEachZ, MResetX, MResetY, MResetZ, MeasureInteger, MeasureBigInt, MResetZChecked, IsLossResult, MXX, MYY, MZZ, MZY;

@@ -118,15 +118,23 @@ pub trait Simulator {
     fn mresetz(&mut self, target: QubitID, result_id: ResultID);
 
     /// Measures the X⊗X observable on two qubits.
+    ///
+    /// This operation panics if `q1` and `q2` are the same qubit.
     fn mxx(&mut self, q1: QubitID, q2: QubitID, result_id: ResultID);
 
     /// Measures the Y⊗Y observable on two qubits.
+    ///
+    /// This operation panics if `q1` and `q2` are the same qubit.
     fn myy(&mut self, q1: QubitID, q2: QubitID, result_id: ResultID);
 
     /// Measures the Z⊗Z observable on two qubits.
+    ///
+    /// This operation panics if `q1` and `q2` are the same qubit.
     fn mzz(&mut self, q1: QubitID, q2: QubitID, result_id: ResultID);
 
     /// Measures the Z⊗Y observable on qubits |q1⟩⊗|q2⟩.
+    ///
+    /// This operation panics if `q1` and `q2` are the same qubit.
     fn mzy(&mut self, q1: QubitID, q2: QubitID, result_id: ResultID);
 
     /// `ResetZ` operation.

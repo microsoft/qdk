@@ -2104,6 +2104,23 @@ impl<'a> PartialEvaluator<'a> {
             "__quantum__qis__mresetz__body" => {
                 Ok(self.measure_qubit(builder::mresetz_decl(), &args_value))
             }
+            "__quantum__qis__mxx__body"
+            | "__quantum__qis__myy__body"
+            | "__quantum__qis__mzz__body"
+            | "__quantum__qis__mzy__body" => {
+                // Reject duplicate static qubits. Distinct dynamic variables may alias the same qubit,
+                // so backends and simulators must check for duplicates at runtime.
+                //
+                // This check here is required for the Base profile: qubit uniqueness cannot be ensured
+                // after joint measurements are reindexed to parity checks on ancillas.
+                if let Value::Tuple(qubits, _) = &args_value
+                    && let [q0, q1] = &**qubits
+                    && q0 == q1
+                {
+                    return Err(EvalError::QubitUniqueness(args_span).into());
+                }
+                Ok(self.measure_qubits(callable_decl, args_value))
+            }
             "IsResourceEstimating" => Ok(Value::Bool(false)),
             // The following intrinsic operations and functions are no-ops.
             "BeginEstimateCaching" => Ok(Value::Bool(true)),

@@ -350,13 +350,22 @@ impl StabilizerSimulator {
         result
     }
 
-    /// Measure a `Pauli \otimes Pauli` observable on the given targets `q0` and `q1`.
+    /// Measure a `Pauli \otimes Pauli` observable on the given targets `q1` and `q2`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `q1` and `q2` are the same qubit. Partial evaluation rejects that for static qubits,
+    /// but two dynamic qubits on the Adaptive profile can only be compared when the program runs.
     fn m_joint_impl(
         &mut self,
         q1: QubitID,
         q2: QubitID,
         basis: JointMeasurementBasis,
     ) -> MeasurementResult {
+        assert!(
+            q1 != q2,
+            "joint measurement requires two distinct qubits, but got qubit {q1} twice"
+        );
         if self.loss[q1] {
             self.loss[q1] = false;
             return MeasurementResult::Loss;
