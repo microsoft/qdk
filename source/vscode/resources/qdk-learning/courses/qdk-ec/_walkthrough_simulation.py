@@ -285,6 +285,8 @@ def validate_logical_swap(instr: object) -> str | None:
     """Validate a custom logical SWAP `qodec.Instruction` on one `C4` block."""
     if not isinstance(instr, qodec.Instruction):
         return f"Expected a qodec.Instruction, got {type(instr).__name__}."
+    if instr.mnemonic != "swap_all":
+        return "Use the mnemonic 'swap_all' for the logical SWAP instruction."
     expected_op = [qodec.instructions.BlockOperand("C4")]
     if list(instr.inputs) != expected_op or list(instr.outputs) != expected_op:
         return (

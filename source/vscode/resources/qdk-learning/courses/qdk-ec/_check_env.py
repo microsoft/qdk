@@ -157,10 +157,6 @@ def _render(results: list[tuple[str, str, bool]], errors: list[str]) -> None:
     display(HTML(html))
 
 
-if __name__ == "__main__":
-    check()
-
-
 def _ensure_arm64_fallbacks() -> None:
     """Register pure-Python Stim/HiGHS fallbacks when native wheels are absent (e.g., Windows Arm64)."""
     if importlib.util.find_spec("highspy") is None or importlib.util.find_spec("stim") is None:
@@ -169,4 +165,7 @@ def _ensure_arm64_fallbacks() -> None:
             _walkthrough_simulation.ensure_stim_parser()
 
 
-_ensure_arm64_fallbacks()
+if __name__ == "__main__":
+    check()
+else:
+    _ensure_arm64_fallbacks()
