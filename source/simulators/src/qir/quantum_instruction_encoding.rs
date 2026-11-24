@@ -63,6 +63,7 @@ pub(crate) enum Encoding {
 /// why).
 ///
 /// Crate-visible so that the tests can check they cover every instruction.
+#[rustfmt::skip]
 pub(crate) const QIR_INSTRUCTIONS: [(Encoding, QirInstruction); 29] = [
     (Encoding::Reset(OPID_RESETZ), QirInstruction::Reset),
     (Encoding::Gate(OPID_X), QirInstruction::Gate(QirGate::X)),
@@ -70,20 +71,11 @@ pub(crate) const QIR_INSTRUCTIONS: [(Encoding, QirInstruction); 29] = [
     (Encoding::Gate(OPID_Z), QirInstruction::Gate(QirGate::Z)),
     (Encoding::Gate(OPID_H), QirInstruction::Gate(QirGate::H)),
     (Encoding::Gate(OPID_S), QirInstruction::Gate(QirGate::S)),
-    (
-        Encoding::Gate(OPID_S_ADJ),
-        QirInstruction::Gate(QirGate::SAdj),
-    ),
+    (Encoding::Gate(OPID_S_ADJ), QirInstruction::Gate(QirGate::SAdj)),
     (Encoding::Gate(OPID_T), QirInstruction::Gate(QirGate::T)),
-    (
-        Encoding::Gate(OPID_T_ADJ),
-        QirInstruction::Gate(QirGate::TAdj),
-    ),
+    (Encoding::Gate(OPID_T_ADJ), QirInstruction::Gate(QirGate::TAdj)),
     (Encoding::Gate(OPID_SX), QirInstruction::Gate(QirGate::Sx)),
-    (
-        Encoding::Gate(OPID_SX_ADJ),
-        QirInstruction::Gate(QirGate::SxAdj),
-    ),
+    (Encoding::Gate(OPID_SX_ADJ), QirInstruction::Gate(QirGate::SxAdj)),
     (Encoding::Gate(OPID_RX), QirInstruction::Gate(QirGate::Rx)),
     (Encoding::Gate(OPID_RY), QirInstruction::Gate(QirGate::Ry)),
     (Encoding::Gate(OPID_RZ), QirInstruction::Gate(QirGate::Rz)),
@@ -92,32 +84,14 @@ pub(crate) const QIR_INSTRUCTIONS: [(Encoding, QirInstruction); 29] = [
     (Encoding::Gate(OPID_RXX), QirInstruction::Gate(QirGate::Rxx)),
     (Encoding::Gate(OPID_RYY), QirInstruction::Gate(QirGate::Ryy)),
     (Encoding::Gate(OPID_RZZ), QirInstruction::Gate(QirGate::Rzz)),
-    (
-        Encoding::Measure(OPID_MZ),
-        QirInstruction::Measure(MeasurementBasis::Z),
-    ),
-    (
-        Encoding::Measure(OPID_MRESETZ),
-        QirInstruction::MeasureReset,
-    ),
-    (
-        Encoding::Gate(OPID_SWAP),
-        QirInstruction::Gate(QirGate::Swap),
-    ),
+    (Encoding::Measure(OPID_MZ), QirInstruction::Measure(MeasurementBasis::Z)),
+    (Encoding::Measure(OPID_MRESETZ), QirInstruction::MeasureReset),
+    (Encoding::Gate(OPID_SWAP), QirInstruction::Gate(QirGate::Swap)),
     (Encoding::Gate(OPID_MOVE), QirInstruction::Move),
     (Encoding::Gate(OPID_CY), QirInstruction::Gate(QirGate::Cy)),
-    (
-        Encoding::Measure(OPID_MX),
-        QirInstruction::Measure(MeasurementBasis::X),
-    ),
-    (
-        Encoding::Measure(OPID_MY),
-        QirInstruction::Measure(MeasurementBasis::Y),
-    ),
-    (
-        Encoding::Gate(OPID_CORRELATED_NOISE),
-        QirInstruction::CorrelatedNoise,
-    ),
+    (Encoding::Measure(OPID_MX), QirInstruction::Measure(MeasurementBasis::X)),
+    (Encoding::Measure(OPID_MY), QirInstruction::Measure(MeasurementBasis::Y)),
+    (Encoding::Gate(OPID_CORRELATED_NOISE), QirInstruction::CorrelatedNoise),
     (Encoding::PeekLoss, QirInstruction::PeekLoss),
     (Encoding::ReadoutNoise, QirInstruction::ReadoutNoise),
 ];
