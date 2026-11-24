@@ -192,7 +192,11 @@ fn correlated_noise_is_a_quantum_call_on_its_qubits_from_its_noise_table() {
 
 /// Correlated noise on 4, 5 and 6 of a program's 6 qubits, named by
 /// entries of the `call_args` table that run from qubit 5 down: as many as
-/// a quantum call holds in place, and more, which it allocates.
+/// a quantum call holds in place, and more, which it allocates. And
+/// correlated noise on 2^16 + 1 qubits, each named by an entry of the
+/// `call_args` table naming register 0, which holds qubit 2: a call keeps
+/// every qubit, with no limit; no test can show that, so this one shows
+/// it at least past a count of 8 or 16 bits.
 #[test]
 fn correlated_noise_keeps_its_qubits_however_many_they_are() {
     for count in 4..=6 {
@@ -206,14 +210,6 @@ fn correlated_noise_keeps_its_qubits_however_many_they_are() {
         let expected = format!("correlated_noise(qubits [{}], table 5)", qubits.join(", "));
         assert_eq!(batches(&bytecode), [expected], "on {count}");
     }
-}
-
-/// Correlated noise on 2^16 + 1 qubits, each named by an entry of the
-/// `call_args` table naming register 0, which holds qubit 2. A call keeps
-/// every qubit, with no limit; no test can show that, so this one shows
-/// it at least past a count of 8 or 16 bits.
-#[test]
-fn correlated_noise_keeps_a_count_of_qubits_past_16_bits() {
     let count = (1 << 16) + 1;
     let mut bytecode = program(&[&[set(0, 2), correlated_noise(count, 0), ret()]]);
     bytecode.call_args = vec![0; usize::try_from(count).expect("a count of qubits")];
@@ -227,7 +223,7 @@ fn correlated_noise_keeps_a_count_of_qubits_past_16_bits() {
     // COMPATIBILITY NOTE: `run_shot` (bytecode/runtime.rs) reads the count
     // whole, with no limit but the `call_args` table; we keep it so that
     // the machine runs every such quantum call `run_shot` runs.
-    assert_eq!(qubits.len(), (1 << 16) + 1);
+    assert_eq!(qubits.len(), (1 << 16) + 1, "on 2^16 + 1");
     assert!(qubits.iter().all(|&qubit| qubit == 2), "{qubits:?}");
 }
 

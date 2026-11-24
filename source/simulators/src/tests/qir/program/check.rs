@@ -138,7 +138,9 @@ fn every_instruction_must_belong_to_a_block() {
 }
 
 /// A block whose last instruction is a gate, so that a shot would go on
-/// into whatever instruction follows.
+/// into whatever instruction follows; and blocks ending with each
+/// terminator: a branch, a jump, a switch, a return, and a function's
+/// return, which build.
 #[test]
 fn a_block_must_end_with_a_terminator() {
     let bytecode = program(&[&[gate(OPID_X, 0, 0)]]);
@@ -146,21 +148,15 @@ fn a_block_must_end_with_a_terminator() {
         faults(&bytecode),
         [at(QirFaultSite::Block(0), QirError::NoTerminator)]
     );
-}
-
-/// Blocks ending with each terminator: a branch, a jump, a switch, a
-/// return, and a function's return.
-#[test]
-fn a_block_may_end_with_any_terminator() {
-    let mut bytecode = program(&[
+    let mut every_terminator = program(&[
         &[branch(0, 1, 2)],
         &[jump(3)],
         &[switch(0, 3, 0, 0)],
         &[call(0, 0, 0, VOID_RETURN), ret()],
         &[call_return(0)],
     ]);
-    bytecode.function_table = vec![Function::from_tuple((4, 0, 0))];
-    builds(&bytecode);
+    every_terminator.function_table = vec![Function::from_tuple((4, 0, 0))];
+    builds(&every_terminator);
 }
 
 /// A return followed by another in its block, so that the second never
@@ -174,12 +170,15 @@ fn a_terminator_must_end_its_block() {
     );
 }
 
-/// Returns from a function in blocks reached from the entry block through
-/// a branch, a switch's default and case, and a jump, so with no
-/// function call to return from.
+/// Returns from a function in blocks a shot reaches with no function
+/// call to return from, so refused: from the entry block through a branch,
+/// a switch's default and case, and a jump; and in a block the entry block
+/// jumps to after a function call, which the called function jumps to as
+/// well. And a return in a function at block 1 that no `CALL` names, which
+/// no run reaches, so it builds.
 #[test]
 fn a_return_from_a_function_must_be_reached_through_a_function_call() {
-    let mut bytecode = program(&[
+    let mut through_each_edge = program(&[
         &[branch(0, 1, 2)],
         &[call_return(0)],
         &[switch(0, 3, 0, 1)],
@@ -187,22 +186,49 @@ fn a_return_from_a_function_must_be_reached_through_a_function_call() {
         &[jump(5)],
         &[call_return(0)],
     ]);
-    bytecode.switch_cases = vec![SwitchCase::from_tuple((0, 4))];
-    assert_eq!(
-        faults(&bytecode),
-        [
-            at_instruction(1, QirError::ReturnOutsideFunction),
-            at_instruction(3, QirError::ReturnOutsideFunction),
-            at_instruction(5, QirError::ReturnOutsideFunction),
-        ]
-    );
+    through_each_edge.switch_cases = vec![SwitchCase::from_tuple((0, 4))];
+    let mut from_the_entry_and_a_function = program(&[
+        &[call(0, 0, 0, VOID_RETURN), jump(2)],
+        &[jump(2)],
+        &[call_return(0)],
+    ]);
+    from_the_entry_and_a_function.function_table = vec![Function::from_tuple((1, 0, 0))];
+    let mut uncalled = program(&[&[ret()], &[call_return(0)]]);
+    uncalled.function_table = vec![Function::from_tuple((1, 0, 0))];
+    let return_outside = |index| at_instruction(index, QirError::ReturnOutsideFunction);
+    for (scene, bytecode, expected) in [
+        (
+            "through each edge from the entry block",
+            through_each_edge,
+            vec![return_outside(1), return_outside(3), return_outside(5)],
+        ),
+        (
+            "in a block reached from the entry block and from a function",
+            from_the_entry_and_a_function,
+            vec![return_outside(3)],
+        ),
+        ("in a function no function call names", uncalled, vec![]),
+    ] {
+        if expected.is_empty() {
+            builds(&bytecode);
+        } else {
+            assert_eq!(faults(&bytecode), expected, "{scene}");
+        }
+    }
 }
 
-/// An entry block calling two functions and ending the program, and ends
-/// of the program in blocks reached from the first function's entry block,
-/// through a branch, a switch's default and case, and a jump, and in the
-/// second function's entry block: each but the entry block's would end the
-/// program inside a function call.
+/// Ends of the program where a shot can be inside a function call, so
+/// refused, each but the entry block's: an entry block calling two
+/// functions and ending the program, with ends in blocks reached from the
+/// first function's entry block through a branch, a switch's default and
+/// case, and a jump, and in the second function's entry block; an end in
+/// the entry block of a function called only by a function, two function
+/// calls deep; an end in the entry block, which a function call names as a
+/// function's; and an end in a block the entry block jumps to after a
+/// function call, which the called function jumps to as well. And ends in
+/// functions no `CALL` names, which never run, so they build: the default
+/// entry the Python bindings fill an empty function table with (a function
+/// at block 0, the entry block), and a function at block 1.
 #[test]
 fn the_program_must_not_end_inside_a_function() {
     // Not `run_shot`'s behaviour: it (bytecode/runtime.rs, `OP_RET`)
@@ -211,7 +237,7 @@ fn the_program_must_not_end_inside_a_function() {
     // (`_adaptive_pass.py`, `_emit_ret`) emits `RET` only in the entry
     // point, and a function's return as `CALL_RETURN`; building refuses
     // the converse too (`ReturnOutsideFunction`).
-    let mut bytecode = program(&[
+    let mut through_each_edge = program(&[
         &[
             call(0, 0, 0, VOID_RETURN),
             call(1, 0, 0, VOID_RETURN),
@@ -225,109 +251,64 @@ fn the_program_must_not_end_inside_a_function() {
         &[ret()],
         &[ret()],
     ]);
-    bytecode.function_table = vec![
+    through_each_edge.function_table = vec![
         Function::from_tuple((1, 0, 0)),
         Function::from_tuple((7, 0, 0)),
     ];
-    bytecode.switch_cases = vec![SwitchCase::from_tuple((0, 5))];
-    assert_eq!(
-        faults(&bytecode),
-        [
-            at_instruction(4, QirError::ProgramEndInsideFunction),
-            at_instruction(6, QirError::ProgramEndInsideFunction),
-            at_instruction(8, QirError::ProgramEndInsideFunction),
-            at_instruction(9, QirError::ProgramEndInsideFunction),
-        ]
-    );
-}
-
-/// A program with no function as the Python bindings give it: they fill
-/// its empty function table with a default entry, a function at block 0,
-/// the entry block, which no `CALL` names, so never runs. And a function
-/// at block 1 that no `CALL` names. The program's end is accepted in
-/// both.
-#[test]
-fn the_program_may_end_in_a_function_no_function_call_names() {
-    let mut padded = program(&[&[ret()]]);
-    padded.function_table = vec![Function::default()];
-    builds(&padded);
-    let mut uncalled = program(&[&[ret()], &[ret()]]);
-    uncalled.function_table = vec![Function::from_tuple((1, 0, 0))];
-    builds(&uncalled);
-}
-
-/// A function at block 1 that no `CALL` names, returning with
-/// `CALL_RETURN`: no run reaches its return, so it is accepted.
-#[test]
-fn a_function_no_function_call_names_may_return() {
-    let mut bytecode = program(&[&[ret()], &[call_return(0)]]);
-    bytecode.function_table = vec![Function::from_tuple((1, 0, 0))];
-    builds(&bytecode);
-}
-
-/// An entry block calling a function that calls another, whose entry
-/// block ends the program: a shot reaches that end two function calls
-/// deep.
-#[test]
-fn a_function_called_only_by_a_function_must_not_end_the_program() {
-    let mut bytecode = program(&[
+    through_each_edge.switch_cases = vec![SwitchCase::from_tuple((0, 5))];
+    let mut two_calls_deep = program(&[
         &[call(0, 0, 0, VOID_RETURN), ret()],
         &[call(1, 0, 0, VOID_RETURN), call_return(0)],
         &[ret()],
     ]);
-    bytecode.function_table = vec![
+    two_calls_deep.function_table = vec![
         Function::from_tuple((1, 0, 0)),
         Function::from_tuple((2, 0, 0)),
     ];
-    assert_eq!(
-        faults(&bytecode),
-        [at_instruction(4, QirError::ProgramEndInsideFunction)]
-    );
-}
-
-/// An entry block that calls a function whose entry block is the
-/// program's own, then ends the program: a shot reaches that end inside
-/// the function call.
-#[test]
-fn the_entry_block_must_not_end_the_program_when_a_function_call_names_a_function_there() {
-    let mut bytecode = program(&[&[call(0, 0, 0, VOID_RETURN), ret()]]);
-    bytecode.function_table = vec![Function::from_tuple((0, 0, 0))];
-    assert_eq!(
-        faults(&bytecode),
-        [at_instruction(1, QirError::ProgramEndInsideFunction)]
-    );
-}
-
-/// A block that ends the program, which the entry block jumps to after a
-/// function call, and the called function jumps to as well: a shot can reach it
-/// inside the function call, so it is refused, though the entry block reaches
-/// it too.
-#[test]
-fn a_block_reached_from_the_entry_and_from_a_function_must_not_end_the_program() {
-    let mut bytecode = program(&[&[call(0, 0, 0, VOID_RETURN), jump(2)], &[jump(2)], &[ret()]]);
-    bytecode.function_table = vec![Function::from_tuple((1, 0, 0))];
-    assert_eq!(
-        faults(&bytecode),
-        [at_instruction(3, QirError::ProgramEndInsideFunction)]
-    );
-}
-
-/// A block that returns from a function, which the entry block jumps to after a
-/// function call, and the called function jumps to as well: a shot can reach it
-/// with no function call to return from, so it is refused, though the function
-/// reaches it too.
-#[test]
-fn a_block_reached_from_the_entry_and_from_a_function_must_not_return_from_a_function() {
-    let mut bytecode = program(&[
-        &[call(0, 0, 0, VOID_RETURN), jump(2)],
-        &[jump(2)],
-        &[call_return(0)],
-    ]);
-    bytecode.function_table = vec![Function::from_tuple((1, 0, 0))];
-    assert_eq!(
-        faults(&bytecode),
-        [at_instruction(3, QirError::ReturnOutsideFunction)]
-    );
+    let mut entry_block_called = program(&[&[call(0, 0, 0, VOID_RETURN), ret()]]);
+    entry_block_called.function_table = vec![Function::from_tuple((0, 0, 0))];
+    let mut from_the_entry_and_a_function =
+        program(&[&[call(0, 0, 0, VOID_RETURN), jump(2)], &[jump(2)], &[ret()]]);
+    from_the_entry_and_a_function.function_table = vec![Function::from_tuple((1, 0, 0))];
+    let mut padded = program(&[&[ret()]]);
+    padded.function_table = vec![Function::default()];
+    let mut uncalled = program(&[&[ret()], &[ret()]]);
+    uncalled.function_table = vec![Function::from_tuple((1, 0, 0))];
+    let end_inside = |index| at_instruction(index, QirError::ProgramEndInsideFunction);
+    for (scene, bytecode, expected) in [
+        (
+            "through each edge from a function's entry block",
+            through_each_edge,
+            vec![end_inside(4), end_inside(6), end_inside(8), end_inside(9)],
+        ),
+        (
+            "in a function called only by a function",
+            two_calls_deep,
+            vec![end_inside(4)],
+        ),
+        (
+            "in the entry block, called as a function",
+            entry_block_called,
+            vec![end_inside(1)],
+        ),
+        (
+            "in a block reached from the entry block and from a function",
+            from_the_entry_and_a_function,
+            vec![end_inside(3)],
+        ),
+        (
+            "in the bindings' default function, which no call names",
+            padded,
+            vec![],
+        ),
+        ("in a function no function call names", uncalled, vec![]),
+    ] {
+        if expected.is_empty() {
+            builds(&bytecode);
+        } else {
+            assert_eq!(faults(&bytecode), expected, "{scene}");
+        }
+    }
 }
 
 /// A branch, a jump and a switch (its default and a case) to blocks that
@@ -512,8 +493,10 @@ fn classical_instructions() -> Vec<(Instruction<u64>, &'static [&'static str])> 
 
 /// A program computing with every classical instruction, each naming in
 /// one of the fields the machine reads or writes as a register the one
-/// past the
-/// last: each such field is refused, once.
+/// past the last: each such field is refused, once. And one where each
+/// instruction holds the register past the last in every field the
+/// machine does not read as a register (a compiler may leave anything
+/// there): it builds.
 #[test]
 fn each_register_a_classical_instruction_uses_must_exist() {
     let mut instructions = Vec::new();
@@ -534,17 +517,10 @@ fn each_register_a_classical_instruction_uses_must_exist() {
         faults(&program(&[&instructions])),
         (0..count)
             .map(|index| at_instruction(index, no_such_register.clone()))
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>(),
+        "the fields read or written as registers"
     );
-}
-
-/// A program computing with every classical instruction, each holding the
-/// register past the last in every field the machine does not read as a
-/// register
-/// (a compiler may leave anything there): it builds.
-#[test]
-fn a_field_the_machine_does_not_read_as_a_register_is_not_checked() {
-    let mut instructions: Vec<_> = classical_instructions()
+    let mut unread: Vec<_> = classical_instructions()
         .into_iter()
         .map(|(mut instruction, registers)| {
             for name in FIELDS.iter().filter(|name| !registers.contains(name)) {
@@ -553,14 +529,17 @@ fn a_field_the_machine_does_not_read_as_a_register_is_not_checked() {
             instruction
         })
         .collect();
-    instructions.push(ret());
-    builds(&program(&[&instructions]));
+    unread.push(ret());
+    builds(&program(&[&unread]));
 }
 
 /// A branch and a switch on a register past the last, and a return of an
-/// exit code held in one.
+/// exit code held in one, refused; and a program with no register, as one
+/// with no classical computation has: a branch and a switch on a constant,
+/// and the constant exit code every entry point without a value returns,
+/// which builds.
 #[test]
-fn a_terminator_s_value_must_be_a_register() {
+fn a_terminator_s_value_must_be_a_register_unless_it_is_a_constant() {
     let bytecode = program(&[
         &[branch(4, 1, 1)],
         &[switch(4, 2, 0, 0)],
@@ -579,20 +558,13 @@ fn a_terminator_s_value_must_be_a_register() {
             .map(|index| at_instruction(index, no_such_register.clone()))
             .collect::<Vec<_>>()
     );
-}
-
-/// A program with no register, as one with no classical computation has:
-/// a branch and a switch on a constant, and the constant exit code every
-/// entry point without a value returns. It builds.
-#[test]
-fn a_terminator_s_constant_value_is_not_a_register() {
     let mut on_constant = branch(1, 1, 1);
     on_constant.opcode |= FLAG_SRC0_IMM;
     let mut switch_on_constant = switch(1, 2, 0, 0);
     switch_on_constant.opcode |= FLAG_SRC0_IMM;
-    let mut bytecode = program(&[&[on_constant], &[switch_on_constant], &[ret()]]);
-    bytecode.num_registers = 0;
-    builds(&bytecode);
+    let mut no_register = program(&[&[on_constant], &[switch_on_constant], &[ret()]]);
+    no_register.num_registers = 0;
+    builds(&no_register);
 }
 
 /// One-qubit gates whose second qubit and angle fields hold no register,
@@ -1360,9 +1332,12 @@ fn a_constant_qubit_must_exist() {
 
 /// A measurement, a loss check, readout noise and a result written, on the
 /// last result and on the one past, and a measurement into result
-/// 2^32 + 1, which is result 1 cut to 32 bits.
+/// 2^32 + 1, which is result 1 cut to 32 bits. And a result read, its loss
+/// read and its output recorded, on the last result, on the one past and
+/// on result 2^32 + 1; and the constant 9 recorded as an integer and a
+/// double, which is no result.
 #[test]
-fn a_constant_result_written_must_exist() {
+fn a_constant_result_must_exist() {
     let peek_loss = |result| Instruction {
         aux1: result,
         ..op(OP_PEEK_LOSS, FLAG_AUX0_IMM | FLAG_AUX1_IMM)
@@ -1376,7 +1351,7 @@ fn a_constant_result_written_must_exist() {
     };
     let write_result =
         |result| binary(OP_WRITE_RESULT, FLAG_SRC0_IMM | FLAG_SRC1_IMM, 0, 1, result);
-    let bytecode = program(&[&[
+    let written = program(&[&[
         measure(OPID_MZ, 0, 3),
         peek_loss(3),
         readout_noise(3),
@@ -1393,15 +1368,7 @@ fn a_constant_result_written_must_exist() {
         .map(|index| at_instruction(index, no_such_result(4)))
         .collect::<Vec<_>>();
     expected.push(at_instruction(8, no_such_result((1 << 32) + 1)));
-    assert_eq!(faults(&bytecode), expected);
-}
-
-/// A result read, its loss read and its output recorded, on the last
-/// result, on the one past and on result 2^32 + 1, which is result 1 cut
-/// to 32 bits; and the constant 9 recorded as an integer and a double,
-/// which is no result.
-#[test]
-fn a_constant_result_read_must_exist() {
+    assert_eq!(faults(&written), expected, "written");
     let reads = |opcode, result| binary(opcode, FLAG_SRC0_IMM, 0, result, 0);
     let value = |kind| Instruction {
         src0: 9,
@@ -1415,19 +1382,19 @@ fn a_constant_result_read_must_exist() {
         }
     }
     instructions.extend([value(4), value(5), ret()]);
-    let bytecode = program(&[&instructions]);
-    let no_such_result = |result| QirError::NoSuchResult { result, results: 4 };
+    let read = program(&[&instructions]);
     // COMPATIBILITY NOTE: `run_shot` (bytecode/runtime.rs,
     // `OP_READ_RESULT`, `OP_READ_LOSS`, `OP_RECORD_OUTPUT`) reads `Zero`
     // here; building refuses, because the read can never see a written
     // value: it is a producer's bug that would give plausible output
     // (see `QirMachine`'s doc).
     assert_eq!(
-        faults(&bytecode),
+        faults(&read),
         (3..6)
             .map(|index| at_instruction(index, no_such_result(4)))
             .chain((6..9).map(|index| at_instruction(index, no_such_result((1 << 32) + 1))))
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>(),
+        "read"
     );
 }
 

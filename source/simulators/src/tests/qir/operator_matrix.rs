@@ -68,36 +68,33 @@ fn an_input_outside_the_matrix_panics() {
 }
 
 /// Matrices whose off-diagonal entries are all zero, some with zeros on the
-/// diagonal too, and one with a -0.0 off the diagonal.
+/// diagonal too, and one with a -0.0 off the diagonal; and matrices with
+/// one nonzero entry off the diagonal, in each corner.
 #[test]
-fn a_matrix_with_zero_off_diagonal_entries_is_diagonal() {
+fn a_matrix_is_diagonal_exactly_when_its_off_diagonal_entries_are_zero() {
     let minus_zero = Complex64::new(-0.0, -0.0);
     let mut two = [O; 16];
     two[5] = I;
     two[15] = L;
     two[1] = minus_zero;
-    for matrix in [
-        QirGate::Z.matrix_at(None),
-        QirGate::S.matrix_at(None),
-        OperatorMatrix::One([O; 4]),
-        OperatorMatrix::Two(two),
-    ] {
-        assert!(matrix.is_diagonal(), "{matrix:?}");
-    }
-}
-
-/// Matrices with one nonzero entry off the diagonal, in each corner.
-#[test]
-fn a_matrix_with_a_nonzero_off_diagonal_entry_is_not_diagonal() {
+    let mut matrices = vec![
+        (QirGate::Z.matrix_at(None), true),
+        (QirGate::S.matrix_at(None), true),
+        (OperatorMatrix::One([O; 4]), true),
+        (OperatorMatrix::Two(two), true),
+        (QirGate::X.matrix_at(None), false),
+    ];
     for at in [1, 2] {
         let mut one = [L, O, O, L];
         one[at] = I;
-        assert!(!OperatorMatrix::One(one).is_diagonal(), "entry {at}");
+        matrices.push((OperatorMatrix::One(one), false));
     }
     for at in [1, 3, 4, 7, 11, 12, 14] {
         let mut two = [O; 16];
         two[at] = L;
-        assert!(!OperatorMatrix::Two(two).is_diagonal(), "entry {at}");
+        matrices.push((OperatorMatrix::Two(two), false));
     }
-    assert!(!QirGate::X.matrix_at(None).is_diagonal());
+    for (matrix, diagonal) in matrices {
+        assert_eq!(matrix.is_diagonal(), diagonal, "{matrix:?}");
+    }
 }

@@ -8,7 +8,7 @@ use super::super::{
     binary, branch, call, call_return, compare, jump, measure, op, phi, program, read, record_int,
     ret, set,
 };
-use super::{both, computed, computed_by, records, run, trap};
+use super::{both, records, run, trap};
 use crate::OutputRecord;
 use crate::bytecode::encoding::{
     FLAG_AUX0_IMM, FLAG_AUX1_IMM, FLAG_SRC0_IMM, FLAG_SRC1_IMM, ICMP_EQ, OP_ADD, OP_ALLOCA,
@@ -75,75 +75,119 @@ fn a_condition_other_than_0_or_1_is_a_trap() {
     }
 }
 
-/// A `SELECT` of 11 or 22 on register 0, which holds 0.
+/// Each operand of a control-flow instruction, read once as a constant
+/// and once from a register, which holds another value, the program
+/// recording what it chose: a `SELECT`'s true value, its false value and
+/// its condition; a branch's condition; a switch's value; and a function's
+/// return value.
 #[test]
-fn select_takes_its_false_value_when_its_condition_is_0() {
-    let select = Instruction {
-        dst: 1,
-        src0: 0,
-        aux0: 11,
-        aux1: 22,
-        ..op(OP_SELECT, FLAG_AUX0_IMM | FLAG_AUX1_IMM)
-    };
-    assert_eq!(computed(select), 22);
-}
-
-/// `SELECT`s of register 1, which holds 3, or the constant 2, and of the
-/// constant 2 or register 1, each on the constant 1 (true) and the
-/// constant 0 (false).
-#[test]
-fn select_reads_each_value_as_a_constant_or_a_register_by_its_own_flag() {
+fn each_control_flow_operand_is_read_as_a_constant_or_a_register_by_its_own_flag() {
     let select = |condition, flags, yes, no| Instruction {
         dst: 1,
         src0: condition,
         aux0: yes,
         aux1: no,
-        ..op(OP_SELECT, flags | FLAG_SRC0_IMM)
+        ..op(OP_SELECT, flags)
     };
-    assert_eq!(computed(select(1, FLAG_AUX1_IMM, 1, 2)), 3);
-    assert_eq!(computed(select(0, FLAG_AUX1_IMM, 1, 2)), 2);
-    assert_eq!(computed(select(1, FLAG_AUX0_IMM, 2, 1)), 2);
-    assert_eq!(computed(select(0, FLAG_AUX0_IMM, 2, 1)), 3);
-}
-
-/// `SELECT`s of the constant 11 or 22: on the constant 1 (true), while
-/// register 1 holds 0, and on register 1 (false).
-#[test]
-fn select_reads_its_condition_as_a_constant_or_a_register_by_its_flag() {
-    let select = |flags| Instruction {
-        dst: 1,
-        src0: 1,
-        aux0: 11,
-        aux1: 22,
-        ..op(OP_SELECT, flags | FLAG_AUX0_IMM | FLAG_AUX1_IMM)
-    };
-    assert_eq!(computed_by(&[set(1, 0), select(FLAG_SRC0_IMM)]), 11);
-    assert_eq!(computed_by(&[set(1, 0), select(0)]), 22);
-}
-
-/// A branch to block 1, recording 1, or to block 2, recording 2: on the
-/// constant 1 (true), while register 1 holds 0, and on register 1 (false).
-#[test]
-fn branch_reads_its_condition_as_a_constant_or_a_register_by_its_flag() {
-    let taken = |flags| {
-        let bytecode = program(&[
+    // Register 1 holds 3 (the true value from a register) or 0 (the
+    // condition from a register).
+    let selecting =
+        |register_1, select| program(&[&[set(1, register_1), select, record_int(1), ret()]]);
+    // On the constant 1, while register 1 holds 0, block 1 records 1; on
+    // register 1, block 2 records 2.
+    let branching = |flags| {
+        program(&[
             &[Instruction {
                 opcode: u64::from(OP_BRANCH) | flags,
                 ..branch(1, 1, 2)
             }],
             &[set(1, 1), record_int(1), ret()],
             &[set(1, 2), record_int(1), ret()],
-        ]);
-        let (machine, run_shot) = both(&bytecode);
-        // COMPATIBILITY NOTE: this behavior was present in `run_shot`
-        // (bytecode/runtime.rs, `OP_BRANCH`: `resolve_u64` of its condition
-        // by its flag), hence we keep it so that the machine is a drop-in
-        // replacement.
-        assert_eq!(machine, run_shot, "the block `run_shot` takes");
-        machine
+        ])
     };
-    assert_eq!(taken(FLAG_SRC0_IMM), [OutputRecord::Int(1)]);
-    assert_eq!(taken(0), [OutputRecord::Int(2)]);
+    // Its one case is 2, to block 1, recording 1; its default is block 2,
+    // recording 2. Register 2 holds 0.
+    let switching = |flags| {
+        let switch = Instruction {
+            src0: 2,
+            aux0: 2,
+            aux1: 0,
+            aux2: 1,
+            ..op(OP_SWITCH, flags)
+        };
+        let mut bytecode = program(&[
+            &[switch],
+            &[set(1, 1), record_int(1), ret()],
+            &[set(1, 2), record_int(1), ret()],
+        ]);
+        bytecode.switch_cases = vec![SwitchCase::from_tuple((2, 1))];
+        bytecode
+    };
+    // The function returns 2, or register 2, which holds 0; the caller
+    // keeps it in register 1 and records it.
+    let returning = |flags| {
+        let mut bytecode = program(&[
+            &[call(0, 0, 0, 1), record_int(1), ret()],
+            &[Instruction {
+                src0: 2,
+                ..op(OP_CALL_RETURN, flags)
+            }],
+        ]);
+        bytecode.function_table = vec![Function::from_tuple((1, 0, 0))];
+        bytecode
+    };
+    let true_ = FLAG_SRC0_IMM;
+    let rows = [
+        (
+            "select's true value, from a register",
+            selecting(3, select(1, true_ | FLAG_AUX1_IMM, 1, 2)),
+            3,
+        ),
+        (
+            "select's true value, a constant",
+            selecting(3, select(1, true_ | FLAG_AUX0_IMM, 2, 1)),
+            2,
+        ),
+        (
+            "select's false value, a constant",
+            selecting(3, select(0, true_ | FLAG_AUX1_IMM, 1, 2)),
+            2,
+        ),
+        (
+            "select's false value, from a register",
+            selecting(3, select(0, true_ | FLAG_AUX0_IMM, 2, 1)),
+            3,
+        ),
+        (
+            "select's condition, a constant",
+            selecting(0, select(1, true_ | FLAG_AUX0_IMM | FLAG_AUX1_IMM, 11, 22)),
+            11,
+        ),
+        (
+            "select's condition, from a register",
+            selecting(0, select(1, FLAG_AUX0_IMM | FLAG_AUX1_IMM, 11, 22)),
+            22,
+        ),
+        (
+            "branch's condition, a constant",
+            branching(FLAG_SRC0_IMM),
+            1,
+        ),
+        ("branch's condition, from a register", branching(0), 2),
+        ("switch's value, a constant", switching(FLAG_SRC0_IMM), 1),
+        ("switch's value, from a register", switching(0), 2),
+        ("return value, a constant", returning(FLAG_SRC0_IMM), 2),
+        ("return value, from a register", returning(0), 0),
+    ];
+    for (operand, bytecode, chosen) in rows {
+        let (machine, run_shot) = both(&bytecode);
+        assert_eq!(machine, [OutputRecord::Int(chosen)], "{operand}");
+        // COMPATIBILITY NOTE: this behavior was present in `run_shot`
+        // (bytecode/runtime.rs, `OP_SELECT`, `OP_BRANCH`, `OP_SWITCH` and
+        // `OP_CALL_RETURN`: `resolve_u64` of each operand by its flag),
+        // hence we keep it so that the machine is a drop-in replacement.
+        assert_eq!(machine, run_shot, "{operand}: what `run_shot` chooses");
+    }
 }
 
 /// A program of two blocks, each recording a different integer, entered
@@ -401,37 +445,6 @@ fn a_switch_compares_every_bit_of_its_value() {
     assert_eq!(machine, run_shot);
 }
 
-/// A switch whose one case is 2, to block 1; its default is block 2. Each
-/// block records its number. On the constant 2, while register 2 holds 0,
-/// and on register 2.
-#[test]
-fn switch_reads_its_value_as_a_constant_or_a_register_by_its_flag() {
-    let taken = |flags| {
-        let switch = Instruction {
-            src0: 2,
-            aux0: 2,
-            aux1: 0,
-            aux2: 1,
-            ..op(OP_SWITCH, flags)
-        };
-        let mut bytecode = program(&[
-            &[switch],
-            &[set(1, 1), record_int(1), ret()],
-            &[set(1, 2), record_int(1), ret()],
-        ]);
-        bytecode.switch_cases = vec![SwitchCase::from_tuple((2, 1))];
-        let (machine, run_shot) = both(&bytecode);
-        // COMPATIBILITY NOTE: this behavior was present in `run_shot`
-        // (bytecode/runtime.rs, `OP_SWITCH`: `resolve_u64` of its value by
-        // its flag), hence we keep it so that the machine is a drop-in
-        // replacement.
-        assert_eq!(machine, run_shot, "the block `run_shot` takes");
-        machine
-    };
-    assert_eq!(taken(FLAG_SRC0_IMM), [OutputRecord::Int(1)]);
-    assert_eq!(taken(0), [OutputRecord::Int(2)]);
-}
-
 /// A function whose parameters are registers 0 and 1, called with
 /// registers 1 and 0, holding 1 and 2: its parameters swapped, which it
 /// records. Each parameter takes its argument's value at the function
@@ -533,31 +546,6 @@ fn a_function_call_keeps_its_return_value() {
     // drop-in
     // replacement.
     assert_eq!(machine, run_shot);
-}
-
-/// A function returning 2 or register 2, which holds 0, called from the
-/// entry block, which keeps the value in register 1 and records it.
-#[test]
-fn call_return_reads_its_value_as_a_constant_or_a_register_by_its_flag() {
-    let returned = |flags| {
-        let mut bytecode = program(&[
-            &[call(0, 0, 0, 1), record_int(1), ret()],
-            &[Instruction {
-                src0: 2,
-                ..op(OP_CALL_RETURN, flags)
-            }],
-        ]);
-        bytecode.function_table = vec![Function::from_tuple((1, 0, 0))];
-        let (machine, run_shot) = both(&bytecode);
-        // COMPATIBILITY NOTE: this behavior was present in `run_shot`
-        // (bytecode/runtime.rs, `OP_CALL_RETURN`: `resolve_u64` of its
-        // value by its flag), hence we keep it so that the machine is a
-        // drop-in replacement.
-        assert_eq!(machine, run_shot, "the value `run_shot` returns");
-        machine
-    };
-    assert_eq!(returned(FLAG_SRC0_IMM), [OutputRecord::Int(2)]);
-    assert_eq!(returned(0), [OutputRecord::Int(0)]);
 }
 
 /// The entry block sets registers 1 and 2 to 5 and 4, then calls a

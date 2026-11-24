@@ -42,39 +42,33 @@ fn a_program_that_records_nothing_records_every_result() {
     assert_eq!(records, [One, Loss, Zero, One].map(OutputRecord::Result));
 }
 
-/// A program that measures result 0, then branches on register 3, which
-/// holds 0, past the block recording it: its run records nothing, though
-/// the program holds a record.
+/// Programs that measure result 0 and hold a record, though their run
+/// records no output: one branching on register 3, which holds 0, past
+/// the block recording result 0; and one recording only an output marker,
+/// that of an empty tuple (kind 2), as every Q# entry point returning
+/// `Unit` does, or of an empty array (kind 1).
 #[test]
-fn a_program_holding_a_record_its_run_does_not_reach_records_nothing() {
-    let bytecode = program(&[
+fn a_program_holding_a_record_records_only_what_its_run_records() {
+    let unreached = program(&[
         &[measure(OPID_MZ, 0, 0), branch(3, 1, 2)],
         &[record_result(0), ret()],
         &[ret()],
     ]);
+    let marker = |kind| program(&[&[measure(OPID_MZ, 0, 0), record(kind, 0), ret()]]);
     // COMPATIBILITY NOTE: this behavior was present in the package's
     // `run_adaptive` (qdk_package, qir_simulation/cpu_simulators.rs), whose
     // `has_output_recording` looks for a `RECORD_OUTPUT` among the
-    // program's instructions, not the run's, hence we keep it so that the
-    // machine is a drop-in replacement.
-    assert_eq!(records(&bytecode, |_| QirReadout::One), []);
-}
-
-/// A program that measures result 0 and records only one output marker:
-/// that of an empty tuple (kind 2), as every Q# entry point returning
-/// `Unit` does, or of an empty array (kind 1).
-#[test]
-fn a_program_recording_only_an_output_marker_records_nothing() {
-    for (marker, kind) in [("tuple", 2), ("array", 1)] {
-        let bytecode = program(&[&[measure(OPID_MZ, 0, 0), record(kind, 0), ret()]]);
-        // COMPATIBILITY NOTE: this behavior was present in the package's
-        // `run_adaptive` (qdk_package, qir_simulation/cpu_simulators.rs),
-        // whose `has_output_recording` counts every `RECORD_OUTPUT`, a
-        // tuple's or an array's marker too, and then takes `run_shot`'s
-        // records, to which a marker adds none, hence we keep it so that
-        // the machine is a drop-in replacement.
-        assert_eq!(records(&bytecode, |_| QirReadout::One), [], "{marker}");
-        assert_eq!(both(&bytecode).1, [], "the records of `run_shot`, {marker}");
+    // program's instructions, not the run's, a tuple's or an array's
+    // marker too, and then takes `run_shot`'s records, to which a marker
+    // adds none, hence we keep it so that the machine is a drop-in
+    // replacement.
+    for (scene, bytecode) in [
+        ("a record its run does not reach", unreached),
+        ("a tuple's marker", marker(2)),
+        ("an array's marker", marker(1)),
+    ] {
+        assert_eq!(records(&bytecode, |_| QirReadout::One), [], "{scene}");
+        assert_eq!(both(&bytecode).1, [], "the records of `run_shot`, {scene}");
     }
 }
 
