@@ -136,10 +136,24 @@ def _validate_resource_limits(cpus: str, memory: str) -> tuple[str, str]:
     return cpus, memory
 
 
+def _get_host_git_identity() -> dict[str, str]:
+    # Unlike run_git_command, this reads global config, where the identity usually lives.
+    values = []
+    for key in ("user.name", "user.email"):
+        value = run(["git", "-C", REPO, "config", "--get", key], check=False)
+        values.append(value.stdout.strip())
+    name, email = values
+    if not name or not email:
+        print("Host Git identity not configured; sandbox commits use 'agent'.")
+        return {}
+    return {"QDK_GIT_NAME": name, "QDK_GIT_EMAIL": email}
+
+
 def _make_agent_environment(
     name: str, branch: str, sha: str, selected_branch: str
 ) -> dict[str, str]:
     return {
+        **_get_host_git_identity(),
         "HOME": "/home/agent",
         "USER": "agent",
         "SHELL": "/bin/bash",
