@@ -336,30 +336,32 @@ impl<'p, S: QirSplitChoice> QirMachine<'p, S> {
         outcomes: &[QirOutcome],
     ) -> Result<QirStop<'c, S>, QirTrap> {
         context.take_outcomes(outcomes)?;
-        if let Some(trap) = context.held_trap.take() {
-            return Err(trap);
-        }
+        context.give_held_trap()?;
         let stop = match self.walk(context) {
             Ok(stop) => stop,
-            // `room` is `None` where batches are never split: whole batches
-            // give the trap at once.
-            Err(trap)
-                if self.split_choice.room(context.batch.len()).is_some()
-                    && !context.batch.is_empty() =>
-            {
-                context.held_trap = Some(trap);
-                Stop::Split
-            }
-            Err(trap) => return Err(trap),
+            Err(trap) => self.yield_batch_before(trap, context)?,
         };
-        Ok(match stop {
-            Stop::Batch => QirStop::Batch(&context.batch),
-            Stop::Split => {
-                context.after_split = true;
-                QirStop::Split(S::piece(context.batch.as_slice()))
-            }
-            Stop::Ended => QirStop::Ended(&context.records),
-        })
+        Ok(context.stop_at(stop))
+    }
+
+    /// Where batches are split and the walk trapped after calls it has not
+    /// yielded, holds `trap` in `context` and stops there, so the calls come
+    /// first, as a piece, and the trap on the next resume
+    /// ([`give_held_trap`](QirShotContext::give_held_trap)); else gives
+    /// `trap` at once.
+    #[inline]
+    fn yield_batch_before(
+        &self,
+        trap: QirTrap,
+        context: &mut QirShotContext,
+    ) -> Result<Stop, QirTrap> {
+        // `room` is `None` where batches are never split.
+        if self.split_choice.room(context.batch.len()).is_some() && !context.batch.is_empty() {
+            context.held_trap = Some(trap);
+            Ok(Stop::Split)
+        } else {
+            Err(trap)
+        }
     }
 }
 

@@ -42,6 +42,7 @@ use crate::bytecode::encoding::{
 use crate::{MeasurementResult, OutputRecord};
 
 /// Where a walk stopped.
+#[derive(Clone, Copy)]
 pub(super) enum Stop {
     /// At the batch's end.
     Batch,

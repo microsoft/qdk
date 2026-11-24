@@ -11,9 +11,10 @@
 use super::super::program::prepared_quantum_calls::RegisterOperands;
 use super::super::quantum_instruction_encoding::{self, CallOperand, Register};
 use super::super::{QirCall, QirOutcome, QirReadout, QirTrap};
-use super::block_start;
+use super::walk::Stop;
 #[cfg(doc)]
-use super::{QirMachine, QirStop, SplitBatches};
+use super::{QirMachine, SplitBatches};
+use super::{QirSplitChoice, QirStop, block_start};
 use crate::bytecode::encoding::{
     FLAG_AUX0_IMM, FLAG_AUX1_IMM, FLAG_AUX2_IMM, FLAG_SRC0_IMM, FLAG_SRC1_IMM,
 };
@@ -193,6 +194,27 @@ impl QirShotContext {
         self.batch.clear();
         self.batch_results.clear();
         Ok(())
+    }
+
+    /// Gives the trap the last resume held to yield the calls before it
+    /// first, as a split; `Ok` when it held none.
+    #[inline]
+    pub(super) fn give_held_trap(&mut self) -> Result<(), QirTrap> {
+        self.held_trap.take().map_or(Ok(()), Err)
+    }
+
+    /// The walk's `stop`, as the resumer sees it: the batch, a piece of it
+    /// (after which the next resume takes no outcomes), or the records.
+    #[inline]
+    pub(super) fn stop_at<S: QirSplitChoice>(&mut self, stop: Stop) -> QirStop<'_, S> {
+        match stop {
+            Stop::Batch => QirStop::Batch(&self.batch),
+            Stop::Split => {
+                self.after_split = true;
+                QirStop::Split(S::piece(self.batch.as_slice()))
+            }
+            Stop::Ended => QirStop::Ended(&self.records),
+        }
     }
 
     /// Goes to `block` from the block it runs in, and gives the
