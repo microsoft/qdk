@@ -238,3 +238,10 @@ fn joint_measurements_on_bell_states() {
     check_joint_measurements_on_bell_states::<FullStateSimulator>();
     check_joint_measurements_on_bell_states::<StabilizerSimulator>();
 }
+
+#[test]
+#[should_panic(expected = "joint measurement requires two distinct qubits")]
+fn joint_measurement_on_same_qubit_panics() {
+    new_sim::<FullStateSimulator>(1, 1, 0).mzy(0, 0, 0);
+    new_sim::<StabilizerSimulator>(1, 1, 0).mzy(0, 0, 0);
+}

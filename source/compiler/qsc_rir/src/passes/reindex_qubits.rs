@@ -66,9 +66,14 @@ pub(crate) fn reindex_qubits(program: &mut Program) {
     program.blocks.insert(block_id, block);
     program.num_qubits = pass.highest_used_id + 1;
 
-    // All reset function calls should be removed, so remove them from the callables.
+    // All reset function and joint measurement calls should be removed, so remove them from the callables.
     program.callables.retain(|id, callable| {
-        callable.call_type != CallableType::Reset && Some(id) != pass.measurement_ids.mresetz
+        callable.call_type != CallableType::Reset
+            && Some(id) != pass.measurement_ids.mresetz
+            && !matches!(
+                pass.measurement_ids.kind(id),
+                Some(MeasurementKind::Joint(_, _))
+            )
     });
 }
 
@@ -262,7 +267,6 @@ impl ReindexQubitPass {
         }
     }
 
-    #[allow(clippy::too_many_lines)]
     fn reindex_qubits_in_block(&mut self, program: &Program, block: &mut Block) {
         let mut map = FxHashMap::default();
         let mut used_qubits: FxHashSet<u32> = FxHashSet::default();
@@ -330,28 +334,15 @@ impl ReindexQubitPass {
                                     continue;
                                 }
                             }
-                            // TODO(pjain): Retain joint measurement callable IDs after reindexing? It is not straightforward to renumber them, they can only be removed and the emitted QIR will have skipped IDs.
                             MeasurementKind::Joint(basis_1, basis_2) => {
                                 // Since the call was to m** replace it with a parity check on a fresh ancilla.
-                                let bases = [basis_1, basis_2];
-                                for (index, basis) in bases.into_iter().enumerate() {
-                                    self.emit_parity_transfer_instrs(
-                                        block,
-                                        basis,
-                                        qubit_arg(args, index),
-                                        next_qubit_id,
-                                        metadata.clone(),
-                                    );
-                                }
-                                let mz_id = self
-                                    .measurement_ids
-                                    .mz
-                                    .expect("MZ must be set if joint measurement is used");
-                                let ancilla_args = vec![
-                                    Operand::Literal(Literal::Qubit(next_qubit_id)),
-                                    args[2], // Result ID
-                                ];
-                                push_instr(block, mz_id, ancilla_args, metadata.clone());
+                                self.emit_parity_check(
+                                    block,
+                                    next_qubit_id,
+                                    metadata.clone(),
+                                    &new_args,
+                                    [basis_1, basis_2],
+                                );
                                 self.highest_used_id = self.highest_used_id.max(next_qubit_id);
                                 next_qubit_id += 1;
                                 continue;
@@ -386,6 +377,34 @@ impl ReindexQubitPass {
                 }
             }
         }
+    }
+
+    fn emit_parity_check(
+        &mut self,
+        block: &mut Block,
+        next_qubit_id: u32,
+        metadata: Option<Box<InstructionDbgMetadata>>,
+        new_args: &[Operand],
+        bases: [MeasurementBasis; 2],
+    ) {
+        for (index, basis) in bases.into_iter().enumerate() {
+            self.emit_parity_transfer_instrs(
+                block,
+                basis,
+                qubit_arg(new_args, index),
+                next_qubit_id,
+                metadata.clone(),
+            );
+        }
+        let mz_id = self
+            .measurement_ids
+            .mz
+            .expect("MZ must be set if joint measurement is used");
+        let ancilla_args = vec![
+            Operand::Literal(Literal::Qubit(next_qubit_id)),
+            new_args[2], // Result ID
+        ];
+        push_instr(block, mz_id, ancilla_args, metadata);
     }
 
     /// Emits basis-dependent measurement state-transfer gates, with the new qubit in |0⟩.

@@ -1157,7 +1157,6 @@ fn qubits_reindexed_after_mxx() {
     // Callables after the pass.
     expect![[r#"
         0: __quantum__qis__x__body
-        1: __quantum__qis__mxx__body
         2: __quantum__qis__m__body
         3: __quantum__qis__cx__body
         4: __quantum__qis__h__body"#]]
@@ -1213,7 +1212,6 @@ fn qubits_reindexed_after_myy() {
     // Callables after the pass.
     expect![[r#"
         0: __quantum__qis__x__body
-        1: __quantum__qis__myy__body
         2: __quantum__qis__m__body
         3: __quantum__qis__cx__body
         4: __quantum__qis__h__body
@@ -1255,7 +1253,6 @@ fn qubits_reindexed_after_mzz() {
     // Callables after the pass.
     expect![[r#"
         0: __quantum__qis__x__body
-        1: __quantum__qis__mzz__body
         2: __quantum__qis__m__body
         3: __quantum__qis__cx__body"#]]
     .assert_eq(&callables_to_string(&program));
@@ -1302,7 +1299,6 @@ fn qubits_reindexed_after_mzy() {
     // Callables after the pass.
     expect![[r#"
         0: __quantum__qis__x__body
-        1: __quantum__qis__mzy__body
         2: __quantum__qis__m__body
         3: __quantum__qis__cx__body
         4: __quantum__qis__h__body
@@ -1312,12 +1308,13 @@ fn qubits_reindexed_after_mzy() {
 }
 
 #[test]
-fn qubits_reindexed_after_multiple_joint_measurements() {
+fn qubits_reindexed_after_multiple_measurements() {
     const X: CallableId = CallableId(0);
     const MXX: CallableId = CallableId(1);
     const MYY: CallableId = CallableId(2);
     const MZZ: CallableId = CallableId(3);
     const MZY: CallableId = CallableId(4);
+    const MRESETZ: CallableId = CallableId(5);
     let mut program = Program::new();
     program.num_qubits = 2;
     program.callables.insert(X, x_decl());
@@ -1333,6 +1330,7 @@ fn qubits_reindexed_after_multiple_joint_measurements() {
     program
         .callables
         .insert(MZY, joint_measurement_decl("__quantum__qis__mzy__body"));
+    program.callables.insert(MRESETZ, mresetz_decl());
     program.blocks.insert(
         BlockId(0),
         Block(vec![
@@ -1357,24 +1355,31 @@ fn qubits_reindexed_after_multiple_joint_measurements() {
                 None,
                 None,
             ),
-            Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(1))], None, None),
             Instruction::Call(
-                MYY,
+                MRESETZ,
                 vec![
-                    Operand::Literal(Literal::Qubit(0)),
                     Operand::Literal(Literal::Qubit(1)),
                     Operand::Literal(Literal::Result(2)),
                 ],
                 None,
                 None,
             ),
-            Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None, None),
+            Instruction::Call(
+                MYY,
+                vec![
+                    Operand::Literal(Literal::Qubit(0)),
+                    Operand::Literal(Literal::Qubit(1)),
+                    Operand::Literal(Literal::Result(3)),
+                ],
+                None,
+                None,
+            ),
             Instruction::Call(
                 MXX,
                 vec![
                     Operand::Literal(Literal::Qubit(0)),
                     Operand::Literal(Literal::Qubit(1)),
-                    Operand::Literal(Literal::Result(3)),
+                    Operand::Literal(Literal::Result(4)),
                 ],
                 None,
                 None,
@@ -1389,10 +1394,9 @@ fn qubits_reindexed_after_multiple_joint_measurements() {
             Call id(4), args( Qubit(0), Qubit(1), Result(0), )
             Call id(0), args( Qubit(0), )
             Call id(3), args( Qubit(0), Qubit(1), Result(1), )
-            Call id(0), args( Qubit(1), )
-            Call id(2), args( Qubit(0), Qubit(1), Result(2), )
-            Call id(0), args( Qubit(0), )
-            Call id(1), args( Qubit(0), Qubit(1), Result(3), )
+            Call id(5), args( Qubit(1), Result(2), )
+            Call id(2), args( Qubit(0), Qubit(1), Result(3), )
+            Call id(1), args( Qubit(0), Qubit(1), Result(4), )
             Return"#]]
     .assert_eq(&program.get_block(BlockId(0)).to_string());
 
@@ -1401,53 +1405,48 @@ fn qubits_reindexed_after_multiple_joint_measurements() {
     reindex_qubits(&mut program);
     expect![[r#"
         Block:
-            Call id(6), args( Qubit(0), Qubit(2), )
-            Call id(9), args( Qubit(1), )
-            Call id(7), args( Qubit(1), )
-            Call id(6), args( Qubit(1), Qubit(2), )
-            Call id(7), args( Qubit(1), )
+            Call id(7), args( Qubit(0), Qubit(2), )
+            Call id(10), args( Qubit(1), )
             Call id(8), args( Qubit(1), )
-            Call id(5), args( Qubit(2), Result(0), )
+            Call id(7), args( Qubit(1), Qubit(2), )
+            Call id(8), args( Qubit(1), )
+            Call id(9), args( Qubit(1), )
+            Call id(6), args( Qubit(2), Result(0), )
             Call id(0), args( Qubit(0), )
-            Call id(6), args( Qubit(0), Qubit(3), )
-            Call id(6), args( Qubit(1), Qubit(3), )
-            Call id(5), args( Qubit(3), Result(1), )
-            Call id(0), args( Qubit(1), )
-            Call id(9), args( Qubit(0), )
-            Call id(7), args( Qubit(0), )
-            Call id(6), args( Qubit(0), Qubit(4), )
-            Call id(7), args( Qubit(0), )
+            Call id(7), args( Qubit(0), Qubit(3), )
+            Call id(7), args( Qubit(1), Qubit(3), )
+            Call id(6), args( Qubit(3), Result(1), )
+            Call id(6), args( Qubit(1), Result(2), )
+            Call id(10), args( Qubit(0), )
             Call id(8), args( Qubit(0), )
-            Call id(9), args( Qubit(1), )
-            Call id(7), args( Qubit(1), )
-            Call id(6), args( Qubit(1), Qubit(4), )
-            Call id(7), args( Qubit(1), )
-            Call id(8), args( Qubit(1), )
-            Call id(5), args( Qubit(4), Result(2), )
-            Call id(0), args( Qubit(0), )
-            Call id(7), args( Qubit(0), )
-            Call id(6), args( Qubit(0), Qubit(5), )
-            Call id(7), args( Qubit(0), )
-            Call id(7), args( Qubit(1), )
-            Call id(6), args( Qubit(1), Qubit(5), )
-            Call id(7), args( Qubit(1), )
-            Call id(5), args( Qubit(5), Result(3), )
+            Call id(7), args( Qubit(0), Qubit(5), )
+            Call id(8), args( Qubit(0), )
+            Call id(9), args( Qubit(0), )
+            Call id(10), args( Qubit(4), )
+            Call id(8), args( Qubit(4), )
+            Call id(7), args( Qubit(4), Qubit(5), )
+            Call id(8), args( Qubit(4), )
+            Call id(9), args( Qubit(4), )
+            Call id(6), args( Qubit(5), Result(3), )
+            Call id(8), args( Qubit(0), )
+            Call id(7), args( Qubit(0), Qubit(6), )
+            Call id(8), args( Qubit(0), )
+            Call id(8), args( Qubit(4), )
+            Call id(7), args( Qubit(4), Qubit(6), )
+            Call id(8), args( Qubit(4), )
+            Call id(6), args( Qubit(6), Result(4), )
             Return"#]]
     .assert_eq(&program.get_block(BlockId(0)).to_string());
-    assert_eq!(program.num_qubits, 6);
+    assert_eq!(program.num_qubits, 7);
 
     // Callables after the pass.
     expect![[r#"
         0: __quantum__qis__x__body
-        1: __quantum__qis__mxx__body
-        2: __quantum__qis__myy__body
-        3: __quantum__qis__mzz__body
-        4: __quantum__qis__mzy__body
-        5: __quantum__qis__m__body
-        6: __quantum__qis__cx__body
-        7: __quantum__qis__h__body
-        8: __quantum__qis__s__body
-        9: __quantum__qis__s__adj"#]]
+        6: __quantum__qis__m__body
+        7: __quantum__qis__cx__body
+        8: __quantum__qis__h__body
+        9: __quantum__qis__s__body
+        10: __quantum__qis__s__adj"#]]
     .assert_eq(&callables_to_string(&program));
 }
 

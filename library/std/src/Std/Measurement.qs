@@ -246,9 +246,6 @@ operation IsLossResult(res : Result) : Bool {
 /// # Output
 /// The result of measuring in the `X ⊗ X` basis.
 operation MXX(target_1 : Qubit, target_2 : Qubit) : Result {
-    if (target_1 == target_2) {
-        fail "MXX operation requires two distinct qubits.";
-    }
     __quantum__qis__mxx__body(target_1, target_2)
 }
 
@@ -269,9 +266,6 @@ operation MXX(target_1 : Qubit, target_2 : Qubit) : Result {
 /// # Output
 /// The result of measuring in the `Y ⊗ Y` basis.
 operation MYY(target_1 : Qubit, target_2 : Qubit) : Result {
-    if (target_1 == target_2) {
-        fail "MYY operation requires two distinct qubits.";
-    }
     __quantum__qis__myy__body(target_1, target_2)
 }
 
@@ -292,9 +286,6 @@ operation MYY(target_1 : Qubit, target_2 : Qubit) : Result {
 /// # Output
 /// The result of measuring in the `Z ⊗ Z` basis.
 operation MZZ(target_1 : Qubit, target_2 : Qubit) : Result {
-    if (target_1 == target_2) {
-        fail "MZZ operation requires two distinct qubits.";
-    }
     __quantum__qis__mzz__body(target_1, target_2)
 }
 
@@ -315,9 +306,6 @@ operation MZZ(target_1 : Qubit, target_2 : Qubit) : Result {
 /// # Output
 /// The result of measuring in the `Z ⊗ Y` basis.
 operation MZY(target_1 : Qubit, target_2 : Qubit) : Result {
-    if (target_1 == target_2) {
-        fail "MZY operation requires two distinct qubits.";
-    }
     __quantum__qis__mzy__body(target_1, target_2)
 }
 

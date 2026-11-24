@@ -3,10 +3,13 @@
 
 use super::{
     assert_block_instructions, assert_blocks, assert_callable, assert_error,
-    get_partial_evaluation_error, get_rir_program,
+    get_partial_evaluation_error, get_partial_evaluation_error_with_capabilities, get_rir_program,
+    get_rir_program_with_adaptive_profile,
 };
+use crate::Error;
 use expect_test::{Expect, expect};
 use indoc::{formatdoc, indoc};
+use qsc_data_structures::target::Profile;
 use qsc_rir::rir::{BlockId, CallableId};
 
 fn check_call_to_single_qubit_instrinsic_adds_callable_and_generates_instruction(
@@ -781,6 +784,52 @@ fn call_to_intrinsic_mzz_adds_callable_and_generates_instruction() {
                 Call id(2), args( Qubit(0), Qubit(1), Result(0), )
                 Call id(3), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)"#]],
+    );
+}
+
+#[test]
+fn call_to_joint_measurement_with_same_static_qubit_fails() {
+    let source = indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                Std.Measurement.MYY(q, q)
+            }
+        }
+    "#};
+    for profile in [Profile::Base, Profile::AdaptiveRIF] {
+        let error = get_partial_evaluation_error_with_capabilities(source, profile.into());
+        let Error::EvaluationFailed(message, _) = error else {
+            panic!("{profile:?}: expected a qubit uniqueness error, got {error:?}");
+        };
+        assert_eq!(
+            message, "qubits in invocation are not unique",
+            "{profile:?}"
+        );
+    }
+}
+
+#[test]
+fn call_to_joint_measurement_with_distinct_dynamic_qubit_succeeds() {
+    // A dynamically selected qubit can't be compared with the other argument at compile time, so the
+    // measurement is emitted and the backends/simulators check uniqueness at runtime.
+    let program = get_rir_program_with_adaptive_profile(indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Result {
+                use qs = Qubit[3];
+                let i = MResetZ(qs[0]) == One ? 1 | 2;
+                Std.Measurement.MZY(qs[i], qs[0])
+            }
+        }
+    "#});
+    assert!(
+        program
+            .callables
+            .iter()
+            .any(|(_, callable)| callable.name == "__quantum__qis__mzy__body"),
+        "expected the program to call mzy"
     );
 }
 

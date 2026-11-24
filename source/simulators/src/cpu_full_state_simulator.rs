@@ -590,12 +590,22 @@ impl FullStateSimulator {
         }
     }
 
+    /// Measures the two-qubit observable described by `instrument` on `q0` and `q1`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `q0` and `q1` are the same qubit. Partial evaluation rejects that for static qubits,
+    /// but two dynamic qubits on the Adaptive profile can only be compared when the program runs.
     fn m_joint_impl(
         &mut self,
         q0: QubitID,
         q1: QubitID,
         instrument: &Instrument,
     ) -> MeasurementResult {
+        assert!(
+            q0 != q1,
+            "joint measurement requires two distinct qubits, but got qubit {q0} twice"
+        );
         if self.loss[q0] {
             self.loss[q0] = false;
             return MeasurementResult::Loss;
