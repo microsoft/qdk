@@ -59,5 +59,39 @@ the authored notebooks, so they only resolve inside a learner's workspace.
 | Script               | What it does                                                                                                                                        |
 | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `rst_to_notebook.py` | Reconstructs selected unit notebooks. `RECIPES` holds the per-chapter decisions a human still has to make; `--check` detects drift without writing. |
+| `details_to_quiz.py` | Refreshes saved quiz outputs from the author notebook's literal definitions; `--check` reports drift without writing.                               |
 | `bake_outputs.py`    | Runs a notebook so its outputs ship with the course.                                                                                                |
 | `verify_course.py`   | Checks every unit loads, validates, and carries what the tree needs. Pass `--allow-outputs` when reviewing baked notebooks.                         |
+
+## Self-check questions
+
+Write each question's full Python definition in a dedicated author notebook
+code cell tagged `quiz`, following the [authoring guide](../../../../authoring-courses.md).
+The author notebook is the source of truth; `_unit.py` binds the helper to that
+notebook once, without registering individual questions. Convert `<details>`
+questions by hand so their placement, correct answers, and new distractors can
+be reviewed for scientific accuracy.
+
+Run the final `author-only` validation cell to check the saved definitions.
+Validation does not bake outputs. Publishing first-open interaction is a
+separate, explicit step:
+
+    python details_to_quiz.py 01-energy-and-accuracy
+    python details_to_quiz.py 01-energy-and-accuracy --check
+    python verify_course.py
+
+The baker calls the quiz emitter directly, without starting a kernel or executing
+notebook cells. It refreshes only quiz outputs, preserving source and cell IDs.
+Like the converter's `--check`, this mode leaves the file alone and exits with
+status `1` if it would change the output. Creating a learner workbook never
+invokes the baker: it copies any saved quiz outputs and replaces definitions
+with named calls such as `quiz("energy-total-components")`. When a learner reruns
+a quiz, that call reads the definition from the author notebook.
+
+`rst_to_notebook.py` reconstructs notebooks from the upstream tutorial and does
+not retain handwritten quiz definitions. Do not regenerate a converted chapter
+merely to rebake it; preserve and reapply its reviewed definitions when updating
+from upstream.
+
+The saved quiz output includes the answer key so learners can check answers
+without starting a Python kernel.

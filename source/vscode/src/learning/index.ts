@@ -9,6 +9,7 @@ import {
 import { registerLearningCommands } from "./commands.js";
 import { LessonPanelManager, registerLessonPanelSerializer } from "./panel.js";
 import { createNotebookCellStatusBarProvider } from "./notebookCellStatusBar.js";
+import { registerNotebookRendererMessaging } from "./notebookRendererMessaging.js";
 import { registerNotebookSync } from "./notebookSync.js";
 import { registerLearningProgressView } from "./progressTreeView.js";
 import { LearningService } from "./service.js";
@@ -62,7 +63,11 @@ export function initLearning(
           // other than the active one, the only negative consequence will
           // be not registering completion.
           void learningService.goToActivityByCellId(cellId, "notebook");
-          if (change.executionSummary.success) {
+          const tags = change.cell.metadata?.tags;
+          const isQuizCell =
+            (Array.isArray(tags) && tags.includes("quiz")) ||
+            learningService.isActivityCellId(cellId, "quiz");
+          if (change.executionSummary.success && !isQuizCell) {
             void learningService.markActivityCompleteByCellId(cellId);
           }
         }
@@ -74,6 +79,7 @@ export function initLearning(
   registerLearningCommands(context, learningService, panelManager);
   registerLessonPanelSerializer(context, panelManager);
   registerNotebookSync(context, learningService);
+  registerNotebookRendererMessaging(context, learningService);
   return learningService;
 }
 

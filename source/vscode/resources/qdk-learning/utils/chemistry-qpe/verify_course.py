@@ -16,6 +16,14 @@ from pathlib import Path
 import nbformat
 
 DEFAULT_COURSE = Path(__file__).resolve().parents[2] / "courses/chemistry-qpe"
+sys.path.insert(0, str(DEFAULT_COURSE))
+
+from _learning_output import (  # noqa: E402
+    authored_quiz,
+    find_author_notebook,
+    validate_cell_roles,
+)
+
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("course", nargs="?", type=Path, default=DEFAULT_COURSE)
 parser.add_argument(
@@ -28,7 +36,7 @@ COURSE = args.course
 EXPECTED_TOTALS = Counter(
     {
         "units": 7,
-        "cells": 181,
+        "cells": 238,
         "exercises": 6,
         "hints": 6,
         "solutions": 6,
@@ -143,11 +151,6 @@ if "id" in manifest:
 
 for unit in manifest["units"]:
     directory = COURSE / unit["dir"]
-    notebooks = [
-        path
-        for path in directory.glob("*.ipynb")
-        if not path.name.endswith(".workbook.ipynb")
-    ]
     problems = []
     counts = Counter()
     exercise_authoring: dict[str, Counter] = {}
@@ -155,11 +158,12 @@ for unit in manifest["units"]:
     current_exercise: str | None = None
     uses_unit_module = False
 
-    if len(notebooks) != 1:
-        problems.append(f"expected 1 notebook, found {len(notebooks)}")
-
-    if len(notebooks) == 1:
-        notebook = nbformat.read(notebooks[0], as_version=4)
+    try:
+        source_notebook = find_author_notebook(directory)
+    except ValueError as error:
+        problems.append(str(error))
+    else:
+        notebook = nbformat.read(source_notebook, as_version=4)
         try:
             nbformat.validate(notebook)
         except nbformat.ValidationError as error:
@@ -181,7 +185,12 @@ for unit in manifest["units"]:
         if duplicate_ids:
             problems.append(f"duplicate cell IDs: {', '.join(duplicate_ids)}")
 
-        for cell in notebook.cells:
+        for cell_number, cell in enumerate(notebook.cells, start=1):
+            try:
+                validate_cell_roles(cell, cell_number=cell_number)
+            except ValueError as error:
+                problems.append(str(error))
+                continue
             tags = set(cell.get("metadata", {}).get("tags", []))
             source = cell.source
             authoring_tag = next(
@@ -192,10 +201,16 @@ for unit in manifest["units"]:
                 ),
                 None,
             )
-            if cell.cell_type == "code" and authoring_tag is None:
+            if (
+                cell.cell_type == "code"
+                and authoring_tag is None
+                and "author-only" not in tags
+            ):
                 current_exercise = None
             counts["sections"] += any(tag.startswith("section:") for tag in tags)
             counts["quizzes"] += source.count("<details>")
+            if authored_quiz(cell, cell_number=cell_number) is not None:
+                counts["quizzes"] += 1
             for name in re.findall(r'<svg[^>]+data-asset="([^"]+)"', source):
                 counts["inline_svgs"] += 1
                 if name not in EXPECTED_INLINE_SVGS:
@@ -277,8 +292,11 @@ for unit in manifest["units"]:
             if cell.cell_type == "code":
                 counts["code_cells"] += 1
                 uses_unit_module |= "_unit" in source
-                allow_cell_output = args.allow_outputs and not (
-                    tags & AUTHORING_KINDS.keys()
+                # A quiz cell's output is the question itself, baked so it is
+                # visible on opening rather than after a run. That is content,
+                # not a leftover from executing the notebook.
+                allow_cell_output = "quiz" in tags or (
+                    args.allow_outputs and not (tags & AUTHORING_KINDS.keys())
                 )
                 if cell.get("outputs") and not allow_cell_output:
                     problems.append(f"{cell.id}: code cell ships output")

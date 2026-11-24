@@ -11,6 +11,9 @@ Pytest creates a `.venv` inside the temporary course copy and installs the
 course requirements there. Notebook kernels use that environment, while pytest
 continues to use the component's test environment.
 
+Quiz execution and MIME output are tested inside the existing course notebook
+environment. Source validation remains in the lightweight test runner.
+
 ## Local setup
 
 Run the course suite from the repository root with Python 3.11 or later:
@@ -35,12 +38,18 @@ source/vscode/test/course-notebooks/.venv/bin/python -m pytest source/vscode/tes
 
 ## Cell metadata
 
+- Content-role tags (`exercise`, `quiz`, `hint`, `solution`, `explanation`, and
+  `author-only`) are mutually exclusive. Modifier tags can accompany a role;
+  for example, `exercise` plus `skip-test` is valid.
 - An `exercise` code cell must raise `ExerciseError`. Any other exception, or
   successful execution, fails the test.
 - A `solution` code cell must execute without an error.
 - A `skip-test` code cell is skipped only by this test suite. VS Code, Jupyter,
   and ordinary notebook execution do not interpret this custom tag. It also
-  takes precedence when combined with `exercise`.
+  takes precedence when combined with `exercise`, but does not bypass role checks.
+- Quiz-bearing notebooks end with an `author-only` cell calling
+  `validate_quizzes()`. This cell must run in CI, so it cannot use `skip-test`.
+  It validates saved definitions even when quiz preview cells use `skip-test`.
 
 When a skipped setup cell supplies state to later cells, tag those dependent
 cells with `skip-test` as well.
