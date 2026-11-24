@@ -1,0 +1,472 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+//! [`ExactReference`]: the [`MpsEngine`] every other engine is checked
+//! against, a full state vector that never truncates.
+//!
+//! Its uses:
+//!
+//! - an engine's tests compare its answers with the reference's;
+//! - this crate's tests check on it what the contract provides itself (the
+//!   trait's default conditional probability, the layout of a Pauli's
+//!   matrix), and its examples run on it;
+//! - the tests of a method that runs on any engine (an MPS simulator) run
+//!   on it where no other engine is available.
+//!
+//! It is for tests and small examples only, so it builds only with the
+//! feature `conformance`.
+//!
+//! It holds all 2ⁿ amplitudes of a state, for up to
+//! [`ExactReference::MAX_SITES`] sites, so it gives the exact answer of
+//! every operation. It reports the exact chain: the bond at each cut is the
+//! state's numerical Schmidt rank there, or 1 when that rank is 0. An
+//! elimination finds the rank, counting a pivot below a small absolute
+//! tolerance as zero.
+//!
+//! It accepts a capacity whatever its bonds. Since it never truncates,
+//! [`shape`](MpsEngine::shape) reports a state whose exact chain outgrows
+//! its capacity; the caller checks.
+//!
+//! Its arithmetic is its own, with no library beneath it. Its rules:
+//!
+//! - basis state `i` has site `k` as bit `k` of `i`, the order its dense
+//!   vector is stored in; no engine call depends on it;
+//! - its reads divide by ⟨ψ|ψ⟩, so they are of the normalized state.
+//!   `apply` accepts a matrix within [`UNITARITY_TOLERANCE`] of unitary,
+//!   which may change the norm by as much, and such changes add up gate by
+//!   gate. The identity's coefficient of an observable is added as it is;
+//! - it squares amplitudes as they are. So, to rounding, its conditional
+//!   probabilities and projections hold for conditions and outcomes whose
+//!   probability is well above [`f64::MIN_POSITIVE`] (about 2.2·10⁻³⁰⁸).
+//!   Near and below it, squared amplitudes lose precision or underflow: a
+//!   conditional probability may be off or read 0, and a projection may
+//!   lose weight.
+//!
+//! [`UNITARITY_TOLERANCE`]: crate::checks::UNITARITY_TOLERANCE
+
+use crate::sampling::{self, TooManyValues};
+use crate::{MpsEngine, MpsEngineError, MpsShape, Pauli, PauliSum, Refusal, checks};
+use num_complex::Complex64;
+
+/// The exact reference engine. It holds no state of its own, so one value
+/// serves any number of states.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ExactReference;
+
+impl ExactReference {
+    /// The most sites a state holds: 2²⁰ amplitudes, 16 MiB.
+    pub const MAX_SITES: usize = 20;
+
+    /// The reference.
+    #[must_use]
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+/// A state of [`ExactReference`]: all 2ⁿ amplitudes, basis state `i` with
+/// site `k` as bit `k`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReferenceState {
+    re: Vec<f64>,
+    im: Vec<f64>,
+    sites: usize,
+}
+
+impl ReferenceState {
+    /// How many sites it has.
+    #[must_use]
+    pub fn site_count(&self) -> usize {
+        self.sites
+    }
+
+    /// The amplitude of basis state `index`, zero past the last.
+    #[must_use]
+    pub fn amplitude(&self, index: usize) -> Complex64 {
+        Complex64::new(
+            self.re.get(index).copied().unwrap_or(0.0),
+            self.im.get(index).copied().unwrap_or(0.0),
+        )
+    }
+
+    /// The state with these amplitudes, basis state `i` with site `k` as
+    /// bit `k`. It is for tests that need a state the reference's own calls
+    /// do not reach but other engines do, such as a truncated chain; the
+    /// reference's answers on it are its contract too.
+    #[cfg(test)]
+    pub(crate) fn from_amplitudes(amplitudes: &[Complex64]) -> Self {
+        let sites = amplitudes.len().trailing_zeros() as usize;
+        assert!(
+            amplitudes.len() > 1 && amplitudes.len() == 1 << sites,
+            "a state of n sites has 2^n amplitudes, n at least 1"
+        );
+        Self {
+            re: amplitudes.iter().map(|a| a.re).collect(),
+            im: amplitudes.iter().map(|a| a.im).collect(),
+            sites,
+        }
+    }
+
+    /// The probability of basis state `i`, `re² + im²`.
+    fn probability(&self, i: usize) -> f64 {
+        let (r, m) = (
+            self.re.get(i).copied().unwrap_or(0.0),
+            self.im.get(i).copied().unwrap_or(0.0),
+        );
+        r * r + m * m
+    }
+
+    /// ⟨ψ|ψ⟩, the sum of [`probability`](Self::probability) over the basis
+    /// states.
+    fn norm(&self) -> f64 {
+        (0..self.re.len()).map(|i| self.probability(i)).sum()
+    }
+
+    /// ⟨ψ|P|ψ⟩ for the Pauli string with X on the sites of `x` and Z on
+    /// those of `z` (Y on both): P|i⟩ = i^#Y · (−1)^|i ∧ z| · |i ⊕ x⟩, from
+    /// Y|b⟩ = i(−1)^b|1−b⟩. Only the real part is returned: P is
+    /// Hermitian, so the imaginary part is rounding.
+    fn pauli_expectation(&self, x: usize, z: usize) -> f64 {
+        let (mut re, mut im) = (0.0, 0.0);
+        for i in 0..self.re.len() {
+            let (a, b) = (self.amplitude(i), self.amplitude(i ^ x));
+            // conj(ψ_{i⊕x})·ψ_i, signed by the Z part.
+            let sign = if (i & z).count_ones().is_multiple_of(2) {
+                1.0
+            } else {
+                -1.0
+            };
+            re += sign * (b.re * a.re + b.im * a.im);
+            im += sign * (b.re * a.im - b.im * a.re);
+        }
+        match (x & z).count_ones() % 4 {
+            0 => re,
+            1 => -im,
+            2 => -re,
+            _ => im,
+        }
+    }
+
+    /// The rank of the state as a matrix with sites 0..=cut as rows and
+    /// the rest as columns, or 1 when it is 0: the bond an exact chain
+    /// needs at that cut. Gaussian elimination with partial pivoting; a
+    /// pivot below `ZERO` in magnitude counts as zero: the numerical rank
+    /// at that absolute tolerance.
+    fn schmidt_rank(&self, cut: usize) -> usize {
+        const ZERO: f64 = 1e-10;
+        let low = cut + 1;
+        let (rows, cols) = (1usize << low, 1usize << (self.sites - low));
+        let amplitude = |index: usize| {
+            let a = self.amplitude(index);
+            (a.re, a.im)
+        };
+        // Eliminate along the smaller side: rank ≤ min(rows, cols).
+        let mut matrix: Vec<Vec<(f64, f64)>> = if rows <= cols {
+            (0..rows)
+                .map(|row| (0..cols).map(|col| amplitude(row | (col << low))).collect())
+                .collect()
+        } else {
+            (0..cols)
+                .map(|col| (0..rows).map(|row| amplitude(row | (col << low))).collect())
+                .collect()
+        };
+        let (short, long) = (rows.min(cols), rows.max(cols));
+        let norm = |value: (f64, f64)| value.0.hypot(value.1);
+        let mut rank = 0;
+        for col in 0..long {
+            if rank == short {
+                break;
+            }
+            let at = |matrix: &[Vec<(f64, f64)>], row: usize| {
+                matrix
+                    .get(row)
+                    .and_then(|entries| entries.get(col))
+                    .copied()
+                    .unwrap_or((0.0, 0.0))
+            };
+            let Some(pivot) = (rank..short)
+                .max_by(|&x, &y| norm(at(&matrix, x)).total_cmp(&norm(at(&matrix, y))))
+            else {
+                break;
+            };
+            let pivot_value = at(&matrix, pivot);
+            if norm(pivot_value) < ZERO {
+                continue;
+            }
+            matrix.swap(rank, pivot);
+            let (pr, pi) = pivot_value;
+            let denominator = pr * pr + pi * pi;
+            let (top, below) = matrix.split_at_mut(rank + 1);
+            let Some(pivot_row) = top.last() else { break };
+            for row in below.iter_mut() {
+                let (xr, xi) = row.get(col).copied().unwrap_or((0.0, 0.0));
+                // factor = x / pivot
+                let factor = (
+                    (xr * pr + xi * pi) / denominator,
+                    (xi * pr - xr * pi) / denominator,
+                );
+                if norm(factor) == 0.0 {
+                    continue;
+                }
+                for (entry, &above) in row.iter_mut().zip(pivot_row).skip(col) {
+                    entry.0 -= factor.0 * above.0 - factor.1 * above.1;
+                    entry.1 -= factor.0 * above.1 + factor.1 * above.0;
+                }
+            }
+            rank += 1;
+        }
+        rank.max(1)
+    }
+}
+
+/// Why the reference did not do an operation: refused, a state larger than
+/// it holds, or a sample with more values than memory holds.
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
+pub enum ReferenceError {
+    /// The call's arguments break the contract.
+    #[error(transparent)]
+    Refused(#[from] Refusal),
+    /// A capacity with more sites than the reference holds: a failure of
+    /// the reference, not a refusal, since another engine holds such a
+    /// state.
+    #[error("the exact reference holds at most {max} sites, not {requested}")]
+    ChainTooLong {
+        /// The sites asked for.
+        requested: usize,
+        /// [`ExactReference::MAX_SITES`].
+        max: usize,
+    },
+    /// A sample with more values than memory holds.
+    #[error(transparent)]
+    TooManyValues(#[from] TooManyValues),
+}
+
+impl MpsEngineError for ReferenceError {
+    fn refusal(&self) -> Option<&Refusal> {
+        match self {
+            Self::Refused(refusal) => Some(refusal),
+            Self::ChainTooLong { .. } | Self::TooManyValues(_) => None,
+        }
+    }
+}
+
+impl MpsEngine for ExactReference {
+    type State = ReferenceState;
+    type Error = ReferenceError;
+
+    fn prepare(&self, capacity: &MpsShape) -> Result<ReferenceState, ReferenceError> {
+        checks::prepare(capacity)?;
+        let sites = capacity.site_count();
+        if sites > Self::MAX_SITES {
+            return Err(ReferenceError::ChainTooLong {
+                requested: sites,
+                max: Self::MAX_SITES,
+            });
+        }
+        let n = 1usize << sites;
+        let mut re = vec![0.0; n];
+        if let Some(first) = re.first_mut() {
+            *first = 1.0;
+        }
+        Ok(ReferenceState {
+            re,
+            im: vec![0.0; n],
+            sites,
+        })
+    }
+
+    fn apply(
+        &self,
+        state: &mut ReferenceState,
+        sites: &[usize],
+        matrix: &[Complex64],
+    ) -> Result<(), ReferenceError> {
+        checks::apply(state.sites, sites, matrix)?;
+        let k = sites.len();
+        let bits: Vec<usize> = sites.iter().map(|&site| 1 << site).collect();
+        let dim = 1usize << k;
+        // The offset of local index `c` (sites[0] its most significant bit)
+        // from a basis state with every site of `sites` clear.
+        let offsets: Vec<usize> = (0..dim)
+            .map(|c| {
+                bits.iter()
+                    .enumerate()
+                    .filter(|&(j, _)| c >> (k - 1 - j) & 1 == 1)
+                    .fold(0, |o, (_, &bit)| o | bit)
+            })
+            .collect();
+        let mask = bits.iter().fold(0, |m, &bit| m | bit);
+        let mut column = vec![Complex64::new(0.0, 0.0); dim];
+        for base in (0..state.re.len()).filter(|i| i & mask == 0) {
+            for (a, &o) in column.iter_mut().zip(&offsets) {
+                *a = state.amplitude(base | o);
+            }
+            for (row, &o) in matrix.chunks_exact(dim).zip(&offsets) {
+                let mut terms = row.iter().zip(&column).map(|(m, a)| m * a);
+                let first = terms.next().unwrap_or_default();
+                let value = terms.fold(first, |sum, t| sum + t);
+                if let (Some(re), Some(im)) =
+                    (state.re.get_mut(base | o), state.im.get_mut(base | o))
+                {
+                    (*re, *im) = (value.re, value.im);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn probability_of_one(
+        &self,
+        state: &ReferenceState,
+        site: usize,
+    ) -> Result<f64, ReferenceError> {
+        checks::probability_of_one(state.sites, site)?;
+        let bit = 1 << site;
+        let ones: f64 = (0..state.re.len())
+            .filter(|i| i & bit != 0)
+            .map(|i| state.probability(i))
+            .sum();
+        Ok(ones / state.norm())
+    }
+
+    /// Sums the probabilities of the basis states that agree with `given`,
+    /// as a marginal with projected modes contracts them: no copy. Like the
+    /// trait's default, it refuses a `given` whose probability (that sum
+    /// over ⟨ψ|ψ⟩) is zero or NaN, and an answer of NaN. So on a state
+    /// whose norm is zero or NaN it refuses every `given`.
+    fn conditional_probability_of_one(
+        &self,
+        state: &ReferenceState,
+        site: usize,
+        given: &[(usize, bool)],
+    ) -> Result<f64, ReferenceError> {
+        checks::conditional_probability_of_one(state.sites, site, given)?;
+        let bit = 1 << site;
+        let (mut mask, mut want) = (0usize, 0usize);
+        for &(at, one) in given {
+            let b = 1 << at;
+            mask |= b;
+            if one {
+                want |= b;
+            }
+        }
+        let (mut selected, mut ones) = (0.0, 0.0);
+        for i in (0..state.re.len()).filter(|&i| i & mask == want) {
+            let p = state.probability(i);
+            selected += p;
+            if i & bit != 0 {
+                ones += p;
+            }
+        }
+        // An empty `given` conditions on nothing: its probability is 1.
+        let given_is_possible = given.is_empty() || selected / state.norm() > 0.0;
+        let probability = ones / selected;
+        if given_is_possible && !probability.is_nan() {
+            Ok(probability)
+        } else {
+            Err(Refusal::ZeroProbabilityOutcome.into())
+        }
+    }
+
+    /// Computes `p` as the kept amplitudes' weight over the whole state's,
+    /// so it keeps ⟨ψ|ψ⟩ whatever that is.
+    fn project(
+        &self,
+        state: &mut ReferenceState,
+        site: usize,
+        one: bool,
+    ) -> Result<f64, ReferenceError> {
+        checks::project(state.sites, site)?;
+        let bit = 1 << site;
+        let kept = |i: &usize| (i & bit != 0) == one;
+        let total = state.norm();
+        let kept_weight: f64 = (0..state.re.len())
+            .filter(kept)
+            .map(|i| state.probability(i))
+            .sum();
+        let p = kept_weight / total;
+        if p.is_nan() || p <= 0.0 {
+            return Err(Refusal::ZeroProbabilityOutcome.into());
+        }
+        let root = p.sqrt();
+        for (i, (re, im)) in state.re.iter_mut().zip(state.im.iter_mut()).enumerate() {
+            if kept(&i) {
+                *re /= root;
+                *im /= root;
+            } else {
+                (*re, *im) = (0.0, 0.0);
+            }
+        }
+        Ok(p)
+    }
+
+    fn fork(&self, state: &ReferenceState) -> Result<ReferenceState, ReferenceError> {
+        Ok(state.clone())
+    }
+
+    /// Draws by [`sampling::sample_by_conditionals`] from this engine's
+    /// conditional probabilities; fails with
+    /// [`ReferenceError::TooManyValues`] when the values cannot be held.
+    fn sample(
+        &self,
+        state: &ReferenceState,
+        sites: &[usize],
+        shots: usize,
+        seed: u64,
+    ) -> Result<Vec<bool>, ReferenceError> {
+        checks::sample(state.sites, sites)?;
+        sampling::sample_by_conditionals(sites, shots, seed, |site, given| {
+            self.conditional_probability_of_one(state, site, given)
+        })
+    }
+
+    /// Divides each Pauli term's ⟨ψ|P|ψ⟩ by ⟨ψ|ψ⟩, and adds the identity's
+    /// coefficient as it is, since ⟨ψ|ψ⟩ / ⟨ψ|ψ⟩ is 1.
+    fn expectation(
+        &self,
+        state: &ReferenceState,
+        observable: &PauliSum,
+    ) -> Result<Complex64, ReferenceError> {
+        checks::expectation(state.sites, observable)?;
+        let norm = state.norm();
+        Ok(observable
+            .terms()
+            .iter()
+            .fold(observable.identity_coefficient(), |sum, term| {
+                let (mut x, mut z) = (0usize, 0usize);
+                for &(site, pauli) in term.factors() {
+                    let bit = 1 << site;
+                    match pauli {
+                        Pauli::X => x |= bit,
+                        Pauli::Y => (x, z) = (x | bit, z | bit),
+                        Pauli::Z => z |= bit,
+                    }
+                }
+                sum + term.coefficient() * (state.pauli_expectation(x, z) / norm)
+            }))
+    }
+
+    fn shape(&self, state: &ReferenceState) -> Result<MpsShape, ReferenceError> {
+        let n = state.sites;
+        let bonds: Vec<usize> = (0..n.saturating_sub(1))
+            .map(|cut| state.schmidt_rank(cut))
+            .collect();
+        let sites = (0..n)
+            .map(|site| {
+                let left = site.checked_sub(1).and_then(|c| bonds.get(c).copied());
+                let right = bonds.get(site).copied();
+                left.into_iter().chain([2]).chain(right).collect()
+            })
+            .collect();
+        Ok(MpsShape::new(sites)
+            .expect("a chain of one or more qubit sites with Schmidt-rank bonds is a chain"))
+    }
+
+    /// ⟨ψ|ψ⟩: the reference holds the weight as the norm, since it never
+    /// truncates and its projection keeps the norm. On every state its
+    /// calls reach, that is 1 up to the drift the unitarity tolerance of
+    /// `apply` allows.
+    fn retained_weight(&self, state: &ReferenceState) -> Result<f64, ReferenceError> {
+        Ok(state.norm())
+    }
+}
