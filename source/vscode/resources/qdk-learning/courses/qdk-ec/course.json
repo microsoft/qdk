@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "title": "Develop and Test a QEC Protocol with QDK",
+  "shortDescription": "Define stabilizer codes, build and audit qodec protocols, upgrade gadgets for fault tolerance, and decode noisy QIR simulations with the QDK.",
+  "units": [
+    {
+      "id": "overview",
+      "title": "Tutorial Overview",
+      "dir": "00-overview"
+    },
+    {
+      "id": "stabilizer-codes",
+      "title": "Defining and Profiling a Stabilizer Code",
+      "dir": "01-stabilizer-codes"
+    },
+    {
+      "id": "instruction-sets",
+      "title": "Building a Baseline Qodec and Instruction Sets",
+      "dir": "02-instruction-sets"
+    },
+    {
+      "id": "gadget-anatomy",
+      "title": "Inspecting Gadgets, Checks, and Readouts",
+      "dir": "03-gadget-anatomy"
+    },
+    {
+      "id": "validate-and-audit",
+      "title": "Validating and Auditing a Protocol",
+      "dir": "04-validate-and-audit"
+    },
+    {
+      "id": "circuit-distance",
+      "title": "Analyzing Gadget Distance and Circuit Faults",
+      "dir": "05-circuit-distance"
+    },
+    {
+      "id": "fault-tolerant-gadgets",
+      "title": "Upgrading Gadgets for Fault Tolerance",
+      "dir": "06-fault-tolerant-gadgets"
+    },
+    {
+      "id": "qsharp-compilation",
+      "title": "Compiling Logical Experiments from Q#",
+      "dir": "07-qsharp-compilation"
+    },
+    {
+      "id": "openqasm-integration",
+      "title": "Calling Qodec Instructions from OpenQASM",
+      "dir": "08-openqasm-integration"
+    },
+    {
+      "id": "simulation-and-decoding",
+      "title": "Simulating and Decoding Under Noise",
+      "dir": "09-simulation-and-decoding"
+    },
+    {
+      "id": "capstone",
+      "title": "Capstone: Custom Gadgets and Hardware Noise",
+      "dir": "10-capstone"
+    }
+  ],
+  "environment": {
+    "importChecks": ["qdk", "qodec", "paulimer", "binar"]
+  }
+}
