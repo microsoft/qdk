@@ -35,8 +35,10 @@ pub(super) mod sealed {
     /// What the walk asks of a split choice: hidden from resumers, which
     /// only choose one.
     pub trait Sealed {
-        /// How many more calls the batch's piece may take, holding `held`
-        /// since its last stop: `None` where a batch is never split.
+        /// The piece's remaining capacity, in calls, `held` being the calls
+        /// it holds since its last stop: the walk cuts the piece where a call
+        /// would join it past that capacity. `None` where a batch is never
+        /// cut.
         fn room(self, held: usize) -> Option<usize>;
 
         /// The [`QirSplitChoice::Split`] of `calls`, the calls of a piece.
