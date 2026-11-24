@@ -294,7 +294,7 @@ async function openCourseNotebook(
   const courseId = service.getActiveCourseId();
   const cellId = service.getCurrentExerciseCellId();
   const includePreviousMarkdown =
-    cellId === undefined || !service.isActivityCellId(cellId, "quiz");
+    cellId !== undefined && !service.isActivityCellId(cellId, "quiz");
   await service.setCourseSelectedAndSave();
 
   let opened = false;

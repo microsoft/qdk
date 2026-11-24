@@ -18,7 +18,11 @@ import nbformat
 DEFAULT_COURSE = Path(__file__).resolve().parents[2] / "courses/chemistry-qpe"
 sys.path.insert(0, str(DEFAULT_COURSE))
 
-from _learning_output import authored_quizzes, validate_cell_roles  # noqa: E402
+from _learning_output import (  # noqa: E402
+    authored_quiz,
+    find_author_notebook,
+    validate_cell_roles,
+)
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("course", nargs="?", type=Path, default=DEFAULT_COURSE)
@@ -147,11 +151,6 @@ if "id" in manifest:
 
 for unit in manifest["units"]:
     directory = COURSE / unit["dir"]
-    notebooks = [
-        path
-        for path in directory.glob("*.ipynb")
-        if not path.name.endswith(".workbook.ipynb")
-    ]
     problems = []
     counts = Counter()
     exercise_authoring: dict[str, Counter] = {}
@@ -159,11 +158,12 @@ for unit in manifest["units"]:
     current_exercise: str | None = None
     uses_unit_module = False
 
-    if len(notebooks) != 1:
-        problems.append(f"expected 1 notebook, found {len(notebooks)}")
-
-    if len(notebooks) == 1:
-        notebook = nbformat.read(notebooks[0], as_version=4)
+    try:
+        source_notebook = find_author_notebook(directory)
+    except ValueError as error:
+        problems.append(str(error))
+    else:
+        notebook = nbformat.read(source_notebook, as_version=4)
         try:
             nbformat.validate(notebook)
         except nbformat.ValidationError as error:
@@ -209,9 +209,8 @@ for unit in manifest["units"]:
                 current_exercise = None
             counts["sections"] += any(tag.startswith("section:") for tag in tags)
             counts["quizzes"] += source.count("<details>")
-            counts["quizzes"] += len(
-                authored_quizzes(cell, cell_number=cell_number)
-            )
+            if authored_quiz(cell, cell_number=cell_number) is not None:
+                counts["quizzes"] += 1
             for name in re.findall(r'<svg[^>]+data-asset="([^"]+)"', source):
                 counts["inline_svgs"] += 1
                 if name not in EXPECTED_INLINE_SVGS:

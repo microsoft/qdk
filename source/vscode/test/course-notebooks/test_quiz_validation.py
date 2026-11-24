@@ -11,6 +11,7 @@ _helper = (
     / "resources/qdk-learning/courses/chemistry-qpe/_learning_output.py"
 )
 _helpers = runpy.run_path(str(_helper))
+find_author_notebook = _helpers["find_author_notebook"]
 validate_quizzes = _helpers["validate_quizzes"]
 validate_cell_roles = _helpers["validate_cell_roles"]
 MIME_TYPE = _helpers["MIME_TYPE"]
@@ -35,6 +36,40 @@ def _write_notebook(tmp_path: Path, *cells: dict) -> Path:
     path = tmp_path / "author.ipynb"
     path.write_text(json.dumps({"cells": list(cells)}), encoding="utf-8")
     return path
+
+
+@pytest.mark.parametrize("author_count", [0, 1, 2])
+def test_find_author_notebook_ignores_workbooks(tmp_path: Path, author_count: int) -> None:
+    (tmp_path / "renamed.workbook.ipynb").touch()
+    for index in range(author_count):
+        (tmp_path / f"renamed-{index}.ipynb").touch()
+
+    if author_count == 1:
+        assert find_author_notebook(tmp_path) == tmp_path / "renamed-0.ipynb"
+    else:
+        with pytest.raises(
+            ValueError,
+            match=f"expected exactly one author notebook .* found {author_count}",
+        ):
+            find_author_notebook(tmp_path)
+
+
+@pytest.mark.parametrize("correct_ids", [("b",), ("a", "b", "c")])
+def test_baker_accepts_multi_select_with_one_or_all_correct(
+    correct_ids: tuple[str, ...],
+) -> None:
+    options = [(id_, id_.upper(), id_ in correct_ids, None) for id_ in ("a", "b", "c")]
+    cell = _quiz_cell()
+    cell["source"] = (
+        f'quiz("example", prompt="Pick all that apply", options={options!r}, '
+        "multi_select=True, shuffle=False)"
+    )
+
+    assert bake_quizzes({"cells": [cell]}) == ["question-cell"]
+    payload = cell["outputs"][0]["data"][MIME_TYPE]
+    assert payload["multiSelect"] is True
+    correct = tuple(option["id"] for option in payload["options"] if option["correct"])
+    assert correct == correct_ids
 
 
 @pytest.mark.parametrize(

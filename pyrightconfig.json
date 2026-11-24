@@ -1,6 +1,14 @@
 {
   "pythonVersion": "3.10",
   "include": ["source/qdk_package/qdk"],
+  "executionEnvironments": [
+    {
+      "root": "source/vscode/resources/qdk-learning/utils/chemistry-qpe",
+      "extraPaths": [
+        "source/vscode/resources/qdk-learning/courses/chemistry-qpe"
+      ]
+    }
+  ],
   "reportMissingModuleSource": "none", // Allow .pyi without .py
   "typeCheckingMode": "standard",
   "reportMissingParameterType": "error"

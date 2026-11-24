@@ -284,6 +284,25 @@ suite("Learning notebook quiz activities", () => {
     assert.isTrue(isCorrectQuizAnswer(multiple, ["also-right", "right"]));
   });
 
+  test("allow multi-select with one correct option but reject extra choices", () => {
+    const { options } = parseLearningPayload({ ...quiz, multiSelect: true });
+    assert.isTrue(isCorrectQuizAnswer(options, ["right"]));
+    assert.isFalse(isCorrectQuizAnswer(options, ["right", "wrong"]));
+  });
+
+  test("allow multi-select with all options correct but reject partial answers", () => {
+    const { options } = parseLearningPayload({
+      ...quiz,
+      multiSelect: true,
+      options: [
+        quiz.options[0],
+        { id: "also-right", text: "Also right", correct: true },
+      ],
+    });
+    assert.isFalse(isCorrectQuizAnswer(options, ["right"]));
+    assert.isTrue(isCorrectQuizAnswer(options, ["right", "also-right"]));
+  });
+
   test("only accept bounded checked-answer messages with distinct option IDs", () => {
     const message = {
       type: "qdk-learning/quiz-answered",

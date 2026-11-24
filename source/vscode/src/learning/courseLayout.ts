@@ -46,9 +46,14 @@ export function workbookUri(unit: NotebookCatalogUnit): vscode.Uri {
 
 /** Notebook activities use the stable ID of their containing cell. */
 export function notebookCellId(activity: CatalogActivity): string | undefined {
-  return activity.type === "exercise" ||
-    activity.type === "code-cell" ||
-    activity.type === "quiz"
-    ? activity.id
-    : undefined;
+  switch (activity.type) {
+    case "exercise":
+    case "code-cell":
+    case "quiz":
+      return activity.id;
+    case "lesson":
+      return undefined;
+    default:
+      throw new Error(`Unhandled activity: ${activity satisfies never}`);
+  }
 }

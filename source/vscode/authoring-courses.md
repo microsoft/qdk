@@ -156,7 +156,7 @@ An explanation is shown for the options the learner picked, and for the rest onc
 Write each one as the reason that option is right or wrong rather than as a hint.
 A single-select question needs exactly one correct option, and ids must be unique; anything else raises when the cell runs, so mistakes surface while you're authoring.
 
-For a question with several right answers, pass `multi_select=True`:
+For a “Select all that apply” question, pass `multi_select=True`:
 
 ```python
 quiz(
@@ -171,12 +171,14 @@ quiz(
 )
 ```
 
-The learner then gets checkboxes and an explicit "Select all that apply", and has to find every correct option to pass.
-A multi-select question needs at least two correct options and at least one incorrect one — a "select all that apply" with a single answer teaches learners to distrust the instruction, and one where everything applies can't be answered wrongly.
+The learner gets checkboxes and must select every correct option and no others.
+At least one option must be correct. There can be just one correct option, or
+every option can be correct.
 
 Options are shuffled, seeded from the quiz id.
 It's natural to write the correct answer first, which would otherwise make "always pick A" a winning strategy across a unit.
-The order is stable, so re-running the notebook doesn't reshuffle or produce a spurious diff.
+The same quiz ID and option list give a stable order. Pass `shuffle=False` to
+keep the order you wrote, for example when placing "All of the above" last.
 
 Keep each quiz cell limited to one standalone `quiz(...)` call and comments.
 Arguments must be literal data: use strings, lists/tuples, and booleans rather
@@ -192,17 +194,19 @@ from functools import partial
 from pathlib import Path
 
 from _learning_output import (
+    find_author_notebook,
     quiz_for_notebook,
     validate_quizzes as _validate_quizzes,
 )
 
-_notebook = Path(__file__).resolve().with_name("my_unit.ipynb")
+_notebook = find_author_notebook(Path(__file__).resolve().parent)
 quiz = quiz_for_notebook(_notebook)
 validate_quizzes = partial(_validate_quizzes, _notebook)
 ```
 
-This binding covers every question in the notebook; adding a question needs no
-new helper registration. Question content stays in the author notebook.
+The helper expects exactly one author notebook next to `_unit.py` and ignores
+`*.workbook.ipynb` copies. The binding covers every question in the notebook;
+adding a question needs no new helper registration.
 
 Materialization extracts only the plain quoted name at the start of the supported
 authoring form, then replaces the definition with a named call such as

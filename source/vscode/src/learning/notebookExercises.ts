@@ -60,16 +60,16 @@ const QUIZ_HEADER = new RegExp(
   String.raw`^${QUIZ_TRIVIA}quiz[ \t]*\(${QUIZ_TRIVIA}(["'])([^"'\\\r\n]*)\1${QUIZ_TRIVIA},`,
 );
 
-/** Tags marking author-only cells, removed from the learner's working copy. */
-const AUTHORING_TAGS = ["hint", "solution", "explanation"] as const;
+/** Author cells associated with an exercise, removed from learner workbooks. */
+const EXERCISE_AUTHORING_TAGS = ["hint", "solution", "explanation"] as const;
 
 /** Notebook-level author content, not associated with an exercise. */
-const AUTHOR_ONLY_TAG = "author-only";
+const NOTEBOOK_AUTHOR_ONLY_TAG = "author-only";
 
 /** Test-only tag removed from cells in the learner's working copy. */
 const SKIP_TEST_TAG = "skip-test";
 
-type AuthoringTag = (typeof AUTHORING_TAGS)[number];
+type ExerciseAuthoringTag = (typeof EXERCISE_AUTHORING_TAGS)[number];
 
 /** The subset of an nbformat cell this module reads. */
 interface RawCell {
@@ -117,7 +117,7 @@ export function parseNotebookActivities(
     const cell = cells[i];
     const tags = cellTags(cell);
 
-    if (tags.includes(AUTHOR_ONLY_TAG)) {
+    if (tags.includes(NOTEBOOK_AUTHOR_ONLY_TAG)) {
       continue;
     }
 
@@ -144,7 +144,7 @@ export function parseNotebookActivities(
       continue;
     }
 
-    const authoringTag = AUTHORING_TAGS.find((t) => tags.includes(t));
+    const authoringTag = EXERCISE_AUTHORING_TAGS.find((t) => tags.includes(t));
 
     // Treat all code cells as activities, but only update current for EXERCISE_TAG.
     // Treating non-exercises as exercises is a bit of a hack, but it should do the
@@ -247,9 +247,10 @@ export function parseNotebookActivities(
  * Remove the author-only cells from a notebook's JSON text, returning the
  * notebook the learner works in.
  *
- * Dedicated quiz cells get a lookup call using their authored question ID, preserving
- * saved outputs when available. Other retained cells preserve their
- * content, ids, and tags except the test-only `skip-test` tag.
+ * Dedicated quiz cells get a lookup call using their authored quiz ID. The
+ * prompt is in the saved output, which is preserved when available.
+ * Other retained cells preserve their content, ids, and tags except the
+ * test-only `skip-test` tag.
  * Returns `undefined` if the text isn't a notebook. A missing quiz-cell ID/name
  * throws so the caller cannot copy answer-bearing source as a fallback.
  */
@@ -265,8 +266,8 @@ export function stripAuthoringCells(
   notebook.cells = notebook.cells.filter((cell) => {
     const tags = cellTags(cell);
     return (
-      !tags.includes(AUTHOR_ONLY_TAG) &&
-      !AUTHORING_TAGS.some((t) => tags.includes(t))
+      !tags.includes(NOTEBOOK_AUTHOR_ONLY_TAG) &&
+      !EXERCISE_AUTHORING_TAGS.some((t) => tags.includes(t))
     );
   });
 
@@ -372,11 +373,11 @@ function cellSource(cell: RawCell): string {
   return "";
 }
 
-function expectedKind(tag: AuthoringTag): "code" | "markdown" {
+function expectedKind(tag: ExerciseAuthoringTag): "code" | "markdown" {
   return tag === "solution" ? "code" : "markdown";
 }
 
-function hasExpectedKind(cell: RawCell, tag: AuthoringTag): boolean {
+function hasExpectedKind(cell: RawCell, tag: ExerciseAuthoringTag): boolean {
   return cellKind(cell) === expectedKind(tag);
 }
 
@@ -400,12 +401,12 @@ function extractTitleFromPrecedingCell(
   for (let i = exerciseIndex - 1; i >= 0; i--) {
     const cell = cells[i];
     const tags = cellTags(cell);
-    if (tags.includes(AUTHOR_ONLY_TAG)) {
+    if (tags.includes(NOTEBOOK_AUTHOR_ONLY_TAG)) {
       continue;
     }
     if (
       tags.includes(EXERCISE_TAG) ||
-      AUTHORING_TAGS.some((t) => tags.includes(t))
+      EXERCISE_AUTHORING_TAGS.some((t) => tags.includes(t))
     ) {
       break;
     }

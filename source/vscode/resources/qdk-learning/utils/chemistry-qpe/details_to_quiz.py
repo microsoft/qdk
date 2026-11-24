@@ -22,12 +22,14 @@ sys.path.insert(0, str(COURSE))
 
 from _learning_output import (  # noqa: E402
     MIME_TYPE,
+    find_author_notebook,
     notebook_quiz_outputs,
     read_quiz_notebook,
 )
 
 
 def _normalize_bundle(value: Any) -> Any:
+    """Compare outputs even when nbformat stores text as a list of lines."""
     if isinstance(value, list):
         if all(isinstance(line, str) for line in value):
             return "".join(value)
@@ -52,21 +54,23 @@ def bake_quizzes(notebook: dict[str, Any]) -> list[str]:
     for cell in notebook["cells"]:
         if cell.get("cell_type") != "code":
             continue
-        rendered = iter(
-            {
+        quiz_output = outputs.get(cell.get("id"))
+        replacement = None
+        if quiz_output is not None:
+            replacement = {
                 "output_type": "display_data",
-                "data": output._repr_mimebundle_(),
+                "data": quiz_output._repr_mimebundle_(),
                 "metadata": {},
             }
-            for output in outputs.get(cell.get("id"), [])
-        )
         expected = []
         for output in cell.get("outputs", []):
             if MIME_TYPE not in output.get("data", {}):
                 expected.append(output)
-            elif (replacement := next(rendered, None)) is not None:
+            elif replacement is not None:
                 expected.append(replacement)
-        expected.extend(rendered)
+                replacement = None
+        if replacement is not None:
+            expected.append(replacement)
         if _normalize_bundle(cell.get("outputs", [])) == _normalize_bundle(expected):
             continue
         cell["outputs"] = expected
@@ -86,16 +90,10 @@ def main() -> int:
     args = parser.parse_args()
 
     unit_dir = args.course / args.unit
-    notebooks = sorted(
-        path
-        for path in unit_dir.glob("*.ipynb")
-        if not path.name.endswith(".workbook.ipynb")
-    )
-    if len(notebooks) != 1:
-        parser.error(
-            f"expected exactly one author notebook in {unit_dir}, found {len(notebooks)}"
-        )
-    source = notebooks[0]
+    try:
+        source = find_author_notebook(unit_dir)
+    except ValueError as error:
+        parser.error(str(error))
     notebook = read_quiz_notebook(source)
     if not any(
         "quiz" in cell.get("metadata", {}).get("tags", [])

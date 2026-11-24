@@ -34,11 +34,8 @@ export type MultipleChoicePayload = LearningPayloadBase & {
     explanation?: string;
   }>;
   /**
-   * More than one option is correct, and the learner must find all of them.
-   *
-   * Drives checkboxes rather than radios, and an explicit instruction — a
-   * learner who assumes one answer would stop at the first correct option and
-   * be marked wrong for a question they understood.
+   * Show checkboxes and a "Select all that apply" instruction instead of
+   * radios. One, some, or all options may be correct.
    */
   multiSelect?: boolean;
 };
@@ -302,18 +299,7 @@ export function parseLearningPayload(value: unknown): LearningPayload {
   if (correct === 0) {
     throw new Error("QDK learning payload has no correct option.");
   }
-  if (payload.multiSelect === true) {
-    if (correct < 2) {
-      throw new Error(
-        "QDK learning payload says select all that apply but marks one option correct.",
-      );
-    }
-    if (correct === options.length) {
-      throw new Error(
-        "QDK learning payload marks every option correct, so it cannot be answered wrongly.",
-      );
-    }
-  } else if (correct > 1) {
+  if (payload.multiSelect !== true && correct > 1) {
     throw new Error(
       `QDK learning payload marks ${correct} options correct but is not multi-select.`,
     );

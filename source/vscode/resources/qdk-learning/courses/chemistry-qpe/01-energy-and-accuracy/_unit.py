@@ -10,10 +10,11 @@ if _course_root not in sys.path:
 
 from _check_env import check as check_env  # noqa: E402, F401
 from _learning_output import (  # noqa: E402
+    find_author_notebook,
     quiz_for_notebook,
     validate_quizzes as _validate_quizzes,
 )
 
-_notebook = Path(__file__).resolve().with_name("energy_and_accuracy.ipynb")
+_notebook = find_author_notebook(Path(__file__).resolve().parent)
 quiz = quiz_for_notebook(_notebook)
 validate_quizzes = partial(_validate_quizzes, _notebook)

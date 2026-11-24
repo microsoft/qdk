@@ -82,15 +82,16 @@ separate, explicit step:
 
 The baker calls the quiz emitter directly, without starting a kernel or executing
 notebook cells. It refreshes only quiz outputs, preserving source and cell IDs.
-`--check` reports stale outputs without writing. Materialization never invokes
-the baker: it preserves available outputs and replaces definitions with named
-calls such as `quiz("energy-total-components")`. Learner reruns resolve those
-calls against the saved author source, not its outputs.
+Like the converter's `--check`, this mode leaves the file alone and exits with
+status `1` if it would change the output. Creating a learner workbook never
+invokes the baker: it copies any saved quiz outputs and replaces definitions
+with named calls such as `quiz("energy-total-components")`. When a learner reruns
+a quiz, that call reads the definition from the author notebook.
 
 `rst_to_notebook.py` reconstructs notebooks from the upstream tutorial and does
 not retain handwritten quiz definitions. Do not regenerate a converted chapter
 merely to rebake it; preserve and reapply its reviewed definitions when updating
 from upstream.
 
-Answers travel to the browser in the saved MIME output because the renderer
-grades without a kernel. This is self-paced learning, not a secure assessment.
+The saved quiz output includes the answer key so learners can check answers
+without starting a Python kernel.

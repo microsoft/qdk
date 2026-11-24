@@ -11,8 +11,8 @@ import type { NotebookCatalogCourse, NotebookCatalogUnit } from "../types.js";
 /**
  * Materialize the working copy for every unit in the course: derive each
  * `*.workbook.ipynb` sibling from the authored notebook. Existing workbooks
- * are never overwritten, preserving learner edits. If a unit fails to
- * materialize, log the error so the rest of the course can still load.
+ * are never overwritten, preserving learner edits. A failed unit stays in
+ * the catalog; log the error and continue creating the other workbooks.
  */
 export async function materializeCourseWorkbooks(
   course: NotebookCatalogCourse,

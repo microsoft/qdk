@@ -5,16 +5,14 @@ import from it and re-export the small authoring surface the notebooks need.
 
 The output model
 ----------------
-Each helper returns a lightweight display object carrying three views of the
-same content: a custom QDK MIME payload, a ``text/html`` fallback, and a
-``text/plain`` fallback. IPython writes all three into the ``.ipynb``; VS Code
-picks the custom one and renders it interactively, while other notebook hosts
-fall back to clean, non-interactive HTML or plain text.
+Quiz outputs include a QDK MIME payload for the interactive VS Code renderer,
+static HTML for other notebook frontends, and plain text for text-only
+frontends such as terminal IPython.
 
-The payload shape is mirrored by ``src/notebookRenderer/schema.ts``. The two
-are compared at build time by ``checkRendererContract()`` in ``build.mjs``, so
-renaming a field on one side without the other fails the build rather than
-producing an empty cell in front of a learner.
+The QDK renderer defines the payload shape (``source/vscode/src/notebookRenderer/schema.ts``
+in ``microsoft/qdk``). When the VS Code extension builds, its
+``checkRendererContract()`` check compares shared constants and payload fields
+in the Python emitter and renderer.
 """
 
 from __future__ import annotations
@@ -31,30 +29,26 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 
 MIME_TYPE = "application/vnd.qdk.learning+json"
 
+# Well-known cell roles in the learning notebook format.
 _CELL_ROLE_TAGS = frozenset(
     {"exercise", "quiz", "hint", "solution", "explanation", "author-only"}
 )
 
-#: A quiz or option id has to survive the trip to the extension host, which
-#: accepts only this shape from a notebook — nothing longer, and nothing that
-#: could read as prose. Enforcing it here means an author finds out when they
-#: run the cell, rather than a learner finding the "Why is that wrong?" button
-#: quietly doing less than it should. Keep in step with `ID_PATTERN` in
-#: `schema.ts`.
+# Match the quiz and option IDs accepted by the VS Code extension host
+# (ID_PATTERN in source/vscode/src/notebookRenderer/schema.ts in microsoft/qdk).
 _ID_RE = re.compile(r"\A[a-z0-9][a-z0-9-]{0,63}\Z")
 
-# Keep the literal-ID header in step with QUIZ_HEADER in notebookExercises.ts.
+# Match the literal-ID header used to generate learner quiz calls in VS Code
+# (QUIZ_HEADER in source/vscode/src/learning/notebookExercises.ts in microsoft/qdk).
 _QUIZ_TRIVIA = r"(?:\s|#[^\r\n]*(?:\r?\n|$))*"
 _QUIZ_HEADER = re.compile(
     rf"""^{_QUIZ_TRIVIA}quiz[ \t]*\({_QUIZ_TRIVIA}(["'])([^"'\\\r\n]*)\1{_QUIZ_TRIVIA},"""
 )
 
-#: The host drops an action naming more options than this, so a longer question
-#: would render fine and then leave "Why is that wrong?" quietly doing less than
-#: it should for every learner who selected them all. Refusing here makes that
-#: an authoring error instead. Keep in step with `MAX_OPTION_IDS` in
-#: `schema.ts`.
+# The VS Code extension host limits the number of IDs in a quiz message
+# (MAX_OPTION_IDS in source/vscode/src/notebookRenderer/schema.ts in microsoft/qdk).
 _MAX_OPTIONS = 8
+_QuizOption = tuple[str, str, bool, str | None]
 
 _CARD_STYLE = (
     "font-family:var(--qdk-font-family, system-ui, sans-serif);"
@@ -67,9 +61,7 @@ _CARD_STYLE = (
     "overflow:hidden;"
 )
 
-#: The burnt-orange band the chemistry tutorial already uses to mark a
-#: self-check question. The fallback matters: this HTML is what a host without
-#: the QDK renderer shows, and it has no ``--qdk-*`` palette to resolve.
+# Use the tutorial's self-check band even without QDK theme variables.
 _QUIZ_HEADER_STYLE = (
     "background:var(--qdk-quiz-accent, #8c4a00);"
     "color:var(--qdk-quiz-accent-foreground, #ffffff);"
@@ -103,7 +95,7 @@ class LearningOutput:
         include: Iterable[str] | None = None,
         exclude: Iterable[str] | None = None,
     ) -> dict[str, Any]:
-        """Return the custom MIME payload plus HTML and plain text fallbacks."""
+        """Return the three representations, filtered as requested by IPython."""
         bundle: dict[str, Any] = {
             MIME_TYPE: dict(self.payload),
             "text/html": self.html,
@@ -124,7 +116,7 @@ class LearningOutput:
 
 def multiple_choice(
     prompt: str,
-    options: Sequence[Sequence[Any]],
+    options: Sequence[_QuizOption],
     *,
     multi_select: bool = False,
     payload_id: str | None = None,
@@ -133,11 +125,11 @@ def multiple_choice(
 
     ``options`` are ``(id, text, correct, explanation)`` tuples. Option ids must
     be unique, and a question needs at least two options, so authoring mistakes
-    fail loudly when the notebook cell is run.
+    fail when the author runs the cell that declares the quiz.
 
     A single-select question needs exactly one correct option. Pass
-    ``multi_select=True`` for a question with several right answers; the learner
-    then has to find all of them, and is told so.
+    ``multi_select=True`` to show checkboxes. The learner must select every
+    correct option and no others, even when one or all options are correct.
     """
     normalized = _normalize_options(options, multi_select=multi_select)
     if not isinstance(prompt, str) or not prompt.strip():
@@ -174,6 +166,20 @@ def multiple_choice(
 # ---------------------------------------------------------------------------
 
 
+def find_author_notebook(unit_dir: Path) -> Path:
+    """Find the unit's single authored notebook, excluding learner workbooks."""
+    notebooks = [
+        path
+        for path in unit_dir.glob("*.ipynb")
+        if not path.name.endswith(".workbook.ipynb") and path.is_file()
+    ]
+    if len(notebooks) != 1:
+        raise ValueError(
+            f"expected exactly one author notebook in {unit_dir}, found {len(notebooks)}"
+        )
+    return notebooks[0]
+
+
 def quiz_for_notebook(notebook: Path) -> Callable[..., None]:
     """Bind learner reruns to one authored notebook, without registering IDs."""
     if not notebook.is_absolute():
@@ -181,13 +187,8 @@ def quiz_for_notebook(notebook: Path) -> Callable[..., None]:
     return partial(quiz, notebook=notebook)
 
 
-def _shuffled(seed: str, options: Sequence[Sequence[Any]]) -> list[Sequence[Any]]:
-    """Permute options deterministically from a string seed.
-
-    ``random.Random`` derives its state from a hash of the string rather than
-    from ``PYTHONHASHSEED``, so the same id yields the same order on every
-    machine and every run.
-    """
+def _shuffled(seed: str, options: Sequence[_QuizOption]) -> list[_QuizOption]:
+    """Shuffle a copy in a repeatable order for the same seed and option list."""
     shuffled = list(options)
     random.Random(seed).shuffle(shuffled)  # DevSkim: ignore DS148264
     return shuffled
@@ -197,7 +198,7 @@ def quiz(
     quiz_id: str,
     *,
     prompt: str | None = None,
-    options: Sequence[Sequence[Any]] | None = None,
+    options: Sequence[_QuizOption] | None = None,
     multi_select: bool = False,
     shuffle: bool = True,
     notebook: Path | None = None,
@@ -205,8 +206,9 @@ def quiz(
     """Display an author definition or resolve a named learner quiz from source.
 
     Supply one id, ``prompt`` and ``options`` to construct an authored quiz
-    directly. ID-only calls read saved source on every rerun, never outputs,
-    and do not change the author notebook.
+    directly. Use ``shuffle=False`` to keep the options in author order.
+    ID-only calls read saved source on every rerun, never outputs, and do not
+    change the author notebook.
     """
     try:
         from IPython.display import display
@@ -234,8 +236,7 @@ def quiz(
         raise ValueError("learner quiz() calls need a source notebook binding")
     outputs = {
         output.payload["payloadId"]: output
-        for rendered in notebook_quiz_outputs(read_quiz_notebook(notebook)).values()
-        for output in rendered
+        for output in notebook_quiz_outputs(read_quiz_notebook(notebook)).values()
     }
     if quiz_id not in outputs:
         raise ValueError(f"no quiz {quiz_id!r} is authored in {notebook}")
@@ -245,7 +246,7 @@ def quiz(
 def _quiz_output(
     quiz_id: str,
     prompt: str,
-    options: Sequence[Sequence[Any]],
+    options: Sequence[_QuizOption],
     *,
     multi_select: bool = False,
     shuffle: bool = True,
@@ -266,125 +267,127 @@ def read_quiz_notebook(notebook: Path) -> dict[str, Any]:
     return document
 
 
-def _quiz_label(quiz_id: object, cell_number: int | None = None) -> str:
+def _quiz_error_context(quiz_id: object, cell_number: int | None = None) -> str:
     location = f"cell {cell_number}" if cell_number is not None else ""
     if isinstance(quiz_id, str) and quiz_id.strip():
         return f"Quiz {quiz_id!r}" + (f" ({location})" if location else "")
     return location.capitalize() if location else "Quiz cell"
 
 
-def _cell_source(cell: Mapping[str, Any], label: str) -> str:
+def _cell_source(cell: Mapping[str, Any], error_context: str) -> str:
     source = cell.get("source", "")
     if isinstance(source, list) and all(isinstance(line, str) for line in source):
         source = "".join(source)
     if not isinstance(source, str):
-        raise ValueError(f"{label}: expected source text")
+        raise ValueError(f"{error_context}: expected source text")
     return source
 
 
-def authored_quizzes(
+def _quiz_call(statement: ast.stmt) -> ast.Call | None:
+    if (
+        isinstance(statement, ast.Expr)
+        and isinstance(statement.value, ast.Call)
+        and isinstance(statement.value.func, ast.Name)
+        and statement.value.func.id == "quiz"
+    ):
+        return statement.value
+    return None
+
+
+def authored_quiz(
     cell: Mapping[str, Any], *, cell_number: int | None = None
-) -> list[tuple[str, dict[str, Any]]]:
-    """Read literal quiz definitions without executing any notebook code."""
+) -> tuple[str, dict[str, Any]] | None:
+    """Read a quiz cell's single literal definition without executing Python."""
     if (
         cell.get("cell_type") != "code"
         or "quiz" not in cell.get("metadata", {}).get("tags", [])
     ):
-        return []
-    cell_label = _quiz_label(None, cell_number)
-    source = _cell_source(cell, cell_label)
+        return None
+    cell_context = _quiz_error_context(None, cell_number)
+    source = _cell_source(cell, cell_context)
     try:
         tree = ast.parse(source)
     except SyntaxError as error:
-        raise ValueError(f"{cell_label}: invalid quiz syntax: {error.msg}") from error
+        raise ValueError(f"{cell_context}: invalid quiz syntax: {error.msg}") from error
     if len(tree.body) != 1:
-        raise ValueError(f"{cell_label}: write exactly one quiz() definition per quiz cell")
-    authored = []
-    for statement in tree.body:
-        if (
-            not isinstance(statement, ast.Expr)
-            or not isinstance(statement.value, ast.Call)
-            or not isinstance(statement.value.func, ast.Name)
-            or statement.value.func.id != "quiz"
-        ):
-            raise ValueError(f"{cell_label}: only quiz() calls and comments are allowed")
-        call = statement.value
-        if len(call.args) != 1:
-            raise ValueError(f"{cell_label}: expected quiz(id, prompt=..., options=...)")
-        fields: dict[str, Any] = {}
-        try:
-            quiz_id = ast.literal_eval(call.args[0])
-        except (ValueError, TypeError):
-            raise ValueError(f"{cell_label}: quiz id must be a literal string") from None
-        label = _quiz_label(quiz_id, cell_number)
-        header = _QUIZ_HEADER.match(source)
-        if header is None or header.group(2) != quiz_id:
+        raise ValueError(
+            f"{cell_context}: write exactly one quiz() definition per quiz cell"
+        )
+    call = _quiz_call(tree.body[0])
+    if call is None:
+        raise ValueError(f"{cell_context}: only quiz() calls and comments are allowed")
+    if len(call.args) != 1:
+        raise ValueError(f"{cell_context}: expected quiz(id, prompt=..., options=...)")
+    try:
+        quiz_id = ast.literal_eval(call.args[0])
+    except (ValueError, TypeError):
+        raise ValueError(f"{cell_context}: quiz id must be a literal string") from None
+    context = _quiz_error_context(quiz_id, cell_number)
+    header = _QUIZ_HEADER.match(source)
+    if header is None or header.group(2) != quiz_id:
+        raise ValueError(
+            f'{context}: write the quiz ID as a plain quoted string, e.g. quiz("my-quiz", ...)'
+        )
+    fields: dict[str, Any] = {}
+    for keyword in call.keywords:
+        if keyword.arg is None:
             raise ValueError(
-                f'{label}: write the quiz ID as a plain quoted string, e.g. quiz("my-quiz", ...)'
+                f"{context}: **kwargs are not supported; write quiz arguments explicitly"
             )
-        for keyword in call.keywords:
-            if keyword.arg is None:
-                raise ValueError(
-                    f"{label}: **kwargs are not supported; write quiz arguments explicitly"
-                )
-            if (
-                keyword.arg not in {"prompt", "options", "multi_select", "shuffle"}
-                or keyword.arg in fields
-            ):
-                raise ValueError(
-                    f"{label}: unsupported or duplicate quiz field {keyword.arg!r}"
-                )
-            try:
-                fields[keyword.arg] = ast.literal_eval(keyword.value)
-            except (ValueError, TypeError):
-                raise ValueError(
-                    f"{label}: {keyword.arg} must be literal data, not a variable or call"
-                ) from None
-        if not isinstance(quiz_id, str) or not {"prompt", "options"} <= fields.keys():
-            raise ValueError(f"{label}: quiz needs a string id, prompt and options")
-        if any(
-            not isinstance(fields.get(name, False), bool)
-            for name in ("multi_select", "shuffle")
+        if (
+            keyword.arg not in {"prompt", "options", "multi_select", "shuffle"}
+            or keyword.arg in fields
         ):
-            raise ValueError(f"{label}: multi_select and shuffle must be booleans")
-        authored.append((quiz_id, fields))
-    return authored
+            raise ValueError(
+                f"{context}: unsupported or duplicate quiz field {keyword.arg!r}"
+            )
+        try:
+            fields[keyword.arg] = ast.literal_eval(keyword.value)
+        except (ValueError, TypeError):
+            raise ValueError(
+                f"{context}: {keyword.arg} must be literal data, not a variable or call"
+            ) from None
+    if not isinstance(quiz_id, str) or not {"prompt", "options"} <= fields.keys():
+        raise ValueError(f"{context}: quiz needs a string id, prompt and options")
+    if any(
+        not isinstance(fields.get(name, False), bool)
+        for name in ("multi_select", "shuffle")
+    ):
+        raise ValueError(f"{context}: multi_select and shuffle must be booleans")
+    return quiz_id, fields
 
 
 def notebook_quiz_outputs(
     document: Mapping[str, Any],
-) -> dict[str, list[LearningOutput]]:
+) -> dict[str, LearningOutput]:
     """Generate each quiz cell's outputs from source, ignoring saved outputs."""
     cells = document.get("cells")
     if not isinstance(cells, list):
         raise ValueError("quiz notebook must contain a cells array")
-    outputs = {}
+    outputs: dict[str, LearningOutput] = {}
     seen_ids: set[str] = set()
     for cell_number, cell in enumerate(cells, start=1):
         if not isinstance(cell, dict):
             raise ValueError(f"Cell {cell_number}: expected a notebook cell object")
-        definitions = authored_quizzes(cell, cell_number=cell_number)
-        if not definitions:
+        definition = authored_quiz(cell, cell_number=cell_number)
+        if definition is None:
             continue
+        quiz_id, fields = definition
+        context = _quiz_error_context(quiz_id, cell_number)
         cell_id = cell.get("id")
         if not isinstance(cell_id, str) or not cell_id or cell_id in outputs:
             raise ValueError(
-                f"{_quiz_label(definitions[0][0], cell_number)}: "
-                "quiz cells need unique, nonempty notebook cell IDs"
+                f"{context}: quiz cells need unique, nonempty notebook cell IDs"
             )
-        rendered = []
-        for quiz_id, fields in definitions:
-            label = _quiz_label(quiz_id, cell_number)
-            if quiz_id in seen_ids:
-                raise ValueError(
-                    f"{label}: duplicate quiz ID; choose a unique ID within this notebook"
-                )
-            seen_ids.add(quiz_id)
-            try:
-                rendered.append(_quiz_output(quiz_id, **fields))
-            except (TypeError, ValueError) as error:
-                raise ValueError(f"{label}: {error}") from None
-        outputs[cell_id] = rendered
+        if quiz_id in seen_ids:
+            raise ValueError(
+                f"{context}: duplicate quiz ID; choose a unique ID within this notebook"
+            )
+        seen_ids.add(quiz_id)
+        try:
+            outputs[cell_id] = _quiz_output(quiz_id, **fields)
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"{context}: {error}") from None
     return outputs
 
 
@@ -405,41 +408,34 @@ def validate_quizzes(notebook: Path) -> None:
     """Validate saved author source without running cells or changing outputs."""
     document = read_quiz_notebook(notebook)
     for cell_number, cell in enumerate(document["cells"], start=1):
-        label = _quiz_label(None, cell_number)
+        context = _quiz_error_context(None, cell_number)
         if not isinstance(cell, dict):
-            raise ValueError(f"{label}: expected a notebook cell object")
+            raise ValueError(f"{context}: expected a notebook cell object")
         tags = cell.get("metadata", {}).get("tags", [])
         if "quiz" in tags:
             validate_cell_roles(cell, cell_number=cell_number)
             if cell.get("cell_type") != "code":
-                raise ValueError(f"{label}: the 'quiz' tag belongs on a code cell")
+                raise ValueError(f"{context}: the 'quiz' tag belongs on a code cell")
             continue
         if cell.get("cell_type") != "code":
             continue
-        source = _cell_source(cell, label)
+        source = _cell_source(cell, context)
         if not re.search(r"\bquiz\s*\(", source):
             continue
         try:
             tree = ast.parse(source)
         except SyntaxError as error:
             raise ValueError(
-                f"{label}: cannot check quiz calls in invalid Python: {error.msg}"
+                f"{context}: cannot check quiz calls in invalid Python: {error.msg}"
             ) from error
         for statement in tree.body:
-            if (
-                isinstance(statement, ast.Expr)
-                and isinstance(statement.value, ast.Call)
-                and isinstance(statement.value.func, ast.Name)
-                and statement.value.func.id == "quiz"
-            ):
-                argument = statement.value.args[0] if statement.value.args else None
-                label = _quiz_label(
-                    argument.value if isinstance(argument, ast.Constant) else None,
-                    cell_number,
-                )
-                raise ValueError(f"{label}: add the 'quiz' tag to this code cell")
-    outputs = notebook_quiz_outputs(document)
-    count = sum(len(rendered) for rendered in outputs.values())
+            call = _quiz_call(statement)
+            if call is not None:
+                argument = call.args[0] if call.args else None
+                quiz_id = argument.value if isinstance(argument, ast.Constant) else None
+                context = _quiz_error_context(quiz_id, cell_number)
+                raise ValueError(f"{context}: add the 'quiz' tag to this code cell")
+    count = len(notebook_quiz_outputs(document))
     noun = "quiz" if count == 1 else "quizzes"
     print(f"Validated {count} {noun} in {notebook.name}.")
 
@@ -450,7 +446,7 @@ def validate_quizzes(notebook: Path) -> None:
 
 
 def _normalize_options(
-    options: Sequence[Sequence[Any]],
+    options: Sequence[_QuizOption],
     *,
     multi_select: bool = False,
 ) -> list[dict[str, Any]]:
@@ -515,21 +511,7 @@ def _normalize_options(
     if correct_count == 0:
         raise ValueError("multiple_choice requires at least one correct option")
 
-    if multi_select:
-        # A "select all that apply" with one answer teaches the learner to
-        # distrust the instruction, and one where everything applies isn't a
-        # question. Both are authoring mistakes, not learner mistakes.
-        if correct_count < 2:
-            raise ValueError(
-                "multi_select questions need at least two correct options; "
-                "drop multi_select=True for a single-answer question"
-            )
-        if correct_count == len(normalized):
-            raise ValueError(
-                "every option is marked correct, so the question cannot be "
-                "answered wrongly"
-            )
-    elif correct_count > 1:
+    if not multi_select and correct_count > 1:
         # The renderer grades by comparing the selected set with the correct
         # set, and a radio group holds one selection — so a single-select
         # question with two correct answers can never be answered right.

@@ -15,11 +15,12 @@ from _course_lib import (  # noqa: E402, F401
     register_value_exercise,
 )
 from _learning_output import (  # noqa: E402
+    find_author_notebook,
     quiz_for_notebook,
     validate_quizzes as _validate_quizzes,
 )
 
-_notebook = Path(__file__).resolve().with_name("iterative_phase_estimation.ipynb")
+_notebook = find_author_notebook(Path(__file__).resolve().parent)
 quiz = quiz_for_notebook(_notebook)
 validate_quizzes = partial(_validate_quizzes, _notebook)
 
