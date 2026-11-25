@@ -4,21 +4,23 @@
 mod correlated_noise;
 pub(crate) mod cpu_simulators;
 pub(crate) mod gpu_full_state;
+pub(crate) mod tensor_network;
 
 use std::fmt::{Display, Write};
 
+use crate::interpreter::Result as QsResult;
 use crate::qir_simulation::correlated_noise::parse_noise_table;
 
 use num_traits::{Float, Unsigned};
 use pyo3::{
-    Bound, FromPyObject, Py, PyAny, PyRef, PyResult, Python,
+    Bound, FromPyObject, IntoPyObjectExt, Py, PyAny, PyRef, PyResult, Python,
     exceptions::{PyAttributeError, PyKeyError, PyTypeError, PyValueError},
     pybacked::PyBackedStr,
     pyclass, pymethods,
-    types::{PyAnyMethods, PyDict, PyTuple},
+    types::{PyAnyMethods, PyDict, PyList, PyTuple},
 };
 use qdk_simulators::{
-    bytecode,
+    MeasurementResult, OutputRecord, bytecode,
     noise_config::{PauliAndLossString, encode_pauli, is_pauli_identity},
 };
 use rustc_hash::FxHashMap;
@@ -1061,4 +1063,48 @@ fn push_default_if_empty<T: Default>(v: &mut Vec<T>) {
     if v.is_empty() {
         v.push(T::default());
     }
+}
+
+/// Map a raw [`MeasurementResult`] to its Python `Result` enum counterpart.
+fn measurement_result_to_py(value: MeasurementResult) -> QsResult {
+    match value {
+        MeasurementResult::Zero => QsResult::Zero,
+        MeasurementResult::One => QsResult::One,
+        MeasurementResult::Loss => QsResult::Loss,
+    }
+}
+
+/// Convert a single [`OutputRecord`] to a native Python object. Measurement
+/// results become `Result` enum values; classical records become the matching
+/// native type (`bool` → `bool`, `int` → `int`, `double` → `float`).
+fn output_record_to_py(py: Python<'_>, record: OutputRecord) -> PyResult<Py<PyAny>> {
+    match record {
+        OutputRecord::Result(value) => measurement_result_to_py(value).into_py_any(py),
+        OutputRecord::Bool(b) => b.into_py_any(py),
+        OutputRecord::Int(i) => i.into_py_any(py),
+        OutputRecord::Double(d) => d.into_py_any(py),
+    }
+}
+
+/// Build the Python return value for a run: a list with one entry per shot,
+/// where each entry is the ordered list of that shot's recorded output values.
+pub(crate) fn output_records_to_pylist(
+    py: Python<'_>,
+    output: Vec<Vec<OutputRecord>>,
+) -> PyResult<Py<PyAny>> {
+    let mut array = Vec::with_capacity(output.len());
+    for shot_records in output {
+        let mut values = Vec::with_capacity(shot_records.len());
+        for record in shot_records {
+            values.push(output_record_to_py(py, record)?);
+        }
+        array.push(
+            PyList::new(py, values)
+                .map_err(|e| PyValueError::new_err(format!("failed to create Python list: {e}")))?
+                .into_py_any(py)?,
+        );
+    }
+    PyList::new(py, array)
+        .map_err(|e| PyValueError::new_err(format!("failed to create Python list: {e}")))?
+        .into_py_any(py)
 }

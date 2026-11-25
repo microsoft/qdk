@@ -1,13 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::interpreter::Result as QsResult;
 use crate::qir_simulation::{
     NoiseConfig, QirInstruction, QirInstructionId, adaptive_program_from_pydict,
-    unbind_noise_config,
+    output_records_to_pylist, unbind_noise_config,
 };
-use pyo3::{IntoPyObjectExt, exceptions::PyValueError, prelude::*, types::PyList};
 use pyo3::{PyResult, pyfunction, types::PyDict};
+use pyo3::{exceptions::PyValueError, prelude::*, types::PyList};
 use qdk_simulators::{
     MeasurementResult, OutputRecord, Simulator,
     bytecode::{self, runtime::run_shot as adaptive_run_shot},
@@ -18,47 +17,6 @@ use qdk_simulators::{
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::sync::Arc;
-
-/// Map a raw [`MeasurementResult`] to its Python `Result` enum counterpart.
-fn measurement_result_to_py(value: MeasurementResult) -> QsResult {
-    match value {
-        MeasurementResult::Zero => QsResult::Zero,
-        MeasurementResult::One => QsResult::One,
-        MeasurementResult::Loss => QsResult::Loss,
-    }
-}
-
-/// Convert a single [`OutputRecord`] to a native Python object. Measurement
-/// results become `Result` enum values; classical records become the matching
-/// native type (`bool` → `bool`, `int` → `int`, `double` → `float`).
-fn output_record_to_py(py: Python<'_>, record: OutputRecord) -> PyResult<Py<PyAny>> {
-    match record {
-        OutputRecord::Result(value) => measurement_result_to_py(value).into_py_any(py),
-        OutputRecord::Bool(b) => b.into_py_any(py),
-        OutputRecord::Int(i) => i.into_py_any(py),
-        OutputRecord::Double(d) => d.into_py_any(py),
-    }
-}
-
-/// Build the Python return value for a run: a list with one entry per shot,
-/// where each entry is the ordered list of that shot's recorded output values.
-fn output_records_to_pylist(py: Python<'_>, output: Vec<Vec<OutputRecord>>) -> PyResult<Py<PyAny>> {
-    let mut array = Vec::with_capacity(output.len());
-    for shot_records in output {
-        let mut values = Vec::with_capacity(shot_records.len());
-        for record in shot_records {
-            values.push(output_record_to_py(py, record)?);
-        }
-        array.push(
-            PyList::new(py, values)
-                .map_err(|e| PyValueError::new_err(format!("failed to create Python list: {e}")))?
-                .into_py_any(py)?,
-        );
-    }
-    PyList::new(py, array)
-        .map_err(|e| PyValueError::new_err(format!("failed to create Python list: {e}")))?
-        .into_py_any(py)
-}
 
 #[pyfunction]
 pub fn run_clifford<'py>(

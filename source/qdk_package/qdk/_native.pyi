@@ -1325,6 +1325,40 @@ def run_adaptive_parallel_shots(
     """
     ...
 
+def _sample_mps(
+    program: dict,
+    shots: int,
+    seed: int,
+    max_bond_dimension: int,
+    packaged: List[str],
+    install_command: str,
+    engine: str,
+) -> Tuple[List[List[Any]], Dict[str, Any]]:
+    """
+    Run `shots` shots (ids 0 to shots - 1) of `program` by the MPS simulation
+    method, on the engine named `engine` ("gpu" or "cpu"). Return each shot's
+    output records and the run's report: `largest_bond_dimension`,
+    `discarded_weight`, `max_bond_dimension` and `truncation_warning` (text or
+    None).
+
+    `program` is `AdaptiveProfilePass(Bytecode.Bit64).run(module).as_dict()`.
+    `packaged` lists the library files NVIDIA's wheels installed, which GPU
+    discovery tries; `install_command` installs them, and the setup report
+    gives it as the fix.
+    """
+    ...
+
+def _check_tensornetwork_setup(
+    packaged: List[str],
+    install_command: str,
+) -> Tuple[bool, str, Optional[str], List[str]]:
+    """
+    Check the GPU engine's setup, with the library files `packaged` and the
+    fix's `install_command`. Return whether the engine is ready, the report,
+    the advice for the first problem, and the warnings. Never raises.
+    """
+    ...
+
 # This is a little clunky, but until we move to Python 3.11 as a minimum, the NotRequired annotation
 # for Dict fields that may be missing is not availalble. See https://peps.python.org/pep-0655/#motivation
 class _GpuShotResultsBase(TypedDict):
