@@ -2,7 +2,8 @@
 // Licensed under the MIT License.
 
 //! What opening and checking one library found: where it was loaded from,
-//! the versions it reports, and every fault found in it.
+//! the versions it reports, every fault found in it, the other copies
+//! visible beside it, and where the copy tried was found.
 //!
 //! `libraries` opens and checks each library and fills its report.
 //! Discovery collects the reports, one per library, in an
@@ -18,7 +19,8 @@
 use std::path::PathBuf;
 use thiserror::Error;
 
-/// What [`discover`](crate::discover) found of one library.
+/// What [`discover`](crate::discover) or
+/// [`discover_with`](crate::discover_with) found of one library.
 ///
 /// A library is usable when it has no fault. A library with a fault is
 /// reported with what was found of it all the same: its path once it was
@@ -33,6 +35,16 @@ pub struct LibraryReport {
     pub versions: Vec<Version>,
     /// Every fault found, in the order found; empty when it is usable.
     pub faults: Vec<LibraryFault>,
+    /// Other copies of the library the setup makes visible, not loaded, for
+    /// instance a packaged copy beside an override or a system install.
+    /// They matter because two copies can differ in version, or in the
+    /// dependencies found beside them, without the user knowing which one
+    /// a process loads. Empty when it was not loaded.
+    pub other_copies: Vec<PathBuf>,
+    /// Where the copy tried (the one loaded, or the one the system loader
+    /// refused) was found. `None` when no copy was tried: the override is
+    /// invalid, or no candidate named a file the process could access.
+    pub source: Option<LibrarySource>,
 }
 
 impl LibraryReport {
@@ -44,6 +56,21 @@ impl LibraryReport {
             .find(|version| version.component == component)
             .map(|version| version.value)
     }
+}
+
+/// Where discovery found a library's copy, among the paths it tries in
+/// order (docs/loading.md, "The steps of discovery").
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LibrarySource {
+    /// The path its override variable names. While the variable is set, no
+    /// other path is tried.
+    Override,
+    /// Its file among the [`PackagedLibraries`](crate::PackagedLibraries).
+    Packaged,
+    /// One of its default absolute paths.
+    DefaultPath,
+    /// Its file name, searched for by the system loader.
+    SystemSearch,
 }
 
 /// One version a library reports, as the library encodes it.

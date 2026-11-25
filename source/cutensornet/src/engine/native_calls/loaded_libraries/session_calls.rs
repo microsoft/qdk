@@ -23,7 +23,9 @@ impl SessionCalls for LoadedLibraries {
     }
 
     fn set_device(&self, ordinal: i32) -> Result<(), CudaAlgebraError> {
-        // SAFETY: the session validates this ordinal against the device count.
+        // SAFETY: cudaSetDevice takes the ordinal by value. Its
+        // documentation lists cudaErrorInvalidDevice among its returns, so an
+        // ordinal no device has is an error status, never unsound.
         let status = unsafe { (self.cuda_runtime.functions.cudaSetDevice)(ordinal) };
         self.check_cuda("cudaSetDevice", status)
     }

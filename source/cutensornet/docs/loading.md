@@ -26,9 +26,14 @@ flowchart TD
 - [`NativeLibrary`](../src/libraries.rs) is implemented once per library, in
   its module ([`cutensornet.rs`](../src/libraries/cutensornet.rs),
   [`cuda_runtime.rs`](../src/libraries/cuda_runtime.rs)). It gives the
-  library's name, override variable and default paths, its
+  library's name, override variable, file name (which picks its file among
+  the packaged ones) and default paths, its
   [`FunctionTable`](../src/libraries/function_table.rs), and how its
-  versions are read and which are accepted.
+  versions are read and which are accepted. Beside it, the module
+  implements [`LibrarySetupGuide`](../src/libraries/setup_guide.rs). It
+  says what the GPU setup check shows of the library and advises, and the
+  oldest driver and device the library runs on. Discovery keeps each
+  library's guide, in the order opened, for the check.
 - [`CheckLibrary`](../src/libraries.rs) is a trait so that what discovery
   concludes from the checks is tested without library files.
 - [`LoadedLibraries`](../src/libraries.rs) is the one list of the libraries a
@@ -40,7 +45,7 @@ A library's life, from discovery to the last algebra or tensor that uses it:
 ```mermaid
 stateDiagram-v2
   direction TB
-  [*] --> Located: its override path, or its default paths
+  [*] --> Located: its override path, or its packaged file and default paths
   Located --> Open: loaded by the system loader
   Open --> Bound: functions looked up, versions checked
   Bound --> Loaded: every library bound
@@ -62,9 +67,13 @@ The CUDA Runtime, then cuTensorNet, goes through the steps below. Each
 library goes through them whatever the other's faults. Each fault is
 recorded in the library's report:
 
-1. Reading its override variable and opening it: `InvalidOverride`,
-   `NotFound`, `InaccessiblePath` or `LoadFailed`, which end that library's
-   checks. Without an override, the default paths are tried in order:
+1. Reading its override variable and opening it, or else its packaged
+   file or default paths: `InvalidOverride`, `NotFound`,
+   `InaccessiblePath` or `LoadFailed`, which end that library's checks.
+   Without an override, the first
+   [`PackagedLibraries`](../src/libraries/packaged_libraries.rs) file with
+   the library's file name, if any, is tried before the default paths, in
+   order:
    - An absolute path is skipped when nothing exists there, including when
      part of it is a file rather than a directory.
    - It fails discovery when the process cannot access it, for instance
@@ -76,6 +85,8 @@ recorded in the library's report:
      ([`loader.rs`](../src/libraries/loader.rs) says when glibc does).
    - A library that is found but fails to load, for instance for a
      missing dependency, fails discovery.
+   - Once it is open, its report records the other copies of it at those
+     paths, for the GPU setup check's warnings.
 2. Looking up its functions: `MissingRequiredSymbol`, one per missing
    function. Looking a function up stores its address; it does not call
    it.

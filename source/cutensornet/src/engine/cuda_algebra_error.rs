@@ -14,8 +14,8 @@
 //! reads (`InvalidNativeCall`).
 //!
 //! The CUDA algebra (`cuda_algebra/`) and its native calls
-//! (`native_calls/`) both make it. Each case's doc names the parts that
-//! make it.
+//! (`native_calls/`) both make it, as does any other CUDA Runtime call
+//! checked with `check_cuda`. Each case's doc names the parts that make it.
 //!
 //! When an operation and the cleanup after it both fail, both errors are
 //! kept (`combine_execution_and_cleanup`), so a cleanup never hides the
@@ -33,7 +33,8 @@ pub enum CudaAlgebraError {
     NoDevice,
 
     /// A CUDA Runtime or cuTensorNet call returned an error status: made by
-    /// the native calls, from the status a library returned.
+    /// the native calls, and by any other CUDA Runtime call checked with
+    /// `check_cuda`, from the status a library returned.
     #[error("{component} {operation} failed with status {status}: {message}")]
     NativeCallFailed {
         component: &'static str,

@@ -10,10 +10,10 @@
 //! This file holds what they share: turning a status into a
 //! `CudaAlgebraError` with the library's message.
 //!
-//! This module is the only code that calls cuTensorNet and the CUDA
-//! Runtime, so it keeps every foreign-function obligation. Each `unsafe`
-//! call says what makes it sound: the handles live, the buffers large
-//! enough and kept alive, the values in the audited representation.
+//! This module holds every call the engine makes to cuTensorNet and the
+//! CUDA Runtime, so it keeps their foreign-function obligations. Each
+//! `unsafe` call says what makes it sound: the handles live, the buffers
+//! large enough and kept alive, the values in the audited representation.
 //!
 //! - It owns nothing: its callers create the streams, handles, objects and
 //!   buffers, and release them.
@@ -65,9 +65,10 @@ impl LoadedLibraries {
     }
 
     /// `Ok` if the CUDA Runtime call `operation` succeeded; otherwise the
-    /// error, with CUDA's message for `status`. Every CUDA call in
-    /// `loaded_libraries/` ends with it.
-    fn check_cuda(
+    /// error, with CUDA's message for `status`. Every CUDA Runtime call on
+    /// `LoadedLibraries` that returns a status ends with it, so that every
+    /// failure reads the same.
+    pub(crate) fn check_cuda(
         &self,
         operation: &'static str,
         status: cudart_12::cudaError_t,

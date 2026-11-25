@@ -1,12 +1,15 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Discovery on a host with the audited libraries installed.
+//! Discovery and the GPU setup check on a host with the audited libraries
+//! installed.
 //!
-//! It needs the CUDA Runtime 12.9 and cuTensorNet 2.13, so it is ignored in
-//! CI; run it with `--ignored` on such a host. It runs no GPU work.
+//! They need the CUDA Runtime 12.9 and cuTensorNet 2.13, and the setup
+//! check a CUDA device too. So they are ignored in CI; run them with
+//! `--ignored` on such a host. Discovery runs no GPU work. The setup check
+//! makes one trial run on the engine's device.
 
-use qdk_cutensornet::discover;
+use qdk_cutensornet::{GpuSetup, PackagedLibraries, discover};
 
 #[test]
 #[ignore = "requires the audited CUDA Runtime 12.9 and cuTensorNet 2.13 libraries"]
@@ -27,4 +30,14 @@ fn the_audited_libraries_are_discovered() {
         .expect("the CUDA Runtime is used");
     assert_eq!(cuda_runtime.version("CUDA Runtime"), Some(12_090));
     println!("{report:#?}");
+}
+
+/// A host with the audited libraries and a CUDA device is ready for a GPU
+/// run.
+#[test]
+#[ignore = "requires the audited libraries and a CUDA device"]
+fn the_gpu_setup_of_a_cuda_host_is_ready() {
+    let setup = GpuSetup::check(&PackagedLibraries::default());
+    println!("{setup}");
+    assert!(setup.is_ready(), "{setup}");
 }

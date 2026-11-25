@@ -2,14 +2,19 @@
 // Licensed under the MIT License.
 
 //! What [`discover`](crate::discover) promises its callers: where it
-//! refuses to run, that it checks every library, that it succeeds only when
-//! every library is usable, and that its result can be shared. How a caller
+//! refuses to run, that it checks every library, that it loads a packaged
+//! library, that it succeeds only when every library is usable, and that
+//! its result can be shared. How a caller
 //! reads the report, and the error's message, are tested in their modules'
 //! files.
 
 use crate::{Availability, AvailabilityError};
 #[cfg(unix)]
-use crate::{LibraryFault, discovery::discover_from};
+use crate::{
+    LibraryFault, PackagedLibraries,
+    discovery::{Discovered, discover_from},
+    libraries::cuda_runtime::CudaRuntime,
+};
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 use crate::{
     LibraryReport,
@@ -49,7 +54,9 @@ fn discovery_off_linux_x86_64_is_unsupported() {
 
 /// A user whose CUDA Runtime override names a file that is not a library,
 /// and whose cuTensorNet override is a relative path, learns of both at
-/// once: each library is checked whatever the other's faults.
+/// once: each library is checked whatever the other's faults. The setup
+/// check finds each report's guide by the library's name, so each library
+/// opened has a guide of its name, in the order opened.
 #[cfg(unix)]
 #[test]
 fn every_library_is_checked_and_reported() {
@@ -59,11 +66,20 @@ fn every_library_is_checked_and_reported() {
         "QDK_CUTENSORNET_LIBRARY" => Some(OsString::from("libcutensornet.so.2")),
         _ => None,
     };
-    let Err(AvailabilityError::Unusable(report)) = discover_from(read_variable) else {
+    let Discovered {
+        availability: Err(AvailabilityError::Unusable(report)),
+        guides,
+    } = discover_from(read_variable, &PackagedLibraries::default())
+    else {
         panic!("neither library can be used");
     };
     let libraries: Vec<_> = report.libraries.iter().map(|l| l.name).collect();
     assert_eq!(libraries, ["CUDA Runtime", "cuTensorNet"]);
+    let guided_libraries: Vec<_> = guides.iter().map(|guide| guide.library).collect();
+    assert_eq!(
+        guided_libraries, libraries,
+        "one setup guide of each report's name, in its order"
+    );
     assert!(matches!(
         &report.libraries[0].faults[..],
         [LibraryFault::LoadFailed { path, .. }] if *path == cudart
@@ -77,6 +93,35 @@ fn every_library_is_checked_and_reported() {
     ));
 }
 
+/// A user whose package manager installed the CUDA Runtime inside its
+/// environment, where no default path reaches, has that file loaded. Here
+/// it is not a library, so the CUDA Runtime fails to load at that path.
+#[cfg(unix)]
+#[test]
+fn discovery_loads_a_packaged_library() {
+    let (cudart, _remove) =
+        crate::test_utils::packaged_file::<CudaRuntime>("discover-packaged-cudart");
+    let packaged = PackagedLibraries {
+        files: vec![cudart.clone()],
+        install_command: None,
+    };
+    let Err(AvailabilityError::Unusable(report)) = discover_from(|_| None, &packaged).availability
+    else {
+        panic!("the packaged CUDA Runtime is not a library");
+    };
+    let cuda_runtime = report
+        .library("CUDA Runtime")
+        .expect("discovery opens the CUDA Runtime");
+    assert!(
+        matches!(
+            &cuda_runtime.faults[..],
+            [LibraryFault::LoadFailed { path, .. }] if *path == cudart
+        ),
+        "{:?}",
+        cuda_runtime.faults
+    );
+}
+
 /// A usable library: the always-present library, bound to a table of
 /// stand-in functions.
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
@@ -87,6 +132,8 @@ fn usable<L: NativeLibrary>() -> Checked<L> {
         path: Some(library.path().to_path_buf()),
         versions: Vec::new(),
         faults: Vec::new(),
+        other_copies: Vec::new(),
+        source: None,
     };
     let functions = L::Functions::resolve(&StandInResolver::audited())
         .expect("the stand-ins resolve every name");
@@ -103,6 +150,8 @@ fn not_found<L: NativeLibrary>() -> Checked<L> {
         faults: vec![LibraryFault::NotFound {
             attempted: vec![PathBuf::from("libabsent.so")],
         }],
+        other_copies: Vec::new(),
+        source: None,
     };
     (report, None)
 }
@@ -133,7 +182,10 @@ impl CheckLibrary for StandIns {
 #[test]
 fn discovery_succeeds_only_when_every_library_is_usable() {
     for at_fault in [None, Some("CUDA Runtime"), Some("cuTensorNet")] {
-        let report = match (availability_of(StandIns { at_fault }), at_fault) {
+        let report = match (
+            availability_of(StandIns { at_fault }).availability,
+            at_fault,
+        ) {
             (Ok(availability), None) => availability.report().clone(),
             (Err(AvailabilityError::Unusable(report)), Some(_)) => report,
             (Ok(_), Some(_)) => panic!("{at_fault:?} is at fault, yet discovery succeeded"),
