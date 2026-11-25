@@ -97,15 +97,16 @@ impl MpsShape {
         Ok(Self { sites })
     }
 
-    /// The capacity of `sites` qubits whose bonds are at most
-    /// `max_bond_dimension`, the cap χ a method that truncates sets.
+    /// The shape of a chain of `sites` qubits whose every bond is the largest
+    /// any state needs at its cut, capped at `max_bond_dimension` (χ).
     ///
-    /// The bond at cut `k` (between sites `k` and `k + 1`) is the smaller of
-    /// `max_bond_dimension` and the largest Schmidt rank a state of `sites`
-    /// qubits can have there, `2^min(k + 1, sites − k − 1)`; no bond asks
-    /// for more than any state needs. Hence `qubit_chain(n, usize::MAX)`
-    /// never truncates, and `qubit_chain(n, χ)` is the usual capacity of a
-    /// method whose max bond dimension is χ.
+    /// The bond at cut `k`, between sites `k` and `k + 1`, is the smaller of
+    /// χ and the dimension of the cut's smaller side,
+    /// `2^min(k + 1, sites − k − 1)`. For instance, 5 qubits give the bonds
+    /// `[2, 2, 2, 2]` with χ = 2, and `[2, 4, 4, 2]` with χ unbounded. Given
+    /// to [`MpsEngine::prepare`](crate::MpsEngine::prepare), it is the
+    /// capacity of a method whose max bond dimension is χ;
+    /// `qubit_chain(n, usize::MAX)` never truncates.
     ///
     /// # Errors
     ///
