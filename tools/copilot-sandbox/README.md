@@ -136,7 +136,8 @@ It never appears in a command line, the container's configuration or environment
    | Linux   | a subordinate ID, on your host                      | files any user can read, unfiltered network |
 
    On Linux, consider running the sandbox as a separate local user.
-   Rootless Podman applies no AppArmor profile, so Ubuntu and Debian hosts lack that layer; Fedora and RHEL still apply SELinux.
+   Rootless Podman applies no AppArmor profile, so Ubuntu and Debian hosts lack that layer.
+   Hosts with SELinux enforcing, such as Fedora and RHEL by default, aren't supported yet (see [Prerequisites](#prerequisites)).
 
 Since the code is already public (modulo local branches), the main risk is exfiltration of the fine-grained PAT, which should be short-lived and low-permission.
 There can also be private configuration and history data in `.git`.
@@ -146,6 +147,7 @@ There can also be private configuration and history data in `.git`.
 - Python 3.10 or newer. Use this checkout's `.venv` interpreter when available.
 - Rootless Podman with cgroup v2: 4.9 or newer on Linux, or 6 or newer in the Podman machine on Windows and macOS (5.x doesn't play nicely with cgroups in WSL).
   On Linux, the launcher uses Podman directly; your account needs `/etc/subuid` and `/etc/subgid` ranges.
+  The launcher refuses to run on Linux hosts with SELinux enforcing, which stops the containers from reading the bind-mounted `.git` and exchange folders.
   On Windows and macOS, it uses a dedicated Podman machine (see [Podman Machine](#podman-machine-windows-and-macos));
 - Git; 2.45.1 or newer is recommended and older versions get a warning.
   It contains some security fixes related to nested .git folders.

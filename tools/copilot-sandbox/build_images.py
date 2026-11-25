@@ -19,8 +19,9 @@ from typing import IO
 from urllib.parse import urlsplit
 import uuid
 
+from lib.common import LauncherError
 from lib.images import LOCAL_IMAGE_PREFIX, LOCAL_IMAGE_TAG
-from lib.podman import podman
+from lib.podman import check_podman_version, podman
 
 BASE = "mcr.microsoft.com/azurelinux/base/core:3.0"
 SECRET_IDS = {"msrustup_access_token", "npmrc", "pip_index_url", "cargo_token"}
@@ -303,6 +304,9 @@ def build_images(args: argparse.Namespace) -> None:
         args.platform and args.platform != "linux/" + architecture
     ):
         raise BuildError("Build on a native linux/amd64 or linux/arm64 worker.")
+    if args.engine == "podman":
+        # Older remote Podman (the Windows and macOS machines) doesn't upload the qdk build context.
+        check_podman_version()
     specifications = load_secrets(args)
     base = (
         validate_pinned_base(args.base_image)
@@ -469,6 +473,7 @@ def main(argv: list[str] | None = None) -> int:
         build_images(parse_args(argv))
     except (
         BuildError,
+        LauncherError,
         OSError,
         ValueError,
         KeyError,

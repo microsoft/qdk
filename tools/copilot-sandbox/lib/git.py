@@ -74,14 +74,14 @@ def get_seed_repo_state(repo: Path) -> tuple[Path, str, str]:
     return common, branch, sha
 
 
-def get_outbox_copy(directory: Path) -> Path:
+def get_outbox_copy_path(directory: Path) -> Path:
     """The host-owned copy of the agent's outbox volume's objects; refs arrive separately, as data."""
     return raise_if_link(directory / "outbox")
 
 
 def configure_outbox_copy(repo: Path, directory: Path, name: str) -> Path:
     """Creates the outbox copy's folder and configures the host's fetch-only sandbox remote."""
-    outbox = get_outbox_copy(directory)
+    outbox = get_outbox_copy_path(directory)
     if repo == outbox or repo in outbox.parents:
         raise LauncherError("The outbox copy must be outside the host repository.")
     outbox.mkdir(mode=0o700, exist_ok=True)

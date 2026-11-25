@@ -22,6 +22,7 @@ INTERFACE_VERSION = "2"
 SECCOMP_PROFILE = Path(__file__).resolve().parents[1] / "seccomp.json"
 # Windows and macOS run containers in a dedicated Podman machine; Linux runs them directly.
 CONNECTION: str | None = MACHINE if sys.platform in ("win32", "darwin") else None
+SELINUX_ENFORCE = Path("/sys/fs/selinux/enforce")
 
 
 @dataclass(frozen=True)
@@ -48,8 +49,12 @@ def vm_path(path: str | os.PathLike[str]) -> str:
     return "/mnt/" + windows.drive[0].lower() + "/" + "/".join(windows.parts[1:])
 
 
+def _minimum_version() -> tuple[int, int]:
+    return MACHINE_MINIMUM_VERSION if CONNECTION == MACHINE else MINIMUM_VERSION
+
+
 def _required_version() -> str:
-    major, minor = MACHINE_MINIMUM_VERSION if CONNECTION == MACHINE else MINIMUM_VERSION
+    major, minor = _minimum_version()
     return f"{major}.{minor}"
 
 
@@ -62,8 +67,8 @@ def _machine_hint() -> str:
     )
 
 
-def check_podman() -> Engine:
-    print("Checking Podman host configuration...", flush=True)
+def check_podman_version() -> dict:
+    """Checks that Podman is reachable and new enough, and returns its 'podman info'."""
     result = run(podman("info", "--format", "json"), check=False)
     if result.returncode:
         raise LauncherError(
@@ -72,11 +77,23 @@ def check_podman() -> Engine:
         )
     try:
         info = json.loads(result.stdout)
-        host = info["host"]
         match = re.match(r"(\d+)\.(\d+)", info["version"]["Version"])
         version: tuple[int, int] = (int(match[1]), int(match[2])) if match else (0, 0)
+    except (KeyError, TypeError, ValueError) as error:
+        raise LauncherError("Cannot read Podman host information.") from error
+    if version < _minimum_version():
+        raise LauncherError(f"Podman >= {_required_version()} is required.")
+    return info
+
+
+def check_podman() -> Engine:
+    print("Checking Podman host configuration...", flush=True)
+    info = check_podman_version()
+    try:
+        host = info["host"]
         rootless = host["security"]["rootless"]
         seccomp = host["security"]["seccompEnabled"]
+        selinux = host["security"]["selinuxEnabled"]
         operating_system = host["os"]
         cgroups = host["cgroupVersion"]
         architecture = host["arch"]
@@ -87,10 +104,6 @@ def check_podman() -> Engine:
         )
     except (KeyError, TypeError, ValueError) as error:
         raise LauncherError("Cannot read Podman host information.") from error
-    if version < (
-        MACHINE_MINIMUM_VERSION if CONNECTION == MACHINE else MINIMUM_VERSION
-    ):
-        raise LauncherError(f"Podman >= {_required_version()} is required.")
     if operating_system != "linux" or cgroups != "v2":
         raise LauncherError("Podman must run Linux containers with cgroup v2.")
     if not rootless:
@@ -99,6 +112,9 @@ def check_podman() -> Engine:
         raise LauncherError("Podman reports that seccomp is unavailable.")
     if network not in ("pasta", "slirp4netns"):
         raise LauncherError(f"Unsupported rootless network: {network}")
+    # The macOS machine enforces SELinux too, but labels its shared folders so containers can read them.
+    if CONNECTION is None and selinux:
+        _check_selinux_mode()
     if CONNECTION == MACHINE and sys.platform == "win32":
         _check_windows_interop()
     if id_count <= 1000:
@@ -106,6 +122,24 @@ def check_podman() -> Engine:
             "Rootless Podman needs a subordinate ID range (/etc/subuid, /etc/subgid) of at least 1000 IDs."
         )
     return Engine(architecture, network, id_count)
+
+
+def _check_selinux_mode() -> None:
+    try:
+        mode = SELINUX_ENFORCE.read_text().strip()
+    except OSError:
+        mode = ""
+    if mode == "1":
+        raise LauncherError(
+            "SELinux is enforcing on this host, which the sandbox doesn't support yet: "
+            "it stops the containers from reading your repository's .git and the "
+            "instance's exchange folders."
+        )
+    if mode != "0":
+        print(
+            f"Warning: Podman reports SELinux is enabled, but {SELINUX_ENFORCE} doesn't show its mode. "
+            "If SELinux is enforcing, the sandbox can't read your repository or exchange folders."
+        )
 
 
 _CHECK_WINDOWS_INTEROP = r"""
