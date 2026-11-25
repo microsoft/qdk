@@ -280,6 +280,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "canonical_mps"
+version = "0.0.0"
+dependencies = [
+ "canonical_mps",
+ "dense_linalg",
+ "num-complex",
+ "tensornet",
+ "thiserror",
+]
+
+[[package]]
 name = "cast"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -1,0 +1,30 @@
+[package]
+name = "canonical_mps"
+
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+dense_linalg = { path = "../dense_linalg" }
+num-complex = { workspace = true }
+tensornet = { path = "../tensornet" }
+thiserror = { workspace = true }
+
+[features]
+# Exposes what another crate needs to check its own `SiteAlgebra`:
+# - the conformance kit (`site_algebra::conformance`);
+# - the engine's conformance circuits (`engine_conformance`), which run
+#   the engine on it against the exact reference.
+conformance = ["tensornet/conformance"]
+
+[dev-dependencies]
+# The crate itself with the `conformance` feature, so every `cargo test`,
+# the workspace's included, runs the kit's doctest and the integration
+# test that runs the kit on the CPU algebra.
+canonical_mps = { path = ".", features = ["conformance"] }
+
+[lints]
+workspace = true
