@@ -1,0 +1,11 @@
+#!/bin/bash
+# The launcher pipes the PAT to stdin after boundary verification. /tmp is tmpfs, so it never touches disk.
+set -euo pipefail
+umask 0077
+directory=/tmp/qdk-sandbox
+# mkdir and noclobber fail if anything already exists, so a planted file or link is never reused.
+mkdir "$directory"
+set -o noclobber
+cat > "$directory/gh_token"
+chmod 0400 "$directory/gh_token"
+[[ -s $directory/gh_token ]]

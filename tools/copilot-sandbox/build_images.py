@@ -19,7 +19,9 @@ from typing import IO
 from urllib.parse import urlsplit
 import uuid
 
+from lib.common import LauncherError
 from lib.images import LOCAL_IMAGE_PREFIX, LOCAL_IMAGE_TAG
+from lib.podman import check_podman_version, podman
 
 BASE = "mcr.microsoft.com/azurelinux/base/core:3.0"
 SECRET_IDS = {"msrustup_access_token", "npmrc", "pip_index_url", "cargo_token"}
@@ -27,6 +29,11 @@ SECRET_IDS = {"msrustup_access_token", "npmrc", "pip_index_url", "cargo_token"}
 
 class BuildError(Exception):
     pass
+
+
+def engine_command(engine: str, *args: str) -> list[str]:
+    # On Windows and macOS, Podman builds in the sandbox's dedicated machine.
+    return podman(*args) if engine == "podman" else [engine, *args]
 
 
 def run_command(
@@ -57,22 +64,38 @@ def validate_pinned_base(reference: str) -> str:
     return reference
 
 
-def get_pinned_base() -> str:
-    descriptor = json.loads(
-        run_command(
-            [
-                "docker",
-                "buildx",
-                "imagetools",
-                "inspect",
-                BASE,
-                "--format",
-                "{{json .Manifest}}",
-            ],
-            capture=True,
+def get_pinned_base(engine: str, architecture: str) -> str:
+    if engine == "docker":
+        descriptor = json.loads(
+            run_command(
+                [
+                    "docker",
+                    "buildx",
+                    "imagetools",
+                    "inspect",
+                    BASE,
+                    "--format",
+                    "{{json .Manifest}}",
+                ],
+                capture=True,
+            )
         )
+        return validate_pinned_base(BASE + "@" + descriptor["digest"])
+    # Podman can't report the index's own digest, so pin the native platform's manifest instead.
+    index = json.loads(
+        run_command(engine_command("podman", "manifest", "inspect", BASE), capture=True)
     )
-    return validate_pinned_base(BASE + "@" + descriptor["digest"])
+    digests = [
+        entry["digest"]
+        for entry in index.get("manifests", [])
+        if entry.get("platform", {}).get("os") == "linux"
+        and entry.get("platform", {}).get("architecture") == architecture
+    ]
+    if len(digests) != 1:
+        raise BuildError(
+            f"Cannot pin a single linux/{architecture} base manifest; pass --base-image."
+        )
+    return validate_pinned_base(BASE + "@" + digests[0])
 
 
 # Extract the rust version from prereqs.py
@@ -163,7 +186,7 @@ def load_secrets(args: argparse.Namespace) -> list[str]:
                 or identifier not in SECRET_IDS
                 or identifier in specifications
             ):
-                raise BuildError("Invalid or duplicate BuildKit secret specification.")
+                raise BuildError("Invalid or duplicate build secret specification.")
             if kind == "src":
                 path = Path(location).resolve(strict=True)
                 if (
@@ -281,15 +304,21 @@ def build_images(args: argparse.Namespace) -> None:
         args.platform and args.platform != "linux/" + architecture
     ):
         raise BuildError("Build on a native linux/amd64 or linux/arm64 worker.")
+    if args.engine == "podman":
+        # Older remote Podman (the Windows and macOS machines) doesn't upload the qdk build context.
+        check_podman_version()
     specifications = load_secrets(args)
     base = (
-        validate_pinned_base(args.base_image) if args.base_image else get_pinned_base()
+        validate_pinned_base(args.base_image)
+        if args.base_image
+        else get_pinned_base(args.engine, architecture)
     )
     repo = args.repo.resolve(strict=True)
     build_id = args.tag if args.registry_name else "local-" + uuid.uuid4().hex
     with tempfile.TemporaryDirectory(prefix="qdk-sandbox-") as temporary:
         root = Path(temporary)
-        source = root / "qdk"
+        # Remote Podman makes the context root 0700, so the Dockerfile mounts this subdirectory.
+        source = root / "qdk-context" / "qdk"
         commit = snapshot_repo(repo, source)
         for target in args.target:
             context = root / target
@@ -308,9 +337,20 @@ def build_images(args: argparse.Namespace) -> None:
                 else f"{LOCAL_IMAGE_PREFIX}{target}:{args.tag}"
             )
             arguments = [
-                "docker",
-                "build",
-                "--pull",
+                *engine_command(args.engine, "build"),
+                *(
+                    ["--pull"]
+                    # Podman's default OCI format silently drops SHELL, losing bash pipefail.
+                    if args.engine == "docker"
+                    else [
+                        "--pull=always",
+                        "--format",
+                        "docker",
+                        # SELinux in the macOS machine blocks RUN steps from reading the uploaded qdk context.
+                        "--security-opt",
+                        "label=disable",
+                    ]
+                ),
                 "--no-cache",
                 "--platform",
                 "linux/" + architecture,
@@ -327,7 +367,7 @@ def build_images(args: argparse.Namespace) -> None:
                 arguments.extend(
                     [
                         "--build-context",
-                        "qdk=" + str(source),
+                        "qdk=" + str(source.parent),
                         "--build-arg",
                         "PACKAGE_SOURCE=" + args.package_source,
                         "--build-arg",
@@ -347,23 +387,33 @@ def build_images(args: argparse.Namespace) -> None:
             if not args.registry_name:
                 identity = (
                     run_command(
-                        ["docker", "image", "inspect", "--format", "{{.Id}}", image],
+                        engine_command(
+                            args.engine,
+                            "image",
+                            "inspect",
+                            "--format",
+                            "{{.Id}}",
+                            image,
+                        ),
                         capture=True,
                     )
                     .decode()
                     .strip()
                 )
+                # Podman reports bare hex IDs.
+                if re.fullmatch(r"[0-9a-f]{64}", identity):
+                    identity = "sha256:" + identity
                 if not re.fullmatch(r"sha256:[0-9a-f]{64}", identity):
                     raise BuildError(
                         "Cannot identify the built image for local pairing."
                     )
                 run_command(
-                    [
-                        "docker",
+                    engine_command(
+                        args.engine,
                         "tag",
                         identity,
                         f"{LOCAL_IMAGE_PREFIX}{target}:{build_id}",
-                    ]
+                    )
                 )
 
 
@@ -371,6 +421,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument(
         "--repo", type=Path, default=Path(__file__).resolve().parents[2]
+    )
+    parser.add_argument(
+        "--engine",
+        choices=("podman", "docker"),
+        default="podman",
+        help="Container engine for the build (default: podman; the pipeline uses docker).",
     )
     parser.add_argument(
         "--package-source",
@@ -417,6 +473,7 @@ def main(argv: list[str] | None = None) -> int:
         build_images(parse_args(argv))
     except (
         BuildError,
+        LauncherError,
         OSError,
         ValueError,
         KeyError,

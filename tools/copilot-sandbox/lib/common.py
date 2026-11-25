@@ -84,7 +84,7 @@ def command_error(
 ) -> LauncherError:
     program = Path(os.fspath(result.args[0])).stem
     message = f"{operation or program} failed (exit {result.returncode})."
-    if program in {"docker", "git"} and result.stderr:
+    if program in {"podman", "git"} and result.stderr:
         message += "\n" + sanitize_diagnostic(result.stderr)
     return LauncherError(message)
 
@@ -111,7 +111,7 @@ def make_process_env() -> dict[str, str]:
     return {
         key: value
         for key, value in os.environ.items()
-        if not key.startswith(("GIT_", "COMPOSE_", "QDK_SANDBOX_", "QDK_SEED_"))
+        if not key.startswith(("GIT_", "QDK_SANDBOX_", "QDK_SEED_"))
         and key not in {"COPILOT_GITHUB_TOKEN", "GH_TOKEN", "QDK_BRANCH"}
     }
 
