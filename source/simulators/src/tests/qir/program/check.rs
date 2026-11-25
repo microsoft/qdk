@@ -15,7 +15,8 @@ use crate::bytecode::encoding::{
     OP_LSHR, OP_MOV, OP_MUL, OP_OR, OP_PEEK_LOSS, OP_READ_LOSS, OP_READ_RESULT, OP_READOUT_NOISE,
     OP_RECORD_OUTPUT, OP_RET, OP_SDIV, OP_SELECT, OP_SEXT, OP_SHL, OP_SITOFP, OP_SREM, OP_STORE,
     OP_SUB, OP_TRUNC, OP_UDIV, OP_UITOFP, OP_UREM, OP_WRITE_RESULT, OP_XOR, OP_ZEXT,
-    OPID_CORRELATED_NOISE, OPID_CX, OPID_MX, OPID_MY, OPID_MZ, OPID_X, VOID_RETURN,
+    OPID_CORRELATED_NOISE, OPID_CX, OPID_MX, OPID_MY, OPID_MZ, OPID_X, RECORD_ARRAY, RECORD_BOOL,
+    RECORD_DOUBLE, RECORD_INT, RECORD_RESULT, RECORD_TUPLE, VOID_RETURN,
 };
 use crate::bytecode::{
     AdaptiveProgram, Block, Function, Instruction, Op, PhiNodeEntry, SwitchCase,
@@ -1380,7 +1381,7 @@ fn a_constant_result_must_exist() {
             instructions.push(reads(opcode, result));
         }
     }
-    instructions.extend([value(4), value(5), ret()]);
+    instructions.extend([value(RECORD_INT), value(RECORD_DOUBLE), ret()]);
     let read = program(&[&instructions]);
     // COMPATIBILITY NOTE: `run_shot` (bytecode/runtime.rs,
     // `OP_READ_RESULT`, `OP_READ_LOSS`, `OP_RECORD_OUTPUT`) reads `Zero`
@@ -1434,7 +1435,7 @@ fn a_constant_read_as_a_bit_must_be_0_or_1() {
                 binary(OP_WRITE_RESULT, FLAG_SRC0_IMM | FLAG_SRC1_IMM, 0, value, 0),
                 Instruction {
                     src0: value,
-                    aux1: 3,
+                    aux1: RECORD_BOOL,
                     ..op(OP_RECORD_OUTPUT, FLAG_SRC0_IMM)
                 },
                 Instruction {
@@ -1474,12 +1475,12 @@ fn an_output_marker_reads_no_register() {
         ..op(OP_RECORD_OUTPUT, 0)
     };
     let bytecode = program(&[&[
-        record(0),
-        record(1),
-        record(2),
-        record(3),
-        record(4),
-        record(5),
+        record(RECORD_RESULT),
+        record(RECORD_ARRAY),
+        record(RECORD_TUPLE),
+        record(RECORD_BOOL),
+        record(RECORD_INT),
+        record(RECORD_DOUBLE),
         ret(),
     ]]);
     let no_such_register = QirError::NoSuchRegister {

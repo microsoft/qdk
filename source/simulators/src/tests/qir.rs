@@ -13,7 +13,8 @@ mod resumer;
 use crate::bytecode::encoding::{
     FLAG_AUX1_IMM, FLAG_AUX2_IMM, FLAG_DST_IMM, FLAG_SRC0_IMM, FLAG_SRC1_IMM, OP_BRANCH, OP_CALL,
     OP_CALL_RETURN, OP_JUMP, OP_MEASURE, OP_MOV, OP_PHI, OP_QUANTUM_GATE, OP_RECORD_OUTPUT,
-    OP_RESET, OP_RET, OP_SWITCH, OP_WRITE_RESULT, OPID_CORRELATED_NOISE, OPID_RESETZ,
+    OP_RESET, OP_RET, OP_SWITCH, OP_WRITE_RESULT, OPID_CORRELATED_NOISE, OPID_RESETZ, RECORD_BOOL,
+    RECORD_INT,
 };
 use crate::bytecode::{AdaptiveProgram, Block, Instruction, Op};
 use crate::qir::{QirError, QirFault, QirFaultSite, QirProgram};
@@ -222,7 +223,7 @@ fn record_result(result: u64) -> Instruction<u64> {
     binary(OP_RECORD_OUTPUT, FLAG_SRC0_IMM, 0, result, 0)
 }
 
-/// Register `value` recorded as a record of `kind`: 3 a `Bool`, 4 an `Int`.
+/// Register `value` recorded as a record of `kind` (`RECORD_BOOL`, …).
 fn record(kind: u64, value: u64) -> Instruction<u64> {
     Instruction {
         src0: value,
@@ -233,12 +234,12 @@ fn record(kind: u64, value: u64) -> Instruction<u64> {
 
 /// Register `value` recorded as a `Bool`.
 fn record_bool(value: u64) -> Instruction<u64> {
-    record(3, value)
+    record(RECORD_BOOL, value)
 }
 
 /// Register `value` recorded as an `Int`.
 fn record_int(value: u64) -> Instruction<u64> {
-    record(4, value)
+    record(RECORD_INT, value)
 }
 
 /// A `PHI` into register `dst` of `count` entries from `offset`.

@@ -3,18 +3,22 @@
 
 //! The walk of a [`QirMachine`]: the loop that runs a context's bytecode,
 //! instruction by instruction, from its position to its next stop
-//! ([`Stop`]). It runs each classical instruction, and appends each
-//! quantum instruction's calls to the context's batch. Function calls push
-//! and pop the context's frames.
+//! ([`Stop`]). It dispatches each instruction to its step: a classical
+//! instruction computes in place, a quantum instruction appends its calls
+//! to the context's batch, and a function call pushes or pops the
+//! context's frames. The steps that change only the context are its own
+//! ([`QirShotContext`]); those that need the program's prepared quantum
+//! calls are here.
 
-use super::super::program::prepared_quantum_calls::CallSource;
+use super::super::QirTrap;
 #[cfg(doc)]
 use super::super::program::prepared_quantum_calls::PreparedQuantumCalls;
+use super::super::program::prepared_quantum_calls::{CallSource, RegisterOperands};
 use super::super::quantum_instruction_encoding::Register;
-use super::super::{QirReadout, QirTrap};
 use super::classical_ops::{binary, bit, float_compare, int_compare, signed, unary, unsigned};
-use super::shot_context::{Frame, program_result};
-use super::{QirMachine, QirShotContext, block_start};
+use super::{QirMachine, QirShotContext};
+use crate::MeasurementResult;
+use crate::bytecode::Instruction;
 use crate::bytecode::encoding::{
     OP_ADD, OP_ALLOCA, OP_AND, OP_ASHR, OP_BRANCH, OP_CALL, OP_CALL_RETURN, OP_CONST, OP_FADD,
     OP_FCMP, OP_FDIV, OP_FMUL, OP_FPEXT, OP_FPTOSI, OP_FPTOUI, OP_FPTRUNC, OP_FREM, OP_FSUB,
@@ -22,9 +26,9 @@ use crate::bytecode::encoding::{
     OP_PEEK_LOSS, OP_PHI, OP_QUANTUM_GATE, OP_READ_LOSS, OP_READ_RESULT, OP_READOUT_NOISE,
     OP_RECORD_OUTPUT, OP_RESET, OP_RET, OP_SDIV, OP_SELECT, OP_SEXT, OP_SHL, OP_SITOFP, OP_SREM,
     OP_STORE, OP_SUB, OP_SWITCH, OP_TRUNC, OP_UDIV, OP_UITOFP, OP_UREM, OP_WRITE_RESULT, OP_XOR,
-    OP_ZEXT, VOID_RETURN,
+    OP_ZEXT,
 };
-use crate::{MeasurementResult, OutputRecord};
+use std::ops::ControlFlow;
 
 /// Where a walk stopped.
 pub(super) enum Stop {
@@ -33,9 +37,9 @@ pub(super) enum Stop {
 }
 
 impl QirMachine<'_> {
-    /// Runs `context` from its position to its next batch or its end. A
-    /// quantum instruction appends its prepared calls
-    /// ([`PreparedQuantumCalls`]).
+    /// Runs `context` from its position to its next batch or its end,
+    /// dispatching each instruction to its step. A quantum instruction
+    /// appends its prepared calls ([`PreparedQuantumCalls`]).
     // The bytecode's words index its tables and registers: the check
     // refused every index past them, so none is truncated.
     #[allow(clippy::too_many_lines, clippy::cast_possible_truncation)]
@@ -74,108 +78,16 @@ impl QirMachine<'_> {
                         .map_or(instruction.aux0, |case| case.target_block);
                     pc = context.enter(bytecode, block);
                 }
-                OP_CALL => {
-                    let function = &bytecode.function_table[instruction.aux0 as usize];
-                    context.frames.push(Frame {
-                        return_pc: next(pc),
-                        caller_block: context.block,
-                        keep: (instruction.dst != VOID_RETURN).then_some(dst),
-                        memory: context.memory.len(),
-                    });
-                    let saved = context.saved.len();
-                    context.saved.extend_from_slice(&context.registers);
-                    // Read from the saved copy, so that each parameter
-                    // takes its argument's value at the call, though it
-                    // may be an argument of a later one.
-                    let arguments = &bytecode.call_args[instruction.aux2 as usize..]
-                        [..instruction.aux1 as usize];
-                    for (param, argument) in (function.param_base_reg as usize..).zip(arguments) {
-                        context.registers[param] = context.saved[saved + *argument as usize];
-                    }
-                    context.block = function.entry_block_id;
-                    pc = block_start(bytecode, function.entry_block_id);
-                }
-                OP_CALL_RETURN => {
-                    let frame = context
-                        .frames
-                        .pop()
-                        .expect("the check refused a return reached with no call");
-                    // Read from the function's registers, before the
-                    // caller's come back.
-                    let kept = frame.keep.map(|keep| (keep, context.src0(instruction)));
-                    let saved = context.saved.len() - context.registers.len();
-                    context.registers.copy_from_slice(&context.saved[saved..]);
-                    context.saved.truncate(saved);
-                    context.memory.truncate(frame.memory);
-                    if let Some((keep, value)) = kept {
-                        context.set(keep, value);
-                    }
-                    context.block = frame.caller_block;
-                    pc = frame.return_pc as usize;
-                }
+                OP_CALL => pc = context.call_function(bytecode, instruction, pc),
+                OP_CALL_RETURN => pc = context.return_from_function(instruction),
                 OP_QUANTUM_GATE | OP_MEASURE | OP_RESET | OP_PEEK_LOSS | OP_READOUT_NOISE => {
-                    let source = self
-                        .prepared_quantum_calls
-                        .source(pc)
-                        .expect("every quantum instruction has a prepared source");
-                    match source {
-                        CallSource::Prebuilt { first, end, result } => {
-                            let calls = self.prepared_quantum_calls.prebuilt(pc, *first, *end);
-                            let (end, result) = (*end as usize, *result);
-                            if let Some(result) = result {
-                                if context.pending[result as usize] {
-                                    // The last call writes a result a call
-                                    // of the batch writes: it starts the
-                                    // next batch.
-                                    let (before, _) = calls.split_at(calls.len() - 1);
-                                    context.batch.extend_from_slice(before);
-                                    pc = end - 1;
-                                    break Stop::Batch;
-                                }
-                                context.pending[result as usize] = true;
-                                context.batch_results.push(result);
-                            }
-                            context.batch.extend_from_slice(calls);
-                            // To the run's last call: the `pc += 1` below
-                            // goes past it.
-                            pc = end - 1;
-                        }
-                        CallSource::BuiltFromRegisters(operands) => {
-                            let call = match context.call(bytecode, pc, operands) {
-                                Ok(resolved) => resolved,
-                                // The stop comes before the trap: the batch
-                                // runs first, as `run_shot` measures before
-                                // it panics.
-                                Err(_)
-                                    if context
-                                        .written(operands)
-                                        .is_some_and(|result| context.is_pending(result)) =>
-                                {
-                                    break Stop::Batch;
-                                }
-                                Err(trap) => return Err(trap),
-                            };
-                            if let Some(result) = call.result() {
-                                if context.pending[result as usize] {
-                                    break Stop::Batch;
-                                }
-                                context.pending[result as usize] = true;
-                                context.batch_results.push(result);
-                            }
-                            context.batch.push(call);
-                        }
-                        CallSource::CorrelatedNoise { table } => {
-                            let call = context.correlated_noise_call(
-                                bytecode,
-                                pc,
-                                *table,
-                                context.aux1(instruction),
-                                context.aux2(instruction),
-                            )?;
-                            context.batch.push(call);
+                    match self.append_quantum_calls(context, instruction, pc)? {
+                        ControlFlow::Continue(next) => pc = next,
+                        ControlFlow::Break(resume_at) => {
+                            pc = resume_at;
+                            break Stop::Batch;
                         }
                     }
-                    pc += 1;
                 }
                 OP_READ_RESULT => {
                     let result = context.src0(instruction);
@@ -196,49 +108,14 @@ impl QirMachine<'_> {
                     pc += 1;
                 }
                 OP_WRITE_RESULT => {
-                    let result = context.src1(instruction);
-                    // Before the value's check, so that the stop comes
-                    // before the trap, as for a call.
-                    if context.is_pending(result) {
+                    if context.write_result(bytecode, instruction, pc)?.is_break() {
                         break Stop::Batch;
                     }
-                    // The value is checked before the result, as `run_shot`
-                    // does, but which fault is reported is not promised
-                    // (see `QirTrap`), so no test pins it.
-                    let written = if bit(pc, context.src0(instruction))? {
-                        QirReadout::One
-                    } else {
-                        QirReadout::Zero
-                    };
-                    let index = program_result(bytecode, pc, result)? as usize;
-                    context.results[index] = written;
                     pc += 1;
                 }
                 OP_RECORD_OUTPUT => {
-                    match instruction.aux1 {
-                        0 => {
-                            let result = context.src0(instruction);
-                            if context.is_pending(result) {
-                                break Stop::Batch;
-                            }
-                            let recorded = context.result(bytecode, pc, result)?;
-                            context.records.push(OutputRecord::Result(recorded));
-                        }
-                        3 => {
-                            let value = bit(pc, context.src0(instruction))?;
-                            context.records.push(OutputRecord::Bool(value));
-                        }
-                        4 => {
-                            let value = signed(context.src0(instruction));
-                            context.records.push(OutputRecord::Int(value));
-                        }
-                        5 => {
-                            let value = f64::from_bits(context.src0(instruction));
-                            context.records.push(OutputRecord::Double(value));
-                        }
-                        // Records of an array or a tuple only mark the
-                        // output's shape.
-                        _ => {}
+                    if context.record_output(bytecode, instruction, pc)?.is_break() {
+                        break Stop::Batch;
                     }
                     pc += 1;
                 }
@@ -321,36 +198,12 @@ impl QirMachine<'_> {
                     pc += 1;
                 }
                 OP_LOAD => {
-                    let address = context.src0(instruction);
-                    let value = usize::try_from(address)
-                        .ok()
-                        .and_then(|index| context.memory.get(index))
-                        .copied()
-                        .ok_or(QirTrap::LoadPastMemory {
-                            instruction: pc,
-                            address,
-                            words: context.memory.len(),
-                        })?;
+                    let value = context.load(context.src0(instruction), pc)?;
                     context.set(dst, value);
                     pc += 1;
                 }
                 OP_STORE => {
-                    // A store past the context's memory traps, writing
-                    // nothing, as a load does. `run_shot` grows the memory
-                    // instead (the test's COMPATIBILITY NOTE says why not).
-                    // The GPU shader also stops a shot there.
-                    let value = context.src0(instruction);
-                    let address = context.src1(instruction);
-                    let words = context.memory.len();
-                    let word = usize::try_from(address)
-                        .ok()
-                        .and_then(|index| context.memory.get_mut(index))
-                        .ok_or(QirTrap::StorePastMemory {
-                            instruction: pc,
-                            address,
-                            words,
-                        })?;
-                    *word = value;
+                    context.store(context.src1(instruction), context.src0(instruction), pc)?;
                     pc += 1;
                 }
                 OP_GEP => {
@@ -369,9 +222,97 @@ impl QirMachine<'_> {
         context.pc = pc;
         Ok(stop)
     }
-}
 
-/// The instruction after `pc`.
-fn next(pc: usize) -> u32 {
-    u32::try_from(pc + 1).expect("a program holds fewer than 2^32 instructions")
+    /// Appends the calls of the quantum instruction at `pc` to the batch,
+    /// from its prepared source ([`CallSource`]). `Continue` holds the
+    /// instruction to run next. `Break` stops the batch at a call that
+    /// writes a result the batch writes already
+    /// ([`QirShotContext::mark_pending`]), and holds that call's
+    /// instruction, which the context resumes from.
+    fn append_quantum_calls(
+        self,
+        context: &mut QirShotContext,
+        instruction: &Instruction<u64>,
+        pc: usize,
+    ) -> Result<ControlFlow<usize, usize>, QirTrap> {
+        let source = self
+            .prepared_quantum_calls
+            .source(pc)
+            .expect("every quantum instruction has a prepared source");
+        match source {
+            CallSource::Prebuilt { first, end, result } => {
+                Ok(self.append_prebuilt_calls(context, pc, *first, *end, *result))
+            }
+            CallSource::BuiltFromRegisters(operands) => {
+                self.append_call_built_from_registers(context, pc, operands)
+            }
+            CallSource::CorrelatedNoise { table } => {
+                let call = context.correlated_noise_call(
+                    self.bytecode,
+                    pc,
+                    *table,
+                    context.aux1(instruction),
+                    context.aux2(instruction),
+                )?;
+                context.batch.push(call);
+                Ok(ControlFlow::Continue(pc + 1))
+            }
+        }
+    }
+
+    /// Appends the prebuilt calls of the run of quantum instructions from
+    /// `pc` to `end`, as one slice. Only the run's last call may write a
+    /// result, `result`: when the batch writes it already, the calls before
+    /// it are appended, and the batch stops at it.
+    fn append_prebuilt_calls(
+        self,
+        context: &mut QirShotContext,
+        pc: usize,
+        first: u32,
+        end: u32,
+        result: Option<u32>,
+    ) -> ControlFlow<usize, usize> {
+        let calls = self.prepared_quantum_calls.prebuilt(pc, first, end);
+        let end = end as usize;
+        if let Some(result) = result
+            && !context.mark_pending(result)
+        {
+            let (before, _) = calls.split_at(calls.len() - 1);
+            context.batch.extend_from_slice(before);
+            return ControlFlow::Break(end - 1);
+        }
+        context.batch.extend_from_slice(calls);
+        ControlFlow::Continue(end)
+    }
+
+    /// Appends the call of the quantum instruction at `pc`, built from the
+    /// registers that `operands` name; or stops the batch at it, when the
+    /// batch writes its result already.
+    fn append_call_built_from_registers(
+        self,
+        context: &mut QirShotContext,
+        pc: usize,
+        operands: &RegisterOperands,
+    ) -> Result<ControlFlow<usize, usize>, QirTrap> {
+        let call = match context.call(self.bytecode, pc, operands) {
+            Ok(call) => call,
+            // The stop comes before the trap: the batch runs first, as
+            // `run_shot` measures before it panics.
+            Err(_)
+                if context
+                    .written(operands)
+                    .is_some_and(|result| context.is_pending(result)) =>
+            {
+                return Ok(ControlFlow::Break(pc));
+            }
+            Err(trap) => return Err(trap),
+        };
+        if let Some(result) = call.result()
+            && !context.mark_pending(result)
+        {
+            return Ok(ControlFlow::Break(pc));
+        }
+        context.batch.push(call);
+        Ok(ControlFlow::Continue(pc + 1))
+    }
 }

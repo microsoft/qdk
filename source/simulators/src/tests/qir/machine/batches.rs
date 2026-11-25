@@ -13,7 +13,7 @@ use crate::OutputRecord;
 use crate::bytecode::encoding::{
     FLAG_AUX0_IMM, FLAG_AUX1_IMM, FLAG_AUX2_IMM, FLAG_SRC0_IMM, FLAG_SRC1_IMM, ICMP_EQ, OP_ALLOCA,
     OP_ICMP, OP_LOAD, OP_MEASURE, OP_READ_LOSS, OP_READ_RESULT, OP_READOUT_NOISE, OP_STORE,
-    OP_UDIV, OP_WRITE_RESULT, OPID_CX, OPID_MRESETZ, OPID_MZ, OPID_X,
+    OP_UDIV, OP_WRITE_RESULT, OPID_CX, OPID_MRESETZ, OPID_MZ, OPID_X, RECORD_TUPLE,
 };
 use crate::bytecode::{AdaptiveProgram, Instruction};
 use crate::qir::{QirMachine, QirReadout, QirStop, QirTrap};
@@ -390,7 +390,7 @@ fn measurement_comparison() -> AdaptiveProgram<u64> {
             store(18, 6),
             load(19, 2),
             store(19, 7),
-            record(2, 0),
+            record(RECORD_TUPLE, 0),
             load(20, 5),
             record_bool(20),
             load(21, 6),

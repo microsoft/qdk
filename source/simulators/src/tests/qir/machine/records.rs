@@ -11,7 +11,10 @@ use super::{both, records, trap};
 use crate::MeasurementResult::{Loss, One, Zero};
 use crate::OutputRecord;
 use crate::bytecode::Instruction;
-use crate::bytecode::encoding::{FLAG_SRC0_IMM, OP_RECORD_OUTPUT, OPID_MZ};
+use crate::bytecode::encoding::{
+    FLAG_SRC0_IMM, OP_RECORD_OUTPUT, OPID_MZ, RECORD_ARRAY, RECORD_BOOL, RECORD_DOUBLE, RECORD_INT,
+    RECORD_TUPLE,
+};
 use crate::qir::{QirReadout, QirTrap};
 
 /// A program with no `RECORD_OUTPUT`: two results measured, one written,
@@ -45,8 +48,8 @@ fn a_program_that_records_nothing_records_every_result() {
 /// Programs that measure result 0 and hold a record, though their run
 /// records no output: one branching on register 3, which holds 0, past
 /// the block recording result 0; and one recording only an output marker,
-/// that of an empty tuple (kind 2), as every Q# entry point returning
-/// `Unit` does, or of an empty array (kind 1).
+/// that of an empty tuple, as every Q# entry point returning `Unit` does,
+/// or of an empty array.
 #[test]
 fn a_program_holding_a_record_records_only_what_its_run_records() {
     let unreached = program(&[
@@ -64,8 +67,8 @@ fn a_program_holding_a_record_records_only_what_its_run_records() {
     // replacement.
     for (scene, bytecode) in [
         ("a record its run does not reach", unreached),
-        ("a tuple's marker", marker(2)),
-        ("an array's marker", marker(1)),
+        ("a tuple's marker", marker(RECORD_TUPLE)),
+        ("an array's marker", marker(RECORD_ARRAY)),
     ] {
         assert_eq!(records(&bytecode, |_| QirReadout::One), [], "{scene}");
         assert_eq!(both(&bytecode).1, [], "the records of `run_shot`, {scene}");
@@ -86,9 +89,9 @@ fn a_bool_record_of_a_value_other_than_0_or_1_is_a_trap() {
     }
     for value in [2, 3] {
         // COMPATIBILITY NOTE: `run_shot` (bytecode/runtime.rs,
-        // `RECORD_OUTPUT` of kind 3) reads any value but 0 as true; the
-        // machine traps instead, because such a value can only come from
-        // the pass, which does not wrap narrow integer results (`add i1
+        // `RECORD_OUTPUT` of kind `RECORD_BOOL`) reads any value but 0 as
+        // true; the machine traps instead, because such a value can only come
+        // from the pass, which does not wrap narrow integer results (`add i1
         // true, true` leaves 2, where LLVM gives false), and reading it as
         // true hides the bug.
         assert_eq!(
@@ -106,13 +109,13 @@ fn a_bool_record_of_a_value_other_than_0_or_1_is_a_trap() {
 /// `Double`.
 #[test]
 fn a_double_record_is_its_register_s_bits_read_as_a_double() {
-    let bytecode = program(&[&[set(1, (-1.5f64).to_bits()), record(5, 1), ret()]]);
+    let bytecode = program(&[&[set(1, (-1.5f64).to_bits()), record(RECORD_DOUBLE, 1), ret()]]);
     let (machine, run_shot) = both(&bytecode);
     assert_eq!(machine, [OutputRecord::Double(-1.5)]);
     // COMPATIBILITY NOTE: this behavior was present in `run_shot`
-    // (bytecode/runtime.rs, `RECORD_OUTPUT` of kind 5: `resolve_f64`, the
-    // register's bits as a double), hence we keep it so that the machine
-    // is a drop-in replacement.
+    // (bytecode/runtime.rs, `RECORD_OUTPUT` of kind `RECORD_DOUBLE`:
+    // `resolve_f64`, the register's bits as a double), hence we keep it so
+    // that the machine is a drop-in replacement.
     assert_eq!(machine, run_shot);
 }
 
@@ -127,9 +130,9 @@ fn a_record_reads_its_value_as_a_constant_or_a_register_by_its_flag() {
         ..op(OP_RECORD_OUTPUT, FLAG_SRC0_IMM)
     };
     let bytecode = program(&[&[
-        constant(3),
-        constant(4),
-        constant(5),
+        constant(RECORD_BOOL),
+        constant(RECORD_INT),
+        constant(RECORD_DOUBLE),
         set(1, 7),
         record_int(1),
         ret(),

@@ -17,7 +17,7 @@ use crate::OutputRecord;
 use crate::bytecode::AdaptiveProgram;
 use crate::bytecode::encoding::{
     FLAG_SRC0_IMM, FLAG_SRC1_IMM, OP_READ_LOSS, OP_READ_RESULT, OP_WRITE_RESULT, OPID_MX, OPID_MY,
-    OPID_MZ, OPID_X,
+    OPID_MZ, OPID_X, RECORD_RESULT,
 };
 use crate::qir::{QirCall, QirMachine, QirOutcome, QirReadout, QirStop, QirTrap};
 use qsc_data_structures::measurement::MeasurementBasis;
@@ -551,8 +551,8 @@ fn a_result_past_the_program_s_is_a_trap() {
         ),
         (
             "record",
-            record(0, 0),
-            reading(record(0, 0)),
+            record(RECORD_RESULT, 0),
+            reading(record(RECORD_RESULT, 0)),
             vec![OutputRecord::Result(One), OutputRecord::Int(0)],
         ),
     ];

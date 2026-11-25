@@ -2,20 +2,23 @@
 // Licensed under the MIT License.
 
 //! The state of one shot's run of a [`QirMachine`]'s program
-//! ([`QirShotContext`]), and what the walk asks of it. Each function call
-//! under way is a [`Frame`].
+//! ([`QirShotContext`]), and what the walk asks of it: its operands, and
+//! the steps that change it. Each function call under way is a [`Frame`].
 
 use super::super::program::prepared_quantum_calls::RegisterOperands;
 use super::super::quantum_instruction_encoding::{self, CallOperand, Register};
 use super::super::{QirCall, QirOutcome, QirReadout, QirTrap};
 use super::block_start;
+use super::classical_ops::{bit, signed};
 #[cfg(doc)]
 use super::{QirMachine, QirStop};
 use crate::bytecode::encoding::{
-    FLAG_AUX0_IMM, FLAG_AUX1_IMM, FLAG_AUX2_IMM, FLAG_SRC0_IMM, FLAG_SRC1_IMM,
+    FLAG_AUX0_IMM, FLAG_AUX1_IMM, FLAG_AUX2_IMM, FLAG_SRC0_IMM, FLAG_SRC1_IMM, RECORD_BOOL,
+    RECORD_DOUBLE, RECORD_INT, RECORD_RESULT, VOID_RETURN,
 };
 use crate::bytecode::{AdaptiveProgram, Instruction};
 use crate::{MeasurementResult, OutputRecord};
+use std::ops::ControlFlow;
 
 /// The state of one shot's run of a [`QirMachine`]'s program, between two
 /// stops: where it is, its registers, memory and function calls under way, the
@@ -130,6 +133,21 @@ impl QirShotContext {
             .is_some_and(|pending| *pending)
     }
 
+    /// Marks `result` as written by a call of the batch, and returns
+    /// `true`; or returns `false`, marking nothing, when a call of the batch
+    /// writes it already. The call that writes it again then starts the next
+    /// batch, so that a batch has at most one outcome per result.
+    #[inline]
+    pub(super) fn mark_pending(&mut self, result: u32) -> bool {
+        let pending = &mut self.pending[result as usize];
+        if *pending {
+            return false;
+        }
+        *pending = true;
+        self.batch_results.push(result);
+        true
+    }
+
     /// The value of `result`, for the instruction at `pc` that uses it, or
     /// its trap: past the program's results, or with no value.
     pub(super) fn result(
@@ -172,6 +190,61 @@ impl QirShotContext {
         self.previous_block = self.block;
         self.block = block;
         block_start(bytecode, block)
+    }
+
+    /// Calls the function of the `CALL` `instruction` at `pc`, and gives the
+    /// function's first instruction. The function runs on the same register
+    /// file: the call's frame keeps where to return, and the caller's
+    /// registers are saved until then.
+    // The check refused every table index and register past the program's.
+    #[allow(clippy::cast_possible_truncation)]
+    pub(super) fn call_function(
+        &mut self,
+        bytecode: &AdaptiveProgram<u64>,
+        instruction: &Instruction<u64>,
+        pc: usize,
+    ) -> usize {
+        let function = &bytecode.function_table[instruction.aux0 as usize];
+        self.frames.push(Frame {
+            return_pc: next(pc),
+            caller_block: self.block,
+            keep: (instruction.dst != VOID_RETURN).then_some(instruction.dst as Register),
+            memory: self.memory.len(),
+        });
+        let saved = self.saved.len();
+        self.saved.extend_from_slice(&self.registers);
+        // Read from the saved copy, so that each parameter takes its
+        // argument's value at the call, though it may be an argument of a
+        // later one.
+        let arguments =
+            &bytecode.call_args[instruction.aux2 as usize..][..instruction.aux1 as usize];
+        for (param, argument) in (function.param_base_reg as usize..).zip(arguments) {
+            self.registers[param] = self.saved[saved + *argument as usize];
+        }
+        self.block = function.entry_block_id;
+        block_start(bytecode, function.entry_block_id)
+    }
+
+    /// Returns from the innermost function call, at its `CALL_RETURN`
+    /// `instruction`, and gives the instruction after the call. The caller's
+    /// registers come back, with the function's value in the register the
+    /// call keeps it in, if any, and the function's `ALLOCA`s are freed.
+    pub(super) fn return_from_function(&mut self, instruction: &Instruction<u64>) -> usize {
+        let frame = self
+            .frames
+            .pop()
+            .expect("the check refused a return reached with no call");
+        // Read from the function's registers, before the caller's come back.
+        let kept = frame.keep.map(|keep| (keep, self.src0(instruction)));
+        let saved = self.saved.len() - self.registers.len();
+        self.registers.copy_from_slice(&self.saved[saved..]);
+        self.saved.truncate(saved);
+        self.memory.truncate(frame.memory);
+        if let Some((keep, value)) = kept {
+            self.set(keep, value);
+        }
+        self.block = frame.caller_block;
+        frame.return_pc as usize
     }
 
     /// The result the call of `operands` writes, its register read, if it
@@ -263,6 +336,95 @@ impl QirShotContext {
         }
     }
 
+    /// The word at `address` of the memory, for the `LOAD` at `pc`, or its
+    /// trap past the memory.
+    pub(super) fn load(&self, address: u64, pc: usize) -> Result<u64, QirTrap> {
+        usize::try_from(address)
+            .ok()
+            .and_then(|index| self.memory.get(index))
+            .copied()
+            .ok_or(QirTrap::LoadPastMemory {
+                instruction: pc,
+                address,
+                words: self.memory.len(),
+            })
+    }
+
+    /// Writes `value` to the word at `address` of the memory, for the
+    /// `STORE` at `pc`. A store past the memory traps, writing nothing, as a
+    /// load does. `run_shot` grows the memory instead (the test's
+    /// COMPATIBILITY NOTE says why not). The GPU shader also stops a shot
+    /// there.
+    pub(super) fn store(&mut self, address: u64, value: u64, pc: usize) -> Result<(), QirTrap> {
+        let words = self.memory.len();
+        let word = usize::try_from(address)
+            .ok()
+            .and_then(|index| self.memory.get_mut(index))
+            .ok_or(QirTrap::StorePastMemory {
+                instruction: pc,
+                address,
+                words,
+            })?;
+        *word = value;
+        Ok(())
+    }
+
+    /// Writes the bit of the `WRITE_RESULT` `instruction` at `pc` to its
+    /// result; or `Break`s, writing nothing, when a call of the batch writes
+    /// the result, whose outcome then comes first.
+    pub(super) fn write_result(
+        &mut self,
+        bytecode: &AdaptiveProgram<u64>,
+        instruction: &Instruction<u64>,
+        pc: usize,
+    ) -> Result<ControlFlow<()>, QirTrap> {
+        let result = self.src1(instruction);
+        // Before the value's check, so that the stop comes before the trap,
+        // as for a call.
+        if self.is_pending(result) {
+            return Ok(ControlFlow::Break(()));
+        }
+        // The value is checked before the result, as `run_shot` does, but
+        // which fault is reported is not promised (see `QirTrap`), so no test
+        // pins it.
+        let written = if bit(pc, self.src0(instruction))? {
+            QirReadout::One
+        } else {
+            QirReadout::Zero
+        };
+        let index = program_result(bytecode, pc, result)? as usize;
+        self.results[index] = written;
+        Ok(ControlFlow::Continue(()))
+    }
+
+    /// Records the value of the `RECORD_OUTPUT` `instruction` at `pc`, as
+    /// its kind (`aux1`) reads it; or `Break`s, recording nothing, when the
+    /// value is a result that a call of the batch writes, whose outcome then
+    /// comes first.
+    pub(super) fn record_output(
+        &mut self,
+        bytecode: &AdaptiveProgram<u64>,
+        instruction: &Instruction<u64>,
+        pc: usize,
+    ) -> Result<ControlFlow<()>, QirTrap> {
+        let record = match instruction.aux1 {
+            RECORD_RESULT => {
+                let result = self.src0(instruction);
+                if self.is_pending(result) {
+                    return Ok(ControlFlow::Break(()));
+                }
+                OutputRecord::Result(self.result(bytecode, pc, result)?)
+            }
+            RECORD_BOOL => OutputRecord::Bool(bit(pc, self.src0(instruction))?),
+            RECORD_INT => OutputRecord::Int(signed(self.src0(instruction))),
+            RECORD_DOUBLE => OutputRecord::Double(f64::from_bits(self.src0(instruction))),
+            // An array's or a tuple's record only marks the output's shape.
+            _ => return Ok(ControlFlow::Continue(())),
+        };
+        self.records.push(record);
+        Ok(ControlFlow::Continue(()))
+    }
+
     /// Ends the context at the `RET` at `pc`: its records are final. A
     /// program that records nothing (not `records_output`) records every
     /// result, so a result with no value traps there; a resume after the
@@ -293,11 +455,7 @@ fn program_qubit(bytecode: &AdaptiveProgram<u64>, pc: usize, value: u64) -> Resu
 /// at `pc`, or its trap past the program's results. A read, a loss check
 /// or a record of one traps too, unlike in `run_shot`.
 #[inline]
-pub(super) fn program_result(
-    bytecode: &AdaptiveProgram<u64>,
-    pc: usize,
-    value: u64,
-) -> Result<u32, QirTrap> {
+fn program_result(bytecode: &AdaptiveProgram<u64>, pc: usize, value: u64) -> Result<u32, QirTrap> {
     match u32::try_from(value) {
         Ok(result) if result < bytecode.num_results => Ok(result),
         _ => Err(QirTrap::no_such_result(bytecode, pc, value)),
@@ -321,4 +479,9 @@ fn held(value: QirReadout, pc: usize, index: usize) -> Result<MeasurementResult,
             result: u32::try_from(index).expect("a program has fewer than 2^32 results"),
         }),
     }
+}
+
+/// The instruction after `pc`.
+fn next(pc: usize) -> u32 {
+    u32::try_from(pc + 1).expect("a program holds fewer than 2^32 instructions")
 }

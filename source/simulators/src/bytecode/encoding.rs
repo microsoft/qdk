@@ -3,9 +3,10 @@
 
 //! The encoding of the bytecode's instructions: the opcodes, the flags
 //! that mark an operand as an immediate, the comparison predicates, the
-//! quantum operations' ids, and the sentinel of a call whose result is
-//! dropped. They must stay in sync with the Python `_adaptive_bytecode.py`
-//! and the WGSL `gpu_statevector_shaders.wgsl` shader.
+//! kinds of output record, the quantum operations' ids, and the sentinel of
+//! a call whose result is dropped. They must stay in sync with the Python
+//! `_adaptive_bytecode.py` and the WGSL `gpu_statevector_shaders.wgsl`
+//! shader.
 
 // Flags (pre-shifted to bit 16+)
 pub(crate) const FLAG_SRC0_IMM: u64 = 1 << 16;
@@ -121,6 +122,17 @@ pub(crate) const FCMP_ULT: u8 = 12;
 pub(crate) const FCMP_ULE: u8 = 13;
 pub(crate) const FCMP_UNE: u8 = 14;
 pub(crate) const FCMP_TRUE: u8 = 15;
+
+// Output record kinds (`aux1` of `OP_RECORD_OUTPUT`), one per
+// `__quantum__rt__*_record_output` call that `_adaptive_pass.py` lowers.
+// An array's or a tuple's record only marks the output's shape, which the
+// host rebuilds from the QIR: a run records nothing for it.
+pub(crate) const RECORD_RESULT: u64 = 0;
+pub(crate) const RECORD_ARRAY: u64 = 1;
+pub(crate) const RECORD_TUPLE: u64 = 2;
+pub(crate) const RECORD_BOOL: u64 = 3;
+pub(crate) const RECORD_INT: u64 = 4;
+pub(crate) const RECORD_DOUBLE: u64 = 5;
 
 // Quantum op IDs — must match `shader_types.rs` `OpID` and `GATE_MAP` in
 // `_adaptive_pass.py`.

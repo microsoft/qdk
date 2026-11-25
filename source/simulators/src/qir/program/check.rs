@@ -28,7 +28,8 @@ use crate::bytecode::encoding::{
     OP_MEASURE, OP_MOV, OP_MUL, OP_NOP, OP_OR, OP_PEEK_LOSS, OP_PHI, OP_QUANTUM_GATE, OP_READ_LOSS,
     OP_READ_RESULT, OP_READOUT_NOISE, OP_RECORD_OUTPUT, OP_RESET, OP_RET, OP_SDIV, OP_SELECT,
     OP_SEXT, OP_SHL, OP_SITOFP, OP_SREM, OP_STORE, OP_SUB, OP_SWITCH, OP_TRUNC, OP_UDIV, OP_UITOFP,
-    OP_UREM, OP_WRITE_RESULT, OP_XOR, OP_ZEXT, OPID_CORRELATED_NOISE, VOID_RETURN,
+    OP_UREM, OP_WRITE_RESULT, OP_XOR, OP_ZEXT, OPID_CORRELATED_NOISE, RECORD_ARRAY, RECORD_BOOL,
+    RECORD_DOUBLE, RECORD_INT, RECORD_RESULT, RECORD_TUPLE, VOID_RETURN,
 };
 use crate::bytecode::{AdaptiveProgram, Function, Instruction};
 use std::ops::Range;
@@ -574,13 +575,18 @@ impl<'a> Check<'a> {
             }
             OP_RECORD_OUTPUT => match instruction.aux1 {
                 // A result, refused past the program's as for a read.
-                0 => {
+                RECORD_RESULT => {
                     let result = self.source(at, &instruction, Src0);
                     self.result(at, result);
                 }
-                3 => self.bit(at, &instruction, Src0),
-                4 | 5 => self.reads(at, &instruction, &[Src0]),
-                // Kinds 1 and 2 (array, tuple) only mark the output's shape.
+                RECORD_BOOL => self.bit(at, &instruction, Src0),
+                RECORD_INT | RECORD_DOUBLE => self.reads(at, &instruction, &[Src0]),
+                // They only mark the output's shape, and read nothing.
+                // Apart from the wildcard, which is the same, to name them.
+                #[allow(clippy::match_same_arms)]
+                RECORD_ARRAY | RECORD_TUPLE => {}
+                // Not a kind the pass writes: as `run_shot`, a run records
+                // nothing for it.
                 _ => {}
             },
             OP_ADD | OP_SUB | OP_MUL | OP_AND | OP_OR | OP_XOR | OP_SHL | OP_LSHR | OP_ASHR
