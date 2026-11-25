@@ -4,12 +4,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Sequence
 
 from .podman import SECCOMP_PROFILE, Engine, vm_path
 from .state import validate_sandbox_instance_name
 
 LABEL_PREFIX = "io.qdk.copilot-sandbox."
 AGENT_USER = "1000:1000"
+# Volumes the agent writes for the host. The host never mounts them; helpers copy them out instead.
+OUTBOX_DIRECTORY = "/outbox.git"
+OUTPUT_DIRECTORY = "/exchange/from_copilot"
 PROXY_USER = "squid"
 AGENT_PIDS_LIMIT = 4096
 PROXY_PIDS_LIMIT = 512
@@ -53,6 +57,50 @@ class Mount:
         return ["--mount", value + (",ro=true" if self.readonly else "")]
 
 
+def volume_name(instance: str, kind: str) -> str:
+    return f"qdk-copilot-sandbox-{validate_sandbox_instance_name(instance)}_{kind}"
+
+
+def helper_arguments(
+    image: str,
+    instance: str,
+    mounts: Sequence[Mount],
+    *command: str,
+    interactive: bool = False,
+) -> list[str]:
+    """Podman arguments for a throwaway, offline container running as container root.
+
+    With Podman's default IDs, container root is you, so files it writes to the host are yours.
+    """
+    arguments = [
+        "run",
+        "--rm",
+        "--pull=never",
+        "--network=none",
+        "--user",
+        "0:0",
+        "--cap-drop=ALL",
+        "--cap-add=CHOWN",
+        "--cap-add=DAC_OVERRIDE",
+        "--cap-add=DAC_READ_SEARCH",
+        "--cap-add=FOWNER",
+        "--security-opt=no-new-privileges",
+        # Helpers read agent-written data as you, so they get at least the agent's restrictions.
+        "--security-opt=seccomp=" + vm_path(SECCOMP_PROFILE),
+        "--read-only",
+        f"--pids-limit={PROXY_PIDS_LIMIT}",
+        "--label",
+        f"{LABEL_PREFIX}instance={validate_sandbox_instance_name(instance)}",
+        "--label",
+        f"{LABEL_PREFIX}role=helper",
+    ]
+    if interactive:
+        arguments.insert(1, "-i")
+    for mount in mounts:
+        arguments += mount.argument()
+    return arguments + ["--entrypoint", command[0], image, *command[1:]]
+
+
 @dataclass(frozen=True)
 class Session:
     instance: str
@@ -60,9 +108,7 @@ class Session:
     agent_image: str
     proxy_image: str
     seed: Path
-    outbox: Path
     to_copilot: Path
-    from_copilot: Path
     allowlist: Path
     cpus: str
     memory: str
@@ -84,7 +130,7 @@ class Session:
         return self.prefix + "-proxy"
 
     def volume(self, kind: str) -> str:
-        return f"{self.prefix}_{kind}"
+        return volume_name(self.instance, kind)
 
     @property
     def seccomp(self) -> str:
@@ -96,10 +142,10 @@ class Session:
             Mount("volume", self.volume("work"), "/work", False),
             Mount("volume", self.volume("copilot"), "/home/agent/.copilot", False),
             Mount("volume", self.volume("relay"), RELAY_DIRECTORY, True),
+            Mount("volume", self.volume("outbox"), OUTBOX_DIRECTORY, False),
+            Mount("volume", self.volume("output"), OUTPUT_DIRECTORY, False),
             Mount("bind", vm_path(self.seed), "/seed.git", True),
-            Mount("bind", vm_path(self.outbox), "/outbox.git", False),
             Mount("bind", vm_path(self.to_copilot), "/exchange/to_copilot", True),
-            Mount("bind", vm_path(self.from_copilot), "/exchange/from_copilot", False),
         ]
 
     def proxy_mounts(self) -> list[Mount]:
@@ -135,8 +181,11 @@ class Session:
             AGENT_USER,
             "--workdir",
             "/work",
-            # Maps the agent to your user, so its outbox and exchange writes are yours on the host.
-            "--userns=keep-id:uid=1000,gid=1000",
+            # Podman's default IDs, so the agent is a subordinate ID rather than you on the host.
+            # Unlike omitting --userns, this gives the container its own user namespace, and unlike
+            # other mappings, Podman needn't make a copy of the image with shifted owners.
+            f"--uidmap=0:0:{self.engine.id_count}",
+            f"--gidmap=0:0:{self.engine.id_count}",
             "--network=none",
             f"--pids-limit={AGENT_PIDS_LIMIT}",
         ]

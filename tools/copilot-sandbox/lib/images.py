@@ -310,11 +310,24 @@ def get_image_pair(
         except LauncherError as error:
             LOGGER.warning("%s", format_error(error))
             return _get_cached_fallback(base)
-        # Podman can't read a remote image's labels, so the paired proxy is known only after the agent is local.
-        if _get_local_image_metadata(agent.reference) is None and not (
-            _request_user_confirmation(
-                f"Pull the latest sandbox images?\n  {agent.reference}\n  (and its paired proxy)"
+        # Podman can't read a remote image's labels, so the paired proxy is known only once the agent is local.
+        proxy = None
+        missing = f"  {agent.reference}\n  (and its paired proxy)"
+        local_agent = _get_local_image_metadata(agent.reference)
+        if local_agent is not None:
+            _, proxy_name = get_image_names_for_tag(_get_build_id(local_agent))
+            try:
+                proxy = _get_remote_image(proxy_name, architecture, auth)
+            except LauncherError as error:
+                LOGGER.warning("%s", format_error(error))
+                return _get_cached_fallback(base)
+            missing = (
+                ""
+                if _get_local_image_metadata(proxy.reference)
+                else f"  {proxy.reference}"
             )
+        if missing and not _request_user_confirmation(
+            f"Pull the latest sandbox images?\n{missing}"
         ):
             try:
                 return _get_cached_image_pair(base)
@@ -327,7 +340,7 @@ def get_image_pair(
             build_id = _get_build_id(agent_metadata)
             _, proxy_name = get_image_names_for_tag(build_id)
             proxy_metadata = _pull_image(
-                _get_remote_image(proxy_name, architecture, auth), auth
+                proxy or _get_remote_image(proxy_name, architecture, auth), auth
             )
         except _RegistryError as error:
             raise LauncherError(

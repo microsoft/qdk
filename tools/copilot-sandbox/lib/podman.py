@@ -12,7 +12,9 @@ import sys
 from .common import LauncherError, run, sanitize_diagnostic
 
 MACHINE = "qdk-sandbox"
+# Podman machines (Windows, macOS) need 6: 5.x mishandles cgroups in WSL.
 MINIMUM_VERSION: tuple[int, int] = (4, 9)
+MACHINE_MINIMUM_VERSION: tuple[int, int] = (6, 0)
 INTERFACE_LABEL = "qdk.copilot-sandbox.interface"
 INTERFACE_VERSION = "2"
 # Docker's default seccomp profile (moby/profiles, Apache-2.0). Podman's own default lets a container
@@ -26,6 +28,8 @@ CONNECTION: str | None = MACHINE if sys.platform in ("win32", "darwin") else Non
 class Engine:
     architecture: str
     network: str
+    # IDs in rootless Podman's own user namespace: you (0) plus your subordinate IDs.
+    id_count: int
 
 
 def podman(*args: str | os.PathLike[str]) -> list[str]:
@@ -44,6 +48,11 @@ def vm_path(path: str | os.PathLike[str]) -> str:
     return "/mnt/" + windows.drive[0].lower() + "/" + "/".join(windows.parts[1:])
 
 
+def _required_version() -> str:
+    major, minor = MACHINE_MINIMUM_VERSION if CONNECTION == MACHINE else MINIMUM_VERSION
+    return f"{major}.{minor}"
+
+
 def _machine_hint() -> str:
     if CONNECTION != MACHINE:
         return ""
@@ -58,7 +67,8 @@ def check_podman() -> Engine:
     result = run(podman("info", "--format", "json"), check=False)
     if result.returncode:
         raise LauncherError(
-            "Podman is unavailable; Podman >= 4.9 is required." + _machine_hint()
+            f"Podman is unavailable; Podman >= {_required_version()} is required."
+            + _machine_hint()
         )
     try:
         info = json.loads(result.stdout)
@@ -71,10 +81,16 @@ def check_podman() -> Engine:
         cgroups = host["cgroupVersion"]
         architecture = host["arch"]
         network = host.get("rootlessNetworkCmd") or "slirp4netns"
+        id_count = min(
+            sum(entry["size"] for entry in host["idMappings"][kind])
+            for kind in ("uidmap", "gidmap")
+        )
     except (KeyError, TypeError, ValueError) as error:
         raise LauncherError("Cannot read Podman host information.") from error
-    if version < MINIMUM_VERSION:
-        raise LauncherError("Podman >= 4.9 is required.")
+    if version < (
+        MACHINE_MINIMUM_VERSION if CONNECTION == MACHINE else MINIMUM_VERSION
+    ):
+        raise LauncherError(f"Podman >= {_required_version()} is required.")
     if operating_system != "linux" or cgroups != "v2":
         raise LauncherError("Podman must run Linux containers with cgroup v2.")
     if not rootless:
@@ -85,7 +101,11 @@ def check_podman() -> Engine:
         raise LauncherError(f"Unsupported rootless network: {network}")
     if CONNECTION == MACHINE and sys.platform == "win32":
         _check_windows_interop()
-    return Engine(architecture, network)
+    if id_count <= 1000:
+        raise LauncherError(
+            "Rootless Podman needs a subordinate ID range (/etc/subuid, /etc/subgid) of at least 1000 IDs."
+        )
+    return Engine(architecture, network, id_count)
 
 
 _CHECK_WINDOWS_INTEROP = r"""

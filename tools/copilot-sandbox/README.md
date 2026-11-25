@@ -9,11 +9,11 @@ More details below, but summarizing here for the TL;DR.
 
 1. Any output from the sandbox has to be treated as untrusted - both branches and loose files.
    1. Be particularly careful with scripts it provides for local repros.
-   2. By default, the loose files it creates are available within the repo itself, which VS Code typically considers trusted. If you're doing something risky, update your configuration to put them in an untrusted folder.
+   2. The loose files it creates go to `~/qdk-copilot-sandbox/NAME/from_copilot`, outside the repo. Don't open them in a VS Code workspace you trust.
 2. The sandbox infrastructure is in the same repo the sandbox has access to - only run the infrastructure from a trusted branch, preferably `main`.
 3. State is preserved session over session in Podman volumes. If you work on something sensitive, you may wish to wipe them (or create a new instance).
-4. Never open `outbox.git` or, on Linux, the `_work` volume with Git, a Git-aware shell prompt or an editor; they contain agent-controlled Git configuration. Use `sandbox.py fetch`.
-5. On Linux, a container escape runs as you on your host; Windows and macOS add a VM boundary.
+4. Never open the instance's volumes (on Linux, under `~/.local/share/containers/storage/volumes`) with Git, a Git-aware shell prompt or an editor; they contain agent-controlled Git configuration. Use `sandbox.py fetch`.
+5. On Linux, a container escape runs as one of your subordinate IDs on your host, not as you; Windows and macOS add a VM boundary.
 6. A sandbox makes `--allow-all` safer, not safe.
 
 ## Safeguards
@@ -64,40 +64,50 @@ The image also includes a clone of `microsoft/qdk-chemistry`, without building i
 On first use, startup copies that checkout into `/work/qdk-chemistry`; no network access is needed.
 This ordinary clone has no seed or outbox integration, and later launches leave it unchanged.
 
-In order to be able to expose the work Copilot has done, the container mounts a read-write clone (`~/qdk-copilot-sandbox/NAME/outbox.git`).
+In order to be able to expose the work Copilot has done, the agent pushes to a bare repository (`/outbox.git`) in its own volume, which the host never mounts.
 Its branches will be available as `sandbox-INSTANCENAME/*` tracking branches in your local clone, which will be updated at the end of a session or on explicit `sandbox.py fetch`.
-For added security, the host pauses or stops the agent and creates a temporary, host-configured view of the outbox’s branches and objects.
-Your local repository fetches from this view rather than directly from the agent-writable outbox, avoiding its potentially malicious Git configuration.
+For added security, the host pauses or stops the agent while a throwaway helper container copies only the outbox's objects, as regular files owned by you, into `~/qdk-copilot-sandbox/NAME/outbox`, and reads its branch refs as data.
+The agent's Git configuration and hooks never reach the host.
+The host validates the refs and creates a temporary, host-configured view of them and the copied objects; your local repository fetches from this view.
 
 ```mermaid
 flowchart TD
 Host["HOST: Your repository (.git)"]
 Work["GUEST: Working clone (/work/qdk)"]
-Outbox["HOST: Bare outbox (outbox.git)"]
+Outbox["GUEST: Bare outbox volume (/outbox.git)"]
+Copy["HOST: Copied objects (outbox) and refs as data"]
 View["HOST: Temporary trusted repository"]
 
     Host -->|"Mounted read-only at /seed.git; clone/fetch"| Work
-    Work -->|"Push via writable mount /outbox.git"| Outbox
-    Outbox -->|"Validated refs and access to stored objects"| View
+    Work -->|"Push"| Outbox
+    Outbox -->|"Helper copies regular files only"| Copy
+    Copy -->|"Validated refs and access to copied objects"| View
     View -->|"Fetch into sandbox-NAME/*"| Host
 ```
 
 ### Files
 
-For convenience, you can provide files to the container (read-only) via the `to_copilot` folder and read output via the (read-write) `from_copilot` folder.
-Strictly speaking, you should treat `from_copilot` as an untrusted folder (i.e. opened in a separate VS Code workspace not marked Trusted), but you may decide you're comfortable having it within the repo for convenience.
+For convenience, you can provide files to the container (read-only) via the `to_copilot` folder and read output via the `from_copilot` folder.
+Treat `from_copilot` as an untrusted folder (i.e. open it in a separate VS Code workspace not marked Trusted).
 This is chiefly useful for getting quick access to generated markdown reports without a lot of git pushing and pulling.
-The sandbox makes a best-effort attempt to strip symlinks and local git repos out of the `from_copilot` folder.
 
-The default mounts are `exchange/INSTANCE_NAME/to_copilot` (read-only context) and
-`exchange/INSTANCE_NAME/from_copilot` (writable output). Use `--to-copilot-dir PATH` and
-`--from-copilot-dir PATH` to relocate them.
+The agent writes `/exchange/from_copilot` in its own volume.
+At the end of a session and on `sandbox.py fetch`, a helper copies new and changed files into `from_copilot`, owned by you with ordinary permissions.
+It copies only directories and regular files.
+It skips and reports, once each, symlinks, special files, `.git` entries, names that macOS or Windows can't handle safely (such as `CON` or a trailing dot), and names that differ only in case or Unicode form.
+It never deletes anything in `from_copilot` and never overwrites a file you've changed or that it didn't copy; a file you delete comes back only if the agent updates it.
+
+The folders are always `~/qdk-copilot-sandbox/NAME/to_copilot` (read-only mount) and `~/qdk-copilot-sandbox/NAME/from_copilot` (copied output).
+Files in `to_copilot` and the seed repository must be readable by other users, since the agent isn't you (see below); the instance's private folder keeps other host users out of `to_copilot`.
 
 ### Accounts
 
 The container runs as a non-root user and `sudo` is unavailable.
 Containers run under rootless Podman, so no sandbox process is root on the machine running Podman (on Linux, your host).
-The agent's user maps to your account, so its outbox and exchange writes are owned by you; nothing in the proxy maps to your account.
+The agent uses rootless Podman's default IDs in its own user namespace, so on the host it is one of your subordinate IDs (typically 100999), not you.
+Container root maps to you, but nothing in the agent runs as root and the container blocks gaining it.
+Unlike other mappings, this one doesn't make Podman create a copy of the image with shifted file owners, which takes tens of seconds for each new image.
+Nothing in the proxy maps to your account.
 
 Podman's default seccomp profile is more permissive than Docker's: it lets containers create user namespaces, a common first step in kernel exploits, and open vsock sockets to the hypervisor.
 The launcher therefore applies [`seccomp.json`](seccomp.json), Docker's default profile from [moby/profiles](https://github.com/moby/profiles/blob/2ab3e516a3b49550c35b5e4511a0a7d136a02c8d/seccomp/default.json) (Apache-2.0), and verification confirms its effect.
@@ -123,7 +133,7 @@ It never appears in a command line, the container's configuration or environment
    | ------- | --------------------------------------------------- | ------------------------------------------- |
    | macOS   | the machine's user, in its VM                       | this checkout and `~/qdk-copilot-sandbox`   |
    | Windows | the machine's user, in the VM all WSL distros share | every drive, writable as you                |
-   | Linux   | you, on your host                                   | everything you can, with unfiltered network |
+   | Linux   | a subordinate ID, on your host                      | files any user can read, unfiltered network |
 
    On Linux, consider running the sandbox as a separate local user.
    Rootless Podman applies no AppArmor profile, so Ubuntu and Debian hosts lack that layer; Fedora and RHEL still apply SELinux.
@@ -134,7 +144,7 @@ There can also be private configuration and history data in `.git`.
 ## Prerequisites
 
 - Python 3.10 or newer. Use this checkout's `.venv` interpreter when available.
-- Rootless Podman 6 or newer with cgroup v2 (5.x doesn't play nicely with cgroups in WSL 3).
+- Rootless Podman with cgroup v2: 4.9 or newer on Linux, or 6 or newer in the Podman machine on Windows and macOS (5.x doesn't play nicely with cgroups in WSL).
   On Linux, the launcher uses Podman directly; your account needs `/etc/subuid` and `/etc/subgid` ranges.
   On Windows and macOS, it uses a dedicated Podman machine (see [Podman Machine](#podman-machine-windows-and-macos));
 - Git; 2.45.1 or newer is recommended and older versions get a warning.
@@ -142,12 +152,12 @@ There can also be private configuration and history data in `.git`.
 - For published images only: Azure CLI, signed in, with permission to pull from the team's `qdkacr` registry.
   Locally built images launched with `--local` do not need ACR access.
 - A secret store: initialized `pass` plus GnuPG on Linux, unlocked Keychain (`security`) on macOS, or current-user DPAPI on Windows.
-- The checkout, instance directory and exchange folders must be readable/writable by your account, and their paths can't contain commas.
+- The checkout and instance directory must be readable/writable by your account, and their paths can't contain commas.
   The launcher does not change host ownership or ACLs.
 
 Images must first be published by the separate image pipeline or built with the maintainer tool.
 This launcher does not install prerequisites.
-Podman and its configuration are trusted, but verification checks the resulting containers, so configuration that adds mounts or devices is refused (see [Troubleshooting](#troubleshooting)).
+Podman and its configuration are trusted, but verification checks the resulting containers, so configuration that adds mounts or devices is refused.
 
 ## Setup
 
@@ -162,11 +172,10 @@ From the repository root, once:
 This creates a rootless Podman machine named `qdk-sandbox`, used only by the sandbox.
 
 - On macOS, it shares only this checkout (and its Git directory, if separate) and `~/qdk-copilot-sandbox`, instead of your whole home folder.
-  Exchange folders relocated outside those need their own shares.
   Shares can't be changed later; to use another checkout, remove the machine (`podman machine rm qdk-sandbox`, which deletes the instances' work volumes) and run `setup-machine` again.
   The launcher warns if the machine shares anything else.
 - On Windows, WSL shares every drive and can start Windows programs.
-  `setup-machine` turns off the latter (`[interop] enabled=false` in the machine's `/etc/wsl.conf`), and the launcher refuses to start if it's on.
+  `setup-machine` turns off the latter (`[interop] enabled=false` in the machine's `/etc/wsl.conf`), and the launcher refuses to start unless `/etc/wsl.conf` turns it off. WSL reads that file only when the machine starts, so restart the machine after changing it.
 
 ### Providing a Token
 
@@ -340,8 +349,10 @@ To mimic the pipeline build locally, you need to pass a lot more arguments:
 
 `--instance NAME` defaults to `default`. Names are 1-40 lowercase letters, digits, hyphens or underscores, starting with a letter or digit.
 Windows device names such as `con` and `nul` are reserved on every platform.
-Each instance has its own containers (`qdk-copilot-sandbox-NAME-agent` and `-proxy`), volumes (`qdk-copilot-sandbox-NAME_work`, `_copilot` and `_relay`; on Linux, directories under `~/.local/share/containers/storage/volumes`), PAT, outbox and settings.
-Instances last run with the Docker-based launcher start with fresh work and Copilot volumes, since Podman can't see Docker's; their outbox commits and settings are kept.
+Each instance has its own containers (`qdk-copilot-sandbox-NAME-agent` and `-proxy`), volumes (`qdk-copilot-sandbox-NAME_work`, `_copilot`, `_outbox`, `_output` and `_relay`; on Linux, directories under `~/.local/share/containers/storage/volumes`), PAT, outbox and settings.
+Instances last run with the Docker-based launcher start with fresh work and Copilot volumes, since Podman can't see Docker's.
+Instances last run by a launcher that mapped the agent to you (`keep-id`) or that kept the outbox in `outbox.git` need deleting and recreating: you own their volumes' files, which the agent can no longer write.
+Fetch any commits from those instances' `outbox.git` with the older launcher first.
 
 Host state lives in `~/qdk-copilot-sandbox/NAME/` outside the checkout.
 The directory is mode 0700 on POSIX; config/token files are atomically written with mode 0600.
@@ -349,16 +360,17 @@ On Windows, directory access follows the user's inherited profile ACLs and DPAPI
 Symlinks and Windows reparse points are refused in state and mount paths.
 Reusing an instance from another checkout warns and updates the remembered checkout; its work clone is preserved and subsequent fetches use the newly mounted seed.
 
-- `config.json`: last checkout, saved exchange paths, resource limits and image preferences, plus the image IDs and build ID from the last agent launch attempt.
+- `config.json`: last checkout, resource limits and image preferences, plus the image IDs and build ID from the last agent launch attempt.
 - `allowlist.local.txt`: additional domains, one per line, optional `#` comments.
   This non-secret file is mode 0644 so Squid can read the bind mount.
-- `outbox.git`: container-writable bare repository containing sandbox commits.
+- `outbox`: host-owned copy of the outbox volume's objects, refreshed by each fetch.
+- `to_copilot` and `from_copilot`: the exchange folders.
+- `output-manifest.json`: what each output copy wrote, so later copies leave your changes alone.
 - `token.dpapi`: Windows only; other platforms store the PAT in their secret store.
 
 CPU/memory limits apply for one launch unless `--save` is supplied. `0` means unlimited; examples are `--cpus 2.5 --memory 8g`.
 `--save` also remembers the image source and tag. Without explicit image options, later launches use that saved selection.
 Use `--registry` to override a saved local-image preference; switching image sources resets the tag to that source's default unless `--tag` is supplied.
-Exchange relocations also apply for one launch unless `--save` is supplied.
 The checkout association is always recorded so later fetches use the correct repository.
 
 Different instances can run at the same time, with at most one active session per instance.
@@ -367,4 +379,6 @@ Agent container names and running-agent checks are scoped to the selected instan
 Host Git configuration updates are briefly serialized; this does not lock other instances for the duration of a session.
 
 Use `sandbox.py delete --instance NAME` to confirm and delete an idle instance, including its volumes and saved PAT.
-Deletion does not need an image source or tag; exchange folders and already-fetched commits are retained.
+Deletion does not need an image source or tag.
+It also deletes the instance's exchange folders; if either isn't empty, it asks first.
+Already-fetched commits are retained.

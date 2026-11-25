@@ -20,12 +20,11 @@ from .common import (
     run,
     write_json,
 )
-from .exchange import sanitize_exchange_folder, validate_exchange_directories
 from .git import (
     fetch_outbox_repo_safe,
     run_git_command,
     get_seed_repo_state,
-    configure_outbox_repo,
+    configure_outbox_copy,
 )
 from .images import (
     LOCAL_IMAGE_TAG,
@@ -33,9 +32,10 @@ from .images import (
     get_image_pair,
     get_reused_image_pair,
 )
-from .layout import AGENT_USER, LABEL_PREFIX, PROXY_URL, Session
+from .layout import AGENT_USER, LABEL_PREFIX, PROXY_URL, Session, volume_name
 from .podman import Engine, check_podman, machine_shares, podman, setup_machine
 from .secrets import TokenStore, request_and_store_token, validate_token_properties
+from .volumes import copy_out_agent_volumes, prepare_agent_volumes, volume_exists
 from .state import (
     LockBusyError,
     get_sandbox_instance_config,
@@ -184,20 +184,18 @@ def _warn_about_machine_shares(common: Path) -> None:
             print("  " + share)
 
 
-def _get_exchange_directories(
-    args: argparse.Namespace, config: dict, directory: Path, common: Path
-) -> tuple[Path, Path]:
-    default = REPO / "exchange" / args.instance
-    incoming = Path(
-        args.to_copilot_dir or config.get("to_copilot", str(default / "to_copilot"))
-    )
-    outgoing = Path(
-        args.from_copilot_dir
-        or config.get("from_copilot", str(default / "from_copilot"))
-    )
-    return validate_exchange_directories(
-        incoming, outgoing, REPO, directory, (common, directory / "outbox.git")
-    )
+def _get_exchange_directories(directory: Path) -> tuple[Path, Path]:
+    """The instance's fixed to_copilot (read-only mount) and from_copilot (copied output) folders."""
+    return directory / "to_copilot", directory / "from_copilot"
+
+
+def _prepare_exchange_directory(path: Path) -> Path:
+    # A link would expose its target to the agent, or receive copied output, as you.
+    raise_if_link(path)
+    if path.exists() and not path.is_dir():
+        raise LauncherError(f"Exchange folder must be a directory: {path}")
+    path.mkdir(exist_ok=True)
+    return path
 
 
 def _load_local_allowlist(directory: Path) -> tuple[Path, bytes]:
@@ -248,7 +246,7 @@ def _run_session(
             "Warning: this instance was last used from another checkout; preserving its work clone and updating the seed checkout.",
             file=sys.stderr,
         )
-    incoming, outgoing = _get_exchange_directories(args, config, directory, common)
+    incoming, outgoing = _get_exchange_directories(directory)
     cpus, memory = _validate_resource_limits(
         args.cpus or config.get("cpus", "0"), args.memory or config.get("memory", "0")
     )
@@ -288,20 +286,18 @@ def _run_session(
             config.update({"image_source": image_source, "tag": tag})
     allowlist, _ = _load_local_allowlist(directory)
     print("Preparing exchange directories...", flush=True)
-    incoming.mkdir(parents=True, exist_ok=True)
-    outgoing.mkdir(parents=True, exist_ok=True)
-    print("Sanitizing outgoing exchange directory...", flush=True)
-    sanitize_exchange_folder(outgoing)
+    _prepare_exchange_directory(incoming)
+    # The agent isn't you, so it reads to_copilot as another user; the instance folder keeps others out.
+    incoming.chmod(0o755)
+    _prepare_exchange_directory(outgoing)
     print("Configuring Git outbox...", flush=True)
-    outbox = configure_outbox_repo(REPO, directory, args.instance)
+    outbox = configure_outbox_copy(REPO, directory, args.instance)
     config["repo"] = str(REPO)
     if args.save:
         config.update(
             {
                 "cpus": cpus,
                 "memory": memory,
-                "to_copilot": str(incoming),
-                "from_copilot": str(outgoing),
             }
         )
     session = Session(
@@ -310,9 +306,7 @@ def _run_session(
         agent_image=agent_id,
         proxy_image=proxy_id,
         seed=common,
-        outbox=outbox,
         to_copilot=incoming,
-        from_copilot=outgoing,
         allowlist=allowlist,
         cpus=cpus,
         memory=memory,
@@ -328,6 +322,8 @@ def _run_session(
         # The relay volume holds only the proxy's socket; recreating it discards anything stale.
         print("Recreating proxy relay volume...", flush=True)
         run(podman("volume", "rm", "--force", session.volume("relay")))
+        print("Preparing the agent's outbox and output volumes...", flush=True)
+        prepare_agent_volumes(agent_id, args.instance)
         print("Starting sandbox proxy...", flush=True)
         run(
             podman(
@@ -399,7 +395,7 @@ def _run_session(
         except (LauncherError, OSError, ValueError) as error:
             cleanup_failed = True
             LOGGER.warning(
-                "Could not stop the agent; quarantine and fetch were skipped.\n%s",
+                "Could not stop the agent; copy-out and fetch were skipped.\n%s",
                 format_error(error),
             )
         try:
@@ -411,37 +407,46 @@ def _run_session(
         except (LauncherError, OSError, ValueError) as error:
             LOGGER.warning("Could not remove the proxy.\n%s", format_error(error))
         if not cleanup_failed:
-            for action, progress, message in (
-                (
-                    lambda: sanitize_exchange_folder(outgoing),
-                    "Sanitizing outgoing exchange directory...",
-                    "Output quarantine failed; do not open the exchange output in Git-aware tools.",
-                ),
-                (
-                    lambda: fetch_outbox_repo_safe(REPO, outbox, args.instance),
-                    "Fetching sandbox commits into the host repository...",
-                    "Host fetch failed; commits remain in the instance outbox.",
-                ),
+            # Shared with 'sandbox.py fetch', so two copies never touch the outbox copy at once.
+            with session_lock(
+                get_sandbox_state_dir(), f".fetch-{args.instance}.lock", blocking=True
             ):
                 try:
-                    print(progress, flush=True)
-                    action()
+                    print("Copying out the agent's outbox and output...", flush=True)
+                    refs = copy_out_agent_volumes(
+                        agent_id,
+                        args.instance,
+                        outbox,
+                        outgoing,
+                        directory / "output-manifest.json",
+                    )
+                    print(
+                        "Fetching sandbox commits into the host repository...",
+                        flush=True,
+                    )
+                    fetch_outbox_repo_safe(REPO, outbox, args.instance, refs)
                 except (LauncherError, OSError, ValueError) as error:
                     cleanup_failed = True
-                    LOGGER.warning("%s\n%s", message, format_error(error))
+                    LOGGER.warning(
+                        "Copy-out or fetch failed; commits and output remain in the instance's volumes.\n%s",
+                        format_error(error),
+                    )
     return status or (1 if cleanup_failed else 0)
 
 
 def _fetch_outbox_repo_for_instance(
     instance_name: str, directory: Path, *, idle: bool
 ) -> None:
-    if get_sandbox_instance_config(directory).get("repo", str(REPO)) != str(REPO):
+    config = get_sandbox_instance_config(directory)
+    if config.get("repo", str(REPO)) != str(REPO):
         raise LauncherError(
             "This instance was last launched from another checkout; fetch from there."
         )
-    outbox = raise_if_link(directory / "outbox.git")
-    if not outbox.is_dir():
+    image = config.get("agent_id")
+    if not image or not volume_exists(instance_name):
         raise LauncherError("This instance has no outbox yet; launch it first.")
+    outbox = configure_outbox_copy(REPO, directory, instance_name)
+    outgoing = _prepare_exchange_directory(_get_exchange_directories(directory)[1])
     running = _get_running_agents(instance_name)
     if not idle and not running:
         raise LauncherError(
@@ -449,14 +454,17 @@ def _fetch_outbox_repo_for_instance(
         )
     paused = []
     try:
-        # Frozen, the agent cannot swap in symlinks or alternates after validation.
+        # Frozen, the agent can't change its volumes mid-copy; the host then works only on the copy.
         for container in running:
             run(podman("pause", container))
             paused.append(container)
-        fetch_outbox_repo_safe(REPO, outbox, instance_name)
+        refs = copy_out_agent_volumes(
+            image, instance_name, outbox, outgoing, directory / "output-manifest.json"
+        )
     finally:
         for container in paused:
             run(podman("unpause", container), check=False)
+    fetch_outbox_repo_safe(REPO, outbox, instance_name, refs)
 
 
 def _list_instances() -> None:
@@ -515,10 +523,22 @@ def _delete_instance(args: argparse.Namespace, directory: Path, config: dict) ->
         raise LauncherError("Instance does not exist.")
     if _get_running_agents(args.instance):
         raise LauncherError("Cannot delete a running instance. Exit its agent first.")
+    occupied = [
+        folder
+        for folder in _get_exchange_directories(directory)
+        if folder.is_dir() and any(folder.iterdir())
+    ]
+    if occupied:
+        print("These exchange folders are not empty:")
+        for folder in occupied:
+            print("  " + str(folder))
+        if input("Delete them with the instance? [y/N]: ").strip().lower() != "y":
+            raise LauncherError("Deletion cancelled.")
     print(
-        "This deletes work and Copilot volumes, saved PAT, settings, and outbox commits."
+        "This deletes the work, Copilot, outbox and output volumes, saved PAT, settings, and"
+        " exchange folders, including unfetched commits and output."
     )
-    print("Exchange folders and any already-fetched host commits are retained.")
+    print("Already-fetched host commits are retained.")
     if (
         input(f"Type '{args.instance}' to delete this instance: ").strip()
         != args.instance
@@ -526,9 +546,8 @@ def _delete_instance(args: argparse.Namespace, directory: Path, config: dict) ->
         raise LauncherError("Deletion cancelled.")
     for container in _list_containers(args.instance):
         run(podman("rm", "--force", "--ignore", "--time", "3", container))
-    prefix = "qdk-copilot-sandbox-" + args.instance
-    for kind in ("work", "copilot", "relay"):
-        run(podman("volume", "rm", "--force", f"{prefix}_{kind}"))
+    for kind in ("work", "copilot", "relay", "outbox", "output"):
+        run(podman("volume", "rm", "--force", volume_name(args.instance, kind)))
     TokenStore(args.instance, directory).delete()
     if config.get("repo") == str(REPO):
         with session_lock(get_sandbox_state_dir(), ".git-config.lock", blocking=True):
@@ -544,7 +563,7 @@ def _delete_instance(args: argparse.Namespace, directory: Path, config: dict) ->
 
 def make_argument_parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
-        description="Launch the QDK Copilot sandbox (Python >= 3.10; rootless Podman >= 4.9)."
+        description="Launch the QDK Copilot sandbox (Python >= 3.10; rootless Podman >= 4.9 on Linux, >= 6 in a Podman machine)."
     )
     instance_options = argparse.ArgumentParser(add_help=False)
     instance_options.add_argument(
@@ -602,13 +621,7 @@ def make_argument_parser() -> argparse.ArgumentParser:
     launch.add_argument(
         "--save",
         action="store_true",
-        help="Persist resource limits, image selection, and exchange paths for this instance",
-    )
-    launch.add_argument(
-        "--to-copilot-dir", help="Relocate the read-only context exchange directory"
-    )
-    launch.add_argument(
-        "--from-copilot-dir", help="Relocate the writable output exchange directory"
+        help="Persist resource limits and image selection for this instance",
     )
     launch.add_argument(
         "command",
