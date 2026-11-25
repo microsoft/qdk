@@ -125,7 +125,7 @@ fn batches_then_trap_answered(
 }
 
 /// A shot of `machine`, from `context` restarted, each batch run by `run`,
-/// which gives the batch's outcomes: the loop of the machine's module doc.
+/// which gives the batch's outcomes: the loop of [`QirMachine`]'s doc.
 fn shot(
     machine: QirMachine<'_>,
     context: &mut QirShotContext,

@@ -2,7 +2,8 @@
 // Licensed under the MIT License.
 
 //! The check of a bytecode program, run once when a [`QirProgram`] is
-//! built.
+//! built. What it checks, and what it leaves to the run, is in
+//! [`QirProgram::new`]'s `# Errors`.
 //!
 //! The bytecode comes from a producer the machine does not control. So
 //! the check refuses, before any shot runs, every fault the bytecode
@@ -10,11 +11,7 @@
 //! fix them at once. The machine relies on it, and reads the indices it
 //! accepted unchecked. Checking a quantum instruction also decodes it as
 //! a call ([`CheckedCall`]), from which the program prepares its calls.
-//!
-//! The check follows what a run reads. Every instruction is checked, the
-//! untaken branches' too, and each operand as a run reads it. A value
-//! known only during a run is left to the run, which traps on a wrong
-//! one. The rules, one per variant, are [`QirError`]'s.
+//! The rules, one per variant, are [`QirError`]'s.
 
 use super::super::QirInstruction;
 use super::super::fault::{QirError, QirFault, QirFaultSite, QirFaults, SideTable};

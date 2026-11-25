@@ -2,78 +2,20 @@
 // Licensed under the MIT License.
 
 //! The machine that runs a [`QirProgram`]'s classical part, the same for
-//! every target ([`QirMachine`]): it runs QIR's classical semantics
-//! (branches, `PHI`s, arithmetic, memory) and does no quantum work: rather
-//! than call a simulator, it returns to its caller at each batch of
-//! quantum calls.
+//! every target ([`QirMachine`]). Rather than call a simulator, it returns
+//! to its caller at each batch of quantum calls.
 //!
-//! A program makes two kinds of calls. Its classical calls, to its own
-//! functions (`CALL`, `CALL_RETURN`) or to QIR's runtime
-//! (`__quantum__rt__*`, which the pass lowers to opcodes such as
-//! `RECORD_OUTPUT` and `READ_RESULT`), the machine runs itself. Its quantum
-//! calls, of QIR's quantum instructions (`__quantum__qis__*`), it does not
-//! run: it appends each one it reaches, as a [`QirCall`], to the context's
-//! batch, which a resumer runs.
+//! The machine walks the bytecode itself, reading each operand as the
+//! encoding gives it. So the bytecode is the one form of a program to
+//! maintain, with no decoded copy to keep in step with it. Only the
+//! quantum instructions are prepared when the program is built
+//! (`program/prepared_quantum_calls.rs`). Building their calls on every
+//! shot is where a walk would spend its time.
 //!
-//! A shot's state is held in a [`QirShotContext`]: where it is, its
-//! registers and memory, the results it awaits, and its records.
-//! [`resume`](QirMachine::resume) runs a context until it needs outcomes it
-//! does not have, and stops there, yielding the batch of quantum calls whose
-//! outcomes it needs ([`QirStop::Batch`]); or until the program returns,
-//! yielding its last batch first, if any, then ending with the records
-//! ([`QirStop::Ended`]). A resumer ([`QirResumer`]) runs the batch
-//! wherever it likes (a simulator, a device, a debugger)
-//! and resumes the context with the outcomes ([`QirOutcome`]).
-//!
-//! The machine knows no resumer and calls nothing: a resumer drives it,
-//! resuming each context once it has the outcomes. So a resumer may hold
-//! many contexts and resume them in any order (to run several shots'
-//! batches together, say), clone a context to run its rest twice, or stop
-//! between two batches.
-//!
-//! For example, a resumer that runs each batch of a shot on the shot's own
-//! quantum state drives the shot's context as below, where `run` runs a
-//! batch on that state and gives the batch's outcomes:
-//!
-//! ```
-//! # use qdk_simulators::OutputRecord;
-//! # use qdk_simulators::qir::{
-//! #     QirCall, QirMachine, QirOutcome, QirShotContext, QirStop, QirTrap,
-//! # };
-//! # fn shot(
-//! #     machine: QirMachine<'_>,
-//! #     context: &mut QirShotContext,
-//! #     mut run: impl FnMut(&[QirCall], &mut Vec<QirOutcome>),
-//! # ) -> Result<Vec<OutputRecord>, QirTrap> {
-//! machine.restart_shot(context);
-//! let mut outcomes = Vec::new();
-//! loop {
-//!     match machine.resume(context, &outcomes)? {
-//!         QirStop::Batch(batch) => {
-//!             outcomes.clear();
-//!             run(batch, &mut outcomes);
-//!         }
-//!         QirStop::Ended(records) => return Ok(records.to_vec()),
-//!     }
-//! }
-//! # }
-//! ```
-//!
-//! The machine walks the bytecode itself, instruction by instruction,
-//! reading each operand as the encoding gives it (a register, or a
-//! constant by its immediate flag): the bytecode is the one form of a
-//! program to maintain, with no decoded copy to keep in step with it.
-//! Only the quantum instructions are prepared when the program is built
-//! (`program/prepared_quantum_calls.rs`), since building their calls on
-//! every shot is where a walk spends its time.
-//!
-//! The walk is in `machine/walk.rs`; the shot's context, and what the walk
-//! asks of it, in `machine/shot_context.rs`; what the classical
-//! instructions compute, in `machine/classical_ops.rs`.
-//!
-//! The model: `README.md`; why the machine is pulled rather than pushing
-//! its batches, one shot traced from QIR to its records, and the design's
-//! other notes: `design.md`.
+//! The walk is in `machine/walk.rs`. The shot's state is in
+//! `machine/shot_context.rs`. What the classical instructions compute is in
+//! `machine/classical_ops.rs`. The model is in `README.md`, and the
+//! design's notes are in `design.md`.
 
 mod classical_ops;
 mod shot_context;
@@ -111,6 +53,39 @@ use walk::Stop;
 /// could not check. [`QirTrap`] lists the cases. On a result with no value
 /// ([`QirReadout::Missing`]), it traps only where the program uses it. A new
 /// measurement or a `WRITE_RESULT` gives the result a value again.
+///
+/// The machine calls nothing: a resumer ([`QirResumer`]) drives each
+/// context. So a resumer may hold many contexts and resume them in any
+/// order (to run several shots' batches together, say). It may clone a
+/// context to run its rest twice, or stop between two batches.
+///
+/// For example, a resumer that runs each batch of a shot on the shot's own
+/// quantum state drives the shot's context as below. `run` runs a batch on
+/// that state and gives the batch's outcomes.
+///
+/// ```
+/// # use qdk_simulators::OutputRecord;
+/// # use qdk_simulators::qir::{
+/// #     QirCall, QirMachine, QirOutcome, QirShotContext, QirStop, QirTrap,
+/// # };
+/// # fn shot(
+/// #     machine: QirMachine<'_>,
+/// #     context: &mut QirShotContext,
+/// #     mut run: impl FnMut(&[QirCall], &mut Vec<QirOutcome>),
+/// # ) -> Result<Vec<OutputRecord>, QirTrap> {
+/// machine.restart_shot(context);
+/// let mut outcomes = Vec::new();
+/// loop {
+///     match machine.resume(context, &outcomes)? {
+///         QirStop::Batch(batch) => {
+///             outcomes.clear();
+///             run(batch, &mut outcomes);
+///         }
+///         QirStop::Ended(records) => return Ok(records.to_vec()),
+///     }
+/// }
+/// # }
+/// ```
 ///
 /// The machine holds only the program, which it lends to a resumer
 /// ([`program`](Self::program)). It draws nothing: a context's randomness is
@@ -234,8 +209,8 @@ impl<'p> QirMachine<'p> {
     /// trap comes at once, the calls of its batch not yielded, except where
     /// the context stops before the instruction or call that traps: it then
     /// comes on the next resume, after the batch is yielded. A context that
-    /// traps is not to be resumed again; [`restart_shot`](Self::restart_shot)
-    /// reuses it.
+    /// traps must not be resumed again ([`QirTrap`] says why);
+    /// [`restart_shot`](Self::restart_shot) reuses it.
     pub fn resume<'c>(
         &self,
         context: &'c mut QirShotContext,

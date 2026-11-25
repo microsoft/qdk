@@ -37,12 +37,11 @@ use crate::bytecode::{AdaptiveProgram, Block, Instruction};
 /// instructions ([`QirCall`](super::QirCall)).
 ///
 /// Building it refuses what the bytecode shows would stop a run, reporting
-/// every fault ([`QirFaults`]). It also refuses a `RET` that would end the
-/// program inside a function ([`ProgramEndInsideFunction`]). A value held
-/// in a register is known only at run time, so it is checked then
-/// ([`QirTrap`](super::QirTrap)). What it tells about its
-/// instructions counts each instruction once, whether a shot runs it many
-/// times (in a loop) or never (on a branch no shot takes).
+/// every fault ([`QirFaults`]); [`new`](Self::new) says what is checked.
+/// It also refuses a `RET` that would end the program inside a function
+/// ([`ProgramEndInsideFunction`]). What it tells about its instructions
+/// counts each instruction once, whether a shot runs it many times (in a
+/// loop) or never (on a branch no shot takes).
 ///
 /// [`ProgramEndInsideFunction`]: super::QirError::ProgramEndInsideFunction
 #[derive(Clone, Debug)]
@@ -106,7 +105,11 @@ impl QirProgram {
     ///
     /// # Errors
     ///
-    /// Every fault of `bytecode`, when it has any ([`QirFaults`]).
+    /// Every fault of `bytecode`, when it has any ([`QirFaults`]). Every
+    /// instruction is checked, the untaken branches' too, and each operand
+    /// as a run reads it. A value held in a register is known only during a
+    /// run, so the run checks it, and traps on a wrong one
+    /// ([`QirTrap`](super::QirTrap)).
     pub fn new(bytecode: AdaptiveProgram<u64>) -> Result<Self, QirFaults> {
         let calls = check::check(&bytecode)?;
         let summary = InstructionSummary::of(&bytecode, &calls);

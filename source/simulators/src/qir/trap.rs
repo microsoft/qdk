@@ -2,14 +2,8 @@
 // Licensed under the MIT License.
 
 //! What ends a context of a [`QirMachine`] before its program returns
-//! ([`QirTrap`]).
-//!
-//! Building a program checks what the bytecode shows, but some values are
-//! known only during a shot (a qubit held in a register, a divisor), and
-//! a resumer may answer a batch wrongly. A context that meets such a
-//! fault cannot run on, so [`QirMachine::resume`] gives its reason: the
-//! shot stops with it, and a resumer's run fails with it, naming the shot
-//! ([`QirResumeError::Trapped`]).
+//! ([`QirTrap`]). [`QirMachine::resume`] gives it, and a resumer's run
+//! fails with it, naming the shot ([`QirResumeError::Trapped`]).
 
 use std::fmt;
 
@@ -18,11 +12,31 @@ use crate::bytecode::AdaptiveProgram;
 #[cfg(doc)]
 use super::{QirFaults, QirMachine, QirProgram, QirReadout, QirResumeError};
 
-/// What ends a context before its program returns. It is a value known
-/// only at run time, a result with no value, or outcomes that do not
-/// answer their batch. Faults found when the [`QirProgram`] is built are
-/// [`QirFaults`]. When an instruction has several faults, which one is
-/// reported is unspecified. A context that traps must not be resumed.
+/// What ends a context before its program returns. Faults found when the
+/// [`QirProgram`] is built are [`QirFaults`].
+///
+/// A trap has one of three causes:
+///
+/// - The resumer's: outcomes that do not answer the batch
+///   ([`MissingOutcome`](Self::MissingOutcome),
+///   [`UnexpectedOutcome`](Self::UnexpectedOutcome)). The resumer has a bug.
+/// - The target's: a readout that came back with no value
+///   ([`QirReadout::Missing`]), which the program then uses
+///   ([`MissingValue`](Self::MissingValue)). QIR has no value for it.
+/// - The program's: every other variant. A value held in a register is
+///   wrong (a qubit past the program's, a zero divisor). Building the
+///   program could not check it.
+///
+/// When an instruction has several faults, which one is reported is
+/// unspecified.
+///
+/// A context that traps must not be resumed. It is left partway. After a
+/// resumer's trap, the outcomes are taken up to the fault, and the batch
+/// is kept. After any other, the context's position is where it last
+/// stopped, but its registers, memory, batch and records hold what ran
+/// since. A resume would not go on with the shot as it was.
+/// [`QirMachine::restart_shot`] reuses the context for a new shot.
+///
 /// Variants are added as checks are, hence `#[non_exhaustive]`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
