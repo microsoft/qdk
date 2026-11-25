@@ -18,18 +18,22 @@ use crate::bytecode::encoding::{
 use crate::bytecode::{AdaptiveProgram, Instruction};
 use crate::qir::{QirMachine, QirReadout, QirStop, QirTrap};
 
-/// A Bell-like pair of measurements: the first read before the second is
-/// made, the first measuring a constant qubit, and one from a register.
+/// A measurement into result 0, then a use of result 0 before the next
+/// quantum call: a read, in a Bell-like pair whose first measurement is
+/// read before the second is made, of a constant qubit and of one from a
+/// register; a loss check, a record or a write, before a gate; a second
+/// measurement into it, by a constant result and by one in a register,
+/// after a gate; and readout noise on it, as compiled for Stim.
 #[test]
-fn a_context_stops_before_reading_a_result_its_batch_writes() {
+fn a_context_stops_before_any_use_of_a_result_its_batch_writes() {
     let qubit_from_register = Instruction {
         aux0: OPID_MZ,
         aux1: 3,
         aux2: 0,
         ..op(OP_MEASURE, FLAG_AUX2_IMM)
     };
-    for first in [measure(OPID_MZ, 0, 0), qubit_from_register] {
-        let bytecode = program(&[&[
+    let read_between_pair = |first| {
+        program(&[&[
             gate(OPID_X, 0, 0),
             set(3, 0),
             first,
@@ -37,14 +41,72 @@ fn a_context_stops_before_reading_a_result_its_batch_writes() {
             gate(OPID_X, 1, 0),
             measure(OPID_MZ, 1, 1),
             ret(),
-        ]]);
-        assert_eq!(
-            batches(&bytecode),
-            [
-                "x(qubit 0), mz(qubit 0, result 0)",
-                "x(qubit 1), mz(qubit 1, result 1)"
-            ]
-        );
+        ]])
+    };
+    let pair = vec![
+        "x(qubit 0), mz(qubit 0, result 0)",
+        "x(qubit 1), mz(qubit 1, result 1)",
+    ];
+    let before_gate = |use_of_result| {
+        program(&[&[
+            measure(OPID_MZ, 0, 0),
+            use_of_result,
+            gate(OPID_X, 1, 0),
+            ret(),
+        ]])
+    };
+    let then_gate = vec!["mz(qubit 0, result 0)", "x(qubit 1)"];
+    let measured_again =
+        |second| program(&[&[measure(OPID_MZ, 0, 0), gate(OPID_X, 0, 0), second, ret()]]);
+    let again = vec!["mz(qubit 0, result 0), x(qubit 0)", "mz(qubit 0, result 0)"];
+    let noise = Instruction {
+        aux0: 0.25_f64.to_bits(),
+        aux1: 0.5_f64.to_bits(),
+        aux2: 0,
+        ..op(
+            OP_READOUT_NOISE,
+            FLAG_AUX0_IMM | FLAG_AUX1_IMM | FLAG_AUX2_IMM,
+        )
+    };
+    let rows: [(&str, AdaptiveProgram<u64>, Vec<&str>); 8] = [
+        (
+            "a read, of a constant qubit's measurement",
+            read_between_pair(measure(OPID_MZ, 0, 0)),
+            pair.clone(),
+        ),
+        (
+            "a read, of a measurement of a qubit from a register",
+            read_between_pair(qubit_from_register),
+            pair,
+        ),
+        (
+            "a loss check",
+            before_gate(read(OP_READ_LOSS, 0, 0)),
+            then_gate.clone(),
+        ),
+        ("a record", before_gate(record_result(0)), then_gate.clone()),
+        ("a write", before_gate(write(1, 0)), then_gate),
+        (
+            "a measurement into a constant result",
+            measured_again(measure(OPID_MZ, 0, 0)),
+            again.clone(),
+        ),
+        (
+            "a measurement into a result in a register",
+            measured_again(measure_into_register(0, 3)),
+            again,
+        ),
+        (
+            "readout noise",
+            program(&[&[measure(OPID_MZ, 0, 0), noise, ret()]]),
+            vec![
+                "mz(qubit 0, result 0)",
+                "readout_noise(zero_as_one 0.25, one_as_zero 0.5, result 0)",
+            ],
+        ),
+    ];
+    for (use_of_result, bytecode, expected) in rows {
+        assert_eq!(batches(&bytecode), expected, "{use_of_result}");
     }
 }
 
@@ -66,103 +128,14 @@ fn a_read_of_an_earlier_batch_s_result_does_not_stop_a_context() {
     );
 }
 
-/// A loss check of a measurement, before the next gate.
+/// A measurement into result 0, then a second write of result 0 that
+/// traps: of the value 2, held in a register; or a measurement of the
+/// qubit just past the program's, from a register, into result 0, as a
+/// constant and from a register. The context stops before the second
+/// write, which traps on the next resume.
 #[test]
-fn a_context_stops_before_reading_a_loss_its_batch_writes() {
-    let bytecode = program(&[&[
-        measure(OPID_MZ, 0, 0),
-        read(OP_READ_LOSS, 0, 0),
-        gate(OPID_X, 1, 0),
-        ret(),
-    ]]);
-    assert_eq!(batches(&bytecode), ["mz(qubit 0, result 0)", "x(qubit 1)"]);
-}
-
-/// A measurement recorded before the next gate.
-#[test]
-fn a_context_stops_before_recording_a_result_its_batch_writes() {
-    let bytecode = program(&[&[
-        measure(OPID_MZ, 0, 0),
-        record_result(0),
-        gate(OPID_X, 1, 0),
-        ret(),
-    ]]);
-    assert_eq!(batches(&bytecode), ["mz(qubit 0, result 0)", "x(qubit 1)"]);
-}
-
-/// A measured result overwritten, before the next gate.
-#[test]
-fn a_context_stops_before_writing_a_result_its_batch_writes() {
-    let bytecode = program(&[&[
-        measure(OPID_MZ, 0, 0),
-        write(1, 0),
-        gate(OPID_X, 1, 0),
-        ret(),
-    ]]);
-    assert_eq!(batches(&bytecode), ["mz(qubit 0, result 0)", "x(qubit 1)"]);
-}
-
-/// A qubit measured twice into the same result, the second time by a
-/// constant result and by one in a register.
-#[test]
-fn a_context_stops_before_a_quantum_call_writing_a_result_its_batch_writes() {
-    for second in [measure(OPID_MZ, 0, 0), measure_into_register(0, 3)] {
-        let bytecode = program(&[&[measure(OPID_MZ, 0, 0), gate(OPID_X, 0, 0), second, ret()]]);
-        assert_eq!(
-            batches(&bytecode),
-            ["mz(qubit 0, result 0), x(qubit 0)", "mz(qubit 0, result 0)"]
-        );
-    }
-}
-
-/// A noisy measurement, as compiled for Stim: `mz` into result 0, then
-/// readout noise on result 0.
-#[test]
-fn a_context_stops_before_readout_noise_on_a_result_its_batch_measures() {
-    let noise = Instruction {
-        aux0: 0.25_f64.to_bits(),
-        aux1: 0.5_f64.to_bits(),
-        aux2: 0,
-        ..op(
-            OP_READOUT_NOISE,
-            FLAG_AUX0_IMM | FLAG_AUX1_IMM | FLAG_AUX2_IMM,
-        )
-    };
-    let bytecode = program(&[&[measure(OPID_MZ, 0, 0), noise, ret()]]);
-    assert_eq!(
-        batches(&bytecode),
-        [
-            "mz(qubit 0, result 0)",
-            "readout_noise(zero_as_one 0.25, one_as_zero 0.5, result 0)"
-        ]
-    );
-}
-
-/// A measurement into result 0, then the value 2, held in a register,
-/// written to result 0: the context stops before the write, which traps on
-/// the next resume.
-#[test]
-fn a_context_yields_its_batch_before_a_second_write_that_traps() {
+fn a_context_yields_its_batch_before_a_second_write_of_its_result_that_traps() {
     let write_register = binary(OP_WRITE_RESULT, FLAG_SRC1_IMM, 0, 3, 0);
-    let bytecode = program(&[&[measure(OPID_MZ, 0, 0), set(3, 2), write_register, ret()]]);
-    assert_eq!(
-        batches_then_trap(&bytecode),
-        (
-            vec!["mz(qubit 0, result 0)".to_string()],
-            QirTrap::NotABit {
-                instruction: 2,
-                value: 2
-            }
-        )
-    );
-}
-
-/// A measurement into result 0, then a measurement of the qubit just
-/// past the program's, from a register, into result 0, as a constant and
-/// from a register: the context stops before the quantum call, which
-/// traps on the next resume.
-#[test]
-fn a_context_yields_its_batch_before_a_second_writing_quantum_call_that_traps() {
     let into_constant = Instruction {
         aux0: OPID_MZ,
         aux1: 2,
@@ -175,25 +148,45 @@ fn a_context_yields_its_batch_before_a_second_writing_quantum_call_that_traps() 
         aux2: 3,
         ..op(OP_MEASURE, 0)
     };
-    for (name, second) in [("constant", into_constant), ("register", into_register)] {
+    let no_such_qubit = QirTrap::NoSuchQubit {
+        instruction: 3,
+        qubit: u64::from(SIZE),
+        qubits: SIZE,
+    };
+    for (name, register_3, second, trap) in [
+        (
+            "a write of 2",
+            2,
+            write_register,
+            QirTrap::NotABit {
+                instruction: 3,
+                value: 2,
+            },
+        ),
+        (
+            "a measurement into a constant result",
+            0,
+            into_constant,
+            no_such_qubit.clone(),
+        ),
+        (
+            "a measurement into a result in a register",
+            0,
+            into_register,
+            no_such_qubit,
+        ),
+    ] {
         let bytecode = program(&[&[
             measure(OPID_MZ, 0, 0),
             set(2, u64::from(SIZE)),
-            set(3, 0),
+            set(3, register_3),
             second,
             ret(),
         ]]);
         assert_eq!(
             batches_then_trap(&bytecode),
-            (
-                vec!["mz(qubit 0, result 0)".to_string()],
-                QirTrap::NoSuchQubit {
-                    instruction: 3,
-                    qubit: u64::from(SIZE),
-                    qubits: SIZE
-                }
-            ),
-            "result {name}"
+            (vec!["mz(qubit 0, result 0)".to_string()], trap),
+            "{name}"
         );
     }
 }

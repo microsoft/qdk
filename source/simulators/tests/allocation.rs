@@ -4,17 +4,17 @@
 //! The qubits of a call on any number of them ([`QirQubits`]) allocate
 //! nothing up to four, and are allocated past four.
 //!
-//! Why these tests exist: `QirQubits` holds up to four qubits in place
+//! Why this test exists: `QirQubits` holds up to four qubits in place
 //! for speed. Correlated noise, its only call, took 25 ns on one qubit
 //! when its qubits were boxed, and 6 ns held in place (the machine alone,
 //! fastest of 7 runs). A change back to boxed qubits would pass every
-//! other test and only slow the machine; these tests catch it.
+//! other test and only slow the machine; this test catches it.
 //!
-//! Why they use an allocator of their own: Rust offers no other way to
-//! count allocations, so the tests install a global allocator that
+//! Why it uses an allocator of its own: Rust offers no other way to
+//! count allocations, so the test installs a global allocator that
 //! delegates each to the system's and counts those of the threads that
 //! ask it to. It exists only in this test binary, and the binary holds
-//! only these tests, so that no other test runs under it; the library
+//! only this test, so that no other test runs under it; the library
 //! and everything it ships use the system's allocator.
 
 use std::alloc::{GlobalAlloc, Layout, System};
@@ -74,20 +74,17 @@ fn allocations<T>(run: impl FnOnce() -> T) -> (T, usize) {
 }
 
 /// Calls on few qubits, the common case: none, one, and four, the most
-/// held in place.
+/// held in place, which allocate nothing; and correlated noise on five
+/// qubits, one more than fit in place, which are allocated.
 #[test]
-fn up_to_four_collected_qubits_allocate_nothing() {
-    for len in [0, 1, 4] {
+fn collected_qubits_allocate_only_past_four() {
+    for len in [0, 1, 4, 5] {
         let (qubits, allocations) = allocations(|| (0..len).collect::<QirQubits>());
         assert!(qubits.iter().copied().eq(0..len), "{qubits:?}");
-        assert_eq!(allocations, 0, "{len} qubits allocated");
+        assert_eq!(
+            allocations > 0,
+            len > 4,
+            "{len} qubits: {allocations} allocations"
+        );
     }
-}
-
-/// Correlated noise on five qubits, one more than fit in place.
-#[test]
-fn five_collected_qubits_are_allocated() {
-    let (qubits, allocations) = allocations(|| (0..5).collect::<QirQubits>());
-    assert_eq!(*qubits, [0, 1, 2, 3, 4]);
-    assert!(allocations > 0, "five qubits allocated nothing");
 }

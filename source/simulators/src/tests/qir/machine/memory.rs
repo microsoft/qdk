@@ -7,27 +7,35 @@
 use super::super::{binary, program, record_int, ret, set};
 use super::{both, records, trap};
 use crate::OutputRecord;
+use crate::bytecode::Instruction;
 use crate::bytecode::encoding::{FLAG_SRC0_IMM, FLAG_SRC1_IMM, OP_ALLOCA, OP_LOAD, OP_STORE};
 use crate::qir::{QirReadout, QirTrap};
 
-/// Loads from the last word of three of constant data, and past it: at
-/// address 3, and at 2^32 + 2, which is the last word's address cut to 32
-/// bits.
+/// Loads from, and stores to, the last word of three of constant data,
+/// each loaded back, and past it: at address 3, and at 2^32 + 2, which is
+/// the last word's address cut to 32 bits.
 #[test]
-fn a_load_past_the_context_s_memory_is_a_trap() {
-    let load = |address| {
-        let mut bytecode = program(&[&[
-            set(0, address),
-            binary(OP_LOAD, 0, 1, 0, 0),
-            record_int(1),
-            ret(),
-        ]]);
+fn a_load_or_store_past_the_context_s_memory_is_a_trap() {
+    let on_data = |instructions: &[Instruction<u64>]| {
+        let mut bytecode = program(&[&[instructions, &[record_int(1), ret()]].concat()]);
         bytecode.constant_data = vec![7, 8, 9];
         bytecode
+    };
+    let load = |address| on_data(&[set(0, address), binary(OP_LOAD, 0, 1, 0, 0)]);
+    let store = |address| {
+        on_data(&[
+            set(0, address),
+            binary(OP_STORE, FLAG_SRC0_IMM, 0, 42, 0),
+            binary(OP_LOAD, FLAG_SRC0_IMM, 1, 2, 0),
+        ])
     };
     assert_eq!(
         records(&load(2), |_| QirReadout::One),
         [OutputRecord::Int(9)]
+    );
+    assert_eq!(
+        records(&store(2), |_| QirReadout::One),
+        [OutputRecord::Int(42)]
     );
     for address in [3, (1 << 32) + 2] {
         assert_eq!(
@@ -37,7 +45,21 @@ fn a_load_past_the_context_s_memory_is_a_trap() {
                 address,
                 words: 3
             },
-            "{address}"
+            "the load at {address}"
+        );
+        // COMPATIBILITY NOTE: `run_shot` (bytecode/runtime.rs,
+        // `write_memory`) grows its memory up to such an address; the
+        // machine traps instead, since a store outside every allocation is
+        // a producer's error, and a huge address would allocate without
+        // bound.
+        assert_eq!(
+            trap(&store(address)),
+            QirTrap::StorePastMemory {
+                instruction: 1,
+                address,
+                words: 3
+            },
+            "the store at {address}"
         );
     }
 }
@@ -86,31 +108,6 @@ fn two_allocas_of_no_words_give_the_same_address() {
     // drop-in replacement; LLVM lets two allocations of no bytes share an
     // address.
     assert_eq!(machine, run_shot);
-}
-
-/// Register 2 set to 3, then an `ALLOCA` of 2 words, or of the 3 that
-/// register 2 holds, then an `ALLOCA` of none, whose address, recorded,
-/// shows how many words the first took.
-#[test]
-fn alloca_reads_its_word_count_as_a_constant_or_a_register_by_its_flag() {
-    let next_address = |flags| {
-        let bytecode = program(&[&[
-            set(2, 3),
-            binary(OP_ALLOCA, flags | FLAG_SRC1_IMM, 0, 2, 0),
-            binary(OP_ALLOCA, FLAG_SRC0_IMM | FLAG_SRC1_IMM, 1, 0, 0),
-            record_int(1),
-            ret(),
-        ]]);
-        let (machine, run_shot) = both(&bytecode);
-        // COMPATIBILITY NOTE: this behavior was present in `run_shot`
-        // (bytecode/runtime.rs, `OP_ALLOCA`: `resolve_u64` of its word
-        // count by its flag), hence we keep it so that the machine is a
-        // drop-in replacement.
-        assert_eq!(machine, run_shot, "the records of `run_shot`");
-        machine
-    };
-    assert_eq!(next_address(FLAG_SRC0_IMM), [OutputRecord::Int(2)]);
-    assert_eq!(next_address(0), [OutputRecord::Int(3)]);
 }
 
 /// Two words allocated past three of constant data, at address 3, the
@@ -188,43 +185,6 @@ fn an_alloca_past_the_last_address_panics() {
     records(&bytecode, |_| QirReadout::One);
 }
 
-/// Stores to the last word of three of constant data, loaded back, and
-/// past it: at address 3, and at 2^32 + 2, which is the last word's
-/// address cut to 32 bits.
-#[test]
-fn a_store_past_the_context_s_memory_is_a_trap() {
-    let store = |address| {
-        let mut bytecode = program(&[&[
-            set(0, address),
-            binary(OP_STORE, FLAG_SRC0_IMM, 0, 42, 0),
-            binary(OP_LOAD, FLAG_SRC0_IMM, 1, 2, 0),
-            record_int(1),
-            ret(),
-        ]]);
-        bytecode.constant_data = vec![7, 8, 9];
-        bytecode
-    };
-    assert_eq!(
-        records(&store(2), |_| QirReadout::One),
-        [OutputRecord::Int(42)]
-    );
-    // COMPATIBILITY NOTE: `run_shot` (bytecode/runtime.rs, `write_memory`)
-    // grows its memory up to such an address; the machine traps instead,
-    // since a store outside every allocation is a producer's error, and a
-    // huge address would allocate without bound.
-    for address in [3, (1 << 32) + 2] {
-        assert_eq!(
-            trap(&store(address)),
-            QirTrap::StorePastMemory {
-                instruction: 1,
-                address,
-                words: 3
-            },
-            "{address}"
-        );
-    }
-}
-
 /// One word allocated at address 0, where the word 2^32 + 2, which needs
 /// more than 32 bits, is stored and loaded back, then recorded.
 #[test]
@@ -244,34 +204,58 @@ fn a_load_reads_back_the_whole_word_a_store_wrote() {
     assert_eq!(machine, run_shot);
 }
 
-/// Two words allocated at address 0; register 2, which holds 7, stored at
-/// the constant address 1, and the constant 9 stored at the address in
-/// register 2, which holds 1; each loaded back from address 1.
+/// Each operand of a memory instruction, read once as a constant and once
+/// from a register, which holds another value: an `ALLOCA`'s word count,
+/// 2 or the 3 register 2 holds, shown by the address of a following
+/// `ALLOCA` of none; and a store's value, register 2 holding 7, at the
+/// constant address 1, and its address, the constant 9 at the address 1
+/// register 2 holds, each loaded back from address 1.
 #[test]
-fn store_reads_each_operand_as_a_constant_or_a_register_by_its_own_flag() {
+fn each_memory_operand_is_read_as_a_constant_or_a_register_by_its_own_flag() {
+    let next_address = |flags| {
+        program(&[&[
+            set(2, 3),
+            binary(OP_ALLOCA, flags | FLAG_SRC1_IMM, 0, 2, 0),
+            binary(OP_ALLOCA, FLAG_SRC0_IMM | FLAG_SRC1_IMM, 1, 0, 0),
+            record_int(1),
+            ret(),
+        ]])
+    };
     let stored = |register_2, store| {
-        let bytecode = program(&[&[
+        program(&[&[
             binary(OP_ALLOCA, FLAG_SRC0_IMM | FLAG_SRC1_IMM, 3, 2, 0),
             set(2, register_2),
             store,
             binary(OP_LOAD, FLAG_SRC0_IMM, 1, 1, 0),
             record_int(1),
             ret(),
-        ]]);
-        let (machine, run_shot) = both(&bytecode);
-        // COMPATIBILITY NOTE: this behavior was present in `run_shot`
-        // (bytecode/runtime.rs, `OP_STORE`: `resolve_u64` of each operand
-        // by its own flag), hence we keep it so that the machine is a
-        // drop-in replacement.
-        assert_eq!(machine, run_shot, "the value `run_shot` stores");
-        machine
+        ]])
     };
-    assert_eq!(
-        stored(7, binary(OP_STORE, FLAG_SRC1_IMM, 0, 2, 1)),
-        [OutputRecord::Int(7)]
-    );
-    assert_eq!(
-        stored(1, binary(OP_STORE, FLAG_SRC0_IMM, 0, 9, 2)),
-        [OutputRecord::Int(9)]
-    );
+    let rows = [
+        (
+            "alloca's word count, a constant",
+            next_address(FLAG_SRC0_IMM),
+            2,
+        ),
+        ("alloca's word count, from a register", next_address(0), 3),
+        (
+            "store's value, from a register",
+            stored(7, binary(OP_STORE, FLAG_SRC1_IMM, 0, 2, 1)),
+            7,
+        ),
+        (
+            "store's address, from a register",
+            stored(1, binary(OP_STORE, FLAG_SRC0_IMM, 0, 9, 2)),
+            9,
+        ),
+    ];
+    for (operand, bytecode, recorded) in rows {
+        let (machine, run_shot) = both(&bytecode);
+        assert_eq!(machine, [OutputRecord::Int(recorded)], "{operand}");
+        // COMPATIBILITY NOTE: this behavior was present in `run_shot`
+        // (bytecode/runtime.rs, `OP_ALLOCA` and `OP_STORE`: `resolve_u64`
+        // of each operand by its own flag), hence we keep it so that the
+        // machine is a drop-in replacement.
+        assert_eq!(machine, run_shot, "{operand}: the records of `run_shot`");
+    }
 }

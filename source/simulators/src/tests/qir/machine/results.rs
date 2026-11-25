@@ -22,102 +22,66 @@ use crate::bytecode::encoding::{
 use crate::qir::{QirCall, QirMachine, QirOutcome, QirReadout, QirStop, QirTrap};
 use qsc_data_structures::measurement::MeasurementBasis;
 
-/// A measurement read and recorded as a `Bool`, for each outcome.
+/// A measurement into result 1, read, and checked for loss, each recorded
+/// as a `Bool`, for each outcome.
 #[test]
-fn a_read_result_is_one_only_for_the_outcome_one() {
-    let bytecode = program(&[&[
-        measure(OPID_MZ, 0, 0),
-        read(OP_READ_RESULT, 0, 0),
-        record_bool(0),
-        ret(),
-    ]]);
+fn a_read_is_one_only_for_its_own_outcome() {
+    let reading = |opcode| {
+        program(&[&[
+            measure(OPID_MZ, 0, 1),
+            read(opcode, 0, 1),
+            record_bool(0),
+            ret(),
+        ]])
+    };
     // COMPATIBILITY NOTE: this behavior was present in `run_shot`
-    // (bytecode/runtime.rs, `OP_READ_RESULT`: a loss reads 0), hence we
-    // keep it so that the machine is a drop-in replacement.
-    for (outcome, read) in [
-        (QirReadout::One, true),
-        (QirReadout::Zero, false),
-        (QirReadout::Loss, false),
-    ] {
-        assert_eq!(
-            records(&bytecode, |_| outcome),
-            [OutputRecord::Bool(read)],
-            "{outcome:?}"
-        );
-    }
-}
-
-/// Qubit 0 flipped and measured into result 2, read from the constant 2,
-/// while register 2 holds 0, and from register 3, which holds 2: each
-/// read is of result 2, which holds `One`.
-#[test]
-fn read_result_reads_its_result_as_a_constant_or_a_register_by_its_flag() {
-    let bytecode = program(&[&[
-        gate(OPID_X, 0, 0),
-        measure(OPID_MZ, 0, 2),
-        read(OP_READ_RESULT, 1, 2),
-        set(3, 2),
-        binary(OP_READ_RESULT, 0, 0, 3, 0),
-        record_int(1),
-        record_int(0),
-        ret(),
-    ]]);
-    let (machine, run_shot) = both(&bytecode);
-    assert_eq!(machine, [OutputRecord::Int(1), OutputRecord::Int(1)]);
-    // COMPATIBILITY NOTE: this behavior was present in `run_shot`
-    // (bytecode/runtime.rs, `OP_READ_RESULT`: `resolve_u64` of its result
-    // by its flag), hence we keep it so that the machine is a drop-in
+    // (bytecode/runtime.rs, `OP_READ_RESULT`, where a loss reads 0, and
+    // `OP_READ_LOSS`), hence we keep it so that the machine is a drop-in
     // replacement.
-    assert_eq!(machine, run_shot);
-}
-
-/// A loss check of a measurement into result 1 recorded as a `Bool`, for
-/// each outcome.
-#[test]
-fn a_read_loss_is_one_only_for_the_outcome_loss() {
-    let bytecode = program(&[&[
-        measure(OPID_MZ, 0, 1),
-        read(OP_READ_LOSS, 0, 1),
-        record_bool(0),
-        ret(),
-    ]]);
-    // COMPATIBILITY NOTE: this behavior was present in `run_shot`
-    // (bytecode/runtime.rs, `OP_READ_LOSS`), hence we keep it so that the
-    // machine is a drop-in replacement.
-    for (outcome, lost) in [
-        (QirReadout::Loss, true),
-        (QirReadout::One, false),
-        (QirReadout::Zero, false),
+    for (name, opcode, one_for) in [
+        ("read_result", OP_READ_RESULT, QirReadout::One),
+        ("read_loss", OP_READ_LOSS, QirReadout::Loss),
     ] {
-        assert_eq!(
-            records(&bytecode, |_| outcome),
-            [OutputRecord::Bool(lost)],
-            "{outcome:?}"
-        );
+        for outcome in [QirReadout::One, QirReadout::Zero, QirReadout::Loss] {
+            assert_eq!(
+                records(&reading(opcode), |_| outcome),
+                [OutputRecord::Bool(outcome == one_for)],
+                "{name} of {outcome:?}"
+            );
+        }
     }
 }
 
-/// Qubit 0 measured into result 2, lost, checked for loss from the
+/// Qubit 0 measured into result 2, read, and checked for loss, from the
 /// constant 2, while register 2 holds 0, and from register 3, which holds
-/// 2: each check is of result 2.
+/// 2: each read is of result 2, flipped to `One` for the read, lost for
+/// the loss check.
 #[test]
-fn read_loss_reads_its_result_as_a_constant_or_a_register_by_its_flag() {
-    let bytecode = program(&[&[
-        measure(OPID_MZ, 0, 2),
-        read(OP_READ_LOSS, 1, 2),
-        set(3, 2),
-        binary(OP_READ_LOSS, 0, 0, 3, 0),
-        record_int(1),
-        record_int(0),
-        ret(),
-    ]]);
+fn a_read_reads_its_result_as_a_constant_or_a_register_by_its_flag() {
+    let reading = |opcode| {
+        program(&[&[
+            gate(OPID_X, 0, 0),
+            measure(OPID_MZ, 0, 2),
+            read(opcode, 1, 2),
+            set(3, 2),
+            binary(opcode, 0, 0, 3, 0),
+            record_int(1),
+            record_int(0),
+            ret(),
+        ]])
+    };
+    let both_read = [OutputRecord::Int(1), OutputRecord::Int(1)];
+    let (machine, run_shot) = both(&reading(OP_READ_RESULT));
+    assert_eq!(machine, both_read, "read_result");
     // COMPATIBILITY NOTE: this behavior was present in `run_shot`
-    // (bytecode/runtime.rs, `OP_READ_LOSS`: `resolve_u64` of its result by
-    // its flag), hence we keep it so that the machine is a drop-in
-    // replacement.
+    // (bytecode/runtime.rs, `OP_READ_RESULT` and `OP_READ_LOSS`:
+    // `resolve_u64` of its result by its flag), hence we keep it so that
+    // the machine is a drop-in replacement.
+    assert_eq!(machine, run_shot, "read_result: what `run_shot` reads");
     assert_eq!(
-        records(&bytecode, |_| QirReadout::Loss),
-        [OutputRecord::Int(1), OutputRecord::Int(1)]
+        records(&reading(OP_READ_LOSS), |_| QirReadout::Loss),
+        both_read,
+        "read_loss"
     );
 }
 
@@ -294,20 +258,15 @@ fn a_result_with_no_value_that_the_program_does_not_use_is_no_trap() {
 }
 
 /// Result 1 measured with no value, then written 1 by a `WRITE_RESULT`,
-/// and recorded.
+/// or measured again, `One`, and recorded.
 #[test]
-fn a_write_gives_a_result_with_no_value_a_value() {
+fn a_write_or_a_new_measurement_gives_a_result_with_no_value_a_value() {
     let written = program(&[&[measure(OPID_MZ, 0, 1), write(1, 1), record_result(1), ret()]]);
     assert_eq!(
         records_or_trap_answered(&written, |_| NO_VALUE),
-        Ok(vec![OutputRecord::Result(One)])
+        Ok(vec![OutputRecord::Result(One)]),
+        "written"
     );
-}
-
-/// Result 1 measured with no value, then measured again, `One`, and
-/// recorded.
-#[test]
-fn a_new_measurement_gives_a_result_with_no_value_a_value() {
     let measured_again = program(&[&[
         measure(OPID_MZ, 0, 1),
         measure(OPID_MZ, 0, 1),
@@ -325,7 +284,8 @@ fn a_new_measurement_gives_a_result_with_no_value_a_value() {
     };
     assert_eq!(
         records_or_trap_answered(&measured_again, first_without_value),
-        Ok(vec![OutputRecord::Result(One)])
+        Ok(vec![OutputRecord::Result(One)]),
+        "measured again"
     );
 }
 
@@ -540,69 +500,65 @@ fn an_outcome_given_twice_is_a_trap() {
     );
 }
 
-/// A measurement into, and a write of, the result just past the program's,
-/// from a register, and of result 2^32 + 1, which is result 1 cut to 32
-/// bits; and each into the program's last result, from a register, which
-/// runs.
+/// Each instruction that names a result, from a register: of the result
+/// just past the program's, and of result 2^32 + 1, which is result 1 cut
+/// to 32 bits; and of the program's last result, which runs. A measurement
+/// into it and a write of it; and a read, a loss check and a record of it,
+/// written `One` first when it is the last.
 #[test]
 fn a_result_past_the_program_s_is_a_trap() {
-    let write_to_register = binary(OP_WRITE_RESULT, FLAG_SRC0_IMM, 0, 1, 0);
-    for (name, instruction) in [
-        ("mz", measure_into_register(0, 0)),
-        ("write_result", write_to_register),
-    ] {
-        for result in [u64::from(SIZE), (1 << 32) + 1] {
-            let bytecode = program(&[&[set(0, result), instruction, ret()]]);
-            assert_eq!(
-                trap(&bytecode),
-                QirTrap::NoSuchResult {
-                    instruction: 1,
-                    result,
-                    results: SIZE
-                },
-                "{name} into result {result}"
-            );
-        }
-        let last = program(&[&[set(0, u64::from(SIZE) - 1), instruction, ret()]]);
-        assert_eq!(
-            records(&last, |_| QirReadout::One),
-            [Zero, Zero, Zero, One].map(OutputRecord::Result),
-            "{name} into the last result"
-        );
-    }
-}
-
-/// A read, a loss check and a record of the result just past the
-/// program's, held in a register, and of result 2^32 + 1, which is result
-/// 1 cut to 32 bits; and each of the program's last result, written `One`,
-/// which runs.
-#[test]
-fn a_result_read_past_the_program_s_is_a_trap() {
     let last = u64::from(SIZE) - 1;
-    for (name, instruction, expected) in [
+    let writing = |instruction| program(&[&[set(0, last), instruction, ret()]]);
+    let reading = |instruction| {
+        program(&[&[
+            write(1, last),
+            set(0, last),
+            instruction,
+            record_int(1),
+            ret(),
+        ]])
+    };
+    let every_result = [Zero, Zero, Zero, One].map(OutputRecord::Result).to_vec();
+    let rows = [
+        (
+            "mz",
+            measure_into_register(0, 0),
+            writing(measure_into_register(0, 0)),
+            every_result.clone(),
+        ),
+        (
+            "write_result",
+            binary(OP_WRITE_RESULT, FLAG_SRC0_IMM, 0, 1, 0),
+            writing(binary(OP_WRITE_RESULT, FLAG_SRC0_IMM, 0, 1, 0)),
+            every_result,
+        ),
+        // COMPATIBILITY NOTE: `run_shot` (bytecode/runtime.rs,
+        // `OP_READ_RESULT`, `OP_READ_LOSS`, `OP_RECORD_OUTPUT`) reads
+        // `Zero` past its results; the machine refuses, because the read
+        // can never see a written value: it is a producer's bug that would
+        // give plausible output.
         (
             "read_result",
             binary(OP_READ_RESULT, 0, 1, 0, 0),
+            reading(binary(OP_READ_RESULT, 0, 1, 0, 0)),
             vec![OutputRecord::Int(1)],
         ),
         (
             "read_loss",
             binary(OP_READ_LOSS, 0, 1, 0, 0),
+            reading(binary(OP_READ_LOSS, 0, 1, 0, 0)),
             vec![OutputRecord::Int(0)],
         ),
         (
             "record",
             record(0, 0),
+            reading(record(0, 0)),
             vec![OutputRecord::Result(One), OutputRecord::Int(0)],
         ),
-    ] {
+    ];
+    for (name, instruction, of_the_last, expected) in rows {
         for result in [u64::from(SIZE), (1 << 32) + 1] {
             let bytecode = program(&[&[set(0, result), instruction, ret()]]);
-            // COMPATIBILITY NOTE: `run_shot` (bytecode/runtime.rs,
-            // `OP_READ_RESULT`, `OP_READ_LOSS`, `OP_RECORD_OUTPUT`) reads
-            // `Zero` here; the machine refuses, because the read can never
-            // see a written value: it is a producer's bug that would give
-            // plausible output.
             assert_eq!(
                 trap(&bytecode),
                 QirTrap::NoSuchResult {
@@ -613,15 +569,8 @@ fn a_result_read_past_the_program_s_is_a_trap() {
                 "{name} of result {result}"
             );
         }
-        let bytecode = program(&[&[
-            write(1, last),
-            set(0, last),
-            instruction,
-            record_int(1),
-            ret(),
-        ]]);
         assert_eq!(
-            records(&bytecode, |_| QirReadout::One),
+            records(&of_the_last, |_| QirReadout::One),
             expected,
             "{name} of the last result"
         );

@@ -231,40 +231,6 @@ fn fcmp_one_holds_when_either_side_is_nan() {
     }
 }
 
-/// A comparison of `opcode` (`ICMP` or `FCMP`) by `predicate` of `a` and
-/// `b`, constants or registers by `flags`, into register 1.
-fn compared(opcode: u8, predicate: u8, flags: u64, a: u64, b: u64) -> Instruction<u64> {
-    Instruction {
-        dst: 1,
-        src0: a,
-        src1: b,
-        opcode: compare(opcode, predicate).opcode | flags,
-        ..Instruction::default()
-    }
-}
-
-/// `ICMP EQ`s of register 1, which holds 3, and the constant 3, and of the
-/// constant 3 and register 1.
-#[test]
-fn icmp_reads_each_operand_as_a_constant_or_a_register_by_its_own_flag() {
-    assert_eq!(computed(compared(OP_ICMP, ICMP_EQ, FLAG_SRC1_IMM, 1, 3)), 1);
-    assert_eq!(computed(compared(OP_ICMP, ICMP_EQ, FLAG_SRC0_IMM, 3, 1)), 1);
-}
-
-/// `FCMP OEQ`s of register 1, which holds 3, and the constant 3 (the same
-/// bits, read as a double), and of the constant 3 and register 1.
-#[test]
-fn fcmp_reads_each_operand_as_a_constant_or_a_register_by_its_own_flag() {
-    assert_eq!(
-        computed(compared(OP_FCMP, FCMP_OEQ, FLAG_SRC1_IMM, 1, 3)),
-        1
-    );
-    assert_eq!(
-        computed(compared(OP_FCMP, FCMP_OEQ, FLAG_SRC0_IMM, 3, 1)),
-        1
-    );
-}
-
 /// An instruction of `opcode` writing register 1 from the constant
 /// `value`, with `aux0` (a width, for `SEXT`).
 fn unary(opcode: u8, value: u64, aux0: u64) -> Instruction<u64> {
@@ -291,22 +257,6 @@ fn reals(opcode: u8, x: f64, y: f64) -> Instruction<u64> {
 /// The bits of `value`, as [`computed`] gives a register holding it.
 fn real(value: f64) -> i64 {
     value.to_bits().cast_signed()
-}
-
-/// The values [`computed`] gives an instruction of `opcode`, with `aux0`,
-/// writing register 1 from the constant `value`, then from register 2 set
-/// to `value`: equal when the instruction reads its value by its flag.
-fn by_flag(opcode: u8, value: u64, aux0: u64) -> [i64; 2] {
-    let from_register = Instruction {
-        dst: 1,
-        src0: 2,
-        aux0,
-        ..op(opcode, 0)
-    };
-    [
-        computed(unary(opcode, value, aux0)),
-        computed_by(&[set(2, value), from_register]),
-    ]
 }
 
 /// A `NOP` between register 1 set to 3 and its record.
@@ -343,21 +293,6 @@ fn fptrunc_keeps_its_double() {
     );
 }
 
-/// -1.5, which a `float` holds, extended by `FPEXT` to a `double`.
-#[test]
-fn fpext_keeps_its_double() {
-    assert_eq!(
-        computed(unary(OP_FPEXT, (-1.5f64).to_bits(), 0)),
-        real(-1.5)
-    );
-}
-
-/// Register 1 set by `INTTOPTR` from 12.
-#[test]
-fn inttoptr_copies_its_integer() {
-    assert_eq!(computed(unary(OP_INTTOPTR, 12, 0)), 12);
-}
-
 /// 2^32 + 5 truncated by `TRUNC`, as to an `i32`.
 #[test]
 fn trunc_copies_its_whole_word() {
@@ -370,18 +305,21 @@ fn trunc_copies_its_whole_word() {
     assert_eq!(computed(unary(OP_TRUNC, (1 << 32) + 5, 0)), (1 << 32) + 5);
 }
 
-/// 2^32 - 1, the greatest `u32`, extended by `ZEXT`.
+/// 2^32 - 1, the greatest `u32`, extended by `ZEXT`, which a sign
+/// extension would change; 12 cast by `INTTOPTR`; and -1.5, which a
+/// `float` holds, extended by `FPEXT` to a `double`.
 #[test]
-fn zext_copies_its_word() {
-    assert_eq!(computed(unary(OP_ZEXT, 0xffff_ffff, 0)), 0xffff_ffff);
-}
-
-/// 3 copied by each copy (`ZEXT`, `TRUNC`, `INTTOPTR`, `MOV`, `FPEXT`,
-/// `FPTRUNC`), from a constant and from a register.
-#[test]
-fn a_copy_reads_its_value_as_a_constant_or_a_register_by_its_flag() {
-    for opcode in [OP_ZEXT, OP_TRUNC, OP_INTTOPTR, OP_MOV, OP_FPEXT, OP_FPTRUNC] {
-        assert_eq!(by_flag(opcode, 3, 0), [3, 3], "{opcode:#x}");
+fn a_widening_or_pointer_conversion_copies_its_word() {
+    for (opcode, value) in [
+        (OP_ZEXT, 0xffff_ffff),
+        (OP_INTTOPTR, 12),
+        (OP_FPEXT, (-1.5f64).to_bits()),
+    ] {
+        assert_eq!(
+            computed(unary(opcode, value, 0)),
+            value.cast_signed(),
+            "{opcode:#x}"
+        );
     }
 }
 
@@ -418,22 +356,16 @@ fn sext_reads_its_width_cut_to_32_bits() {
     assert_eq!(computed(unary(OP_SEXT, 1, (1 << 32) + 1)), -1);
 }
 
-/// 3 (0b11) extended from 2 bits, from a constant and from a register.
+/// 2^64 - 1 plus 2, 2 minus 5, and 2^62 times 4.
 #[test]
-fn sext_reads_its_value_as_a_constant_or_a_register_by_its_flag() {
-    assert_eq!(by_flag(OP_SEXT, 3, 2), [-1, -1]);
-}
-
-/// 2^64 - 1 plus 2.
-#[test]
-fn add_wraps_past_2_64() {
-    assert_eq!(computed(constants(OP_ADD, u64::MAX, 2)), 1);
-}
-
-/// 2 minus 5.
-#[test]
-fn sub_wraps_below_0() {
-    assert_eq!(computed(constants(OP_SUB, 2, 5)), -3);
+fn add_sub_and_mul_wrap_modulo_2_64() {
+    for (opcode, a, b, wrapped) in [
+        (OP_ADD, u64::MAX, 2, 1),
+        (OP_SUB, 2, 5, -3),
+        (OP_MUL, 1 << 62, 4, 0),
+    ] {
+        assert_eq!(computed(constants(opcode, a, b)), wrapped, "{opcode:#x}");
+    }
 }
 
 /// 2^31 - 1, the greatest `i32`, plus 1.
@@ -452,56 +384,48 @@ fn an_integer_instruction_computes_at_64_bits_whatever_its_llvm_width() {
     assert_eq!(computed(constants(OP_ADD, 0x7fff_ffff, 1)), 0x8000_0000);
 }
 
-/// 2^62 times 4.
+/// 0b1100 and 0b1010, combined by `AND`, `OR` and `XOR`.
 #[test]
-fn mul_wraps_past_2_64() {
-    assert_eq!(computed(constants(OP_MUL, 1 << 62, 4)), 0);
+fn a_bitwise_instruction_combines_its_operands_bit_by_bit() {
+    for (opcode, combined) in [(OP_AND, 0b1000), (OP_OR, 0b1110), (OP_XOR, 0b0110)] {
+        assert_eq!(
+            computed(constants(opcode, 0b1100, 0b1010)),
+            combined,
+            "{opcode:#x}"
+        );
+    }
 }
 
-/// 0b1100 and 0b1010.
+/// 2^64 - 1, -1 as a signed integer, divided by 2, and its remainder by
+/// 10.
 #[test]
-fn and_keeps_the_bits_both_operands_set() {
-    assert_eq!(computed(constants(OP_AND, 0b1100, 0b1010)), 0b1000);
+fn udiv_and_urem_read_their_operands_as_unsigned() {
+    for (opcode, b, computed_unsigned) in [(OP_UDIV, 2, i64::MAX), (OP_UREM, 10, 5)] {
+        assert_eq!(
+            computed(constants(opcode, u64::MAX, b)),
+            computed_unsigned,
+            "{opcode:#x}"
+        );
+    }
 }
 
-/// 0b1100 or 0b1010.
+/// -7 divided by 2, and 7 by -2, and their remainders: the quotient is
+/// rounded toward zero, so the remainder takes the sign of the dividend.
 #[test]
-fn or_sets_the_bits_either_operand_sets() {
-    assert_eq!(computed(constants(OP_OR, 0b1100, 0b1010)), 0b1110);
-}
-
-/// 0b1100 xor 0b1010.
-#[test]
-fn xor_sets_the_bits_exactly_one_operand_sets() {
-    assert_eq!(computed(constants(OP_XOR, 0b1100, 0b1010)), 0b0110);
-}
-
-/// 2^64 - 1, -1 as a signed integer, divided by 2.
-#[test]
-fn udiv_divides_as_unsigned() {
-    assert_eq!(computed(constants(OP_UDIV, u64::MAX, 2)), i64::MAX);
-}
-
-/// 2^64 - 1, -1 as a signed integer, divided by 10.
-#[test]
-fn urem_takes_the_unsigned_remainder() {
-    assert_eq!(computed(constants(OP_UREM, u64::MAX, 10)), 5);
-}
-
-/// -7 divided by 2, and 7 by -2.
-#[test]
-fn sdiv_rounds_toward_zero() {
+fn sdiv_and_srem_round_toward_zero() {
     let (minus_7, minus_2) = ((-7i64).cast_unsigned(), (-2i64).cast_unsigned());
-    assert_eq!(computed(constants(OP_SDIV, minus_7, 2)), -3);
-    assert_eq!(computed(constants(OP_SDIV, 7, minus_2)), -3);
-}
-
-/// The remainders of -7 by 2, and of 7 by -2.
-#[test]
-fn srem_takes_the_sign_of_the_dividend() {
-    let (minus_7, minus_2) = ((-7i64).cast_unsigned(), (-2i64).cast_unsigned());
-    assert_eq!(computed(constants(OP_SREM, minus_7, 2)), -1);
-    assert_eq!(computed(constants(OP_SREM, 7, minus_2)), 1);
+    for (opcode, a, b, rounded) in [
+        (OP_SDIV, minus_7, 2, -3),
+        (OP_SDIV, 7, minus_2, -3),
+        (OP_SREM, minus_7, 2, -1),
+        (OP_SREM, 7, minus_2, 1),
+    ] {
+        assert_eq!(
+            computed(constants(opcode, a, b)),
+            rounded,
+            "{opcode:#x} of {a} and {b}"
+        );
+    }
 }
 
 /// The least integer, divided by -1: the quotient would be 2^63.
@@ -547,28 +471,22 @@ fn a_shift_shifts_by_its_count_mod_64() {
     );
 }
 
-/// 1.5 plus 0.25.
+/// 1.5 and 0.25, added, the second subtracted from the first, multiplied,
+/// and the first divided by the second.
 #[test]
-fn fadd_adds_its_operands() {
-    assert_eq!(computed(reals(OP_FADD, 1.5, 0.25)), real(1.75));
-}
-
-/// 1.5 minus 0.25.
-#[test]
-fn fsub_subtracts_its_second_operand_from_its_first() {
-    assert_eq!(computed(reals(OP_FSUB, 1.5, 0.25)), real(1.25));
-}
-
-/// 1.5 times 0.25.
-#[test]
-fn fmul_multiplies_its_operands() {
-    assert_eq!(computed(reals(OP_FMUL, 1.5, 0.25)), real(0.375));
-}
-
-/// 1.5 divided by 0.25.
-#[test]
-fn fdiv_divides_its_first_operand_by_its_second() {
-    assert_eq!(computed(reals(OP_FDIV, 1.5, 0.25)), real(6.0));
+fn a_float_arithmetic_instruction_computes_on_its_operands_as_doubles() {
+    for (opcode, computed_double) in [
+        (OP_FADD, 1.75),
+        (OP_FSUB, 1.25),
+        (OP_FMUL, 0.375),
+        (OP_FDIV, 6.0),
+    ] {
+        assert_eq!(
+            computed(reals(opcode, 1.5, 0.25)),
+            real(computed_double),
+            "{opcode:#x}"
+        );
+    }
 }
 
 /// 1 and -1 divided by zero and by minus zero: an infinity, its sign the
@@ -599,120 +517,52 @@ fn frem_takes_the_sign_of_the_dividend() {
     assert_eq!(computed(reals(OP_FREM, -7.5, 2.0)), real(-1.5));
 }
 
-/// Each arithmetic instruction of `a` and `b`, with `a` read instead from
-/// register 2, set to `a`, then with `b` read from it: each gives what it
-/// gives of the constants. (The operands are such that reading the
-/// constant 2 for either gives another value.)
-#[test]
-fn an_arithmetic_instruction_reads_each_operand_as_a_constant_or_a_register_by_its_own_flag() {
-    let integers = [
-        OP_ADD, OP_SUB, OP_MUL, OP_UDIV, OP_SDIV, OP_UREM, OP_SREM, OP_AND, OP_OR, OP_XOR,
-    ]
-    .map(|opcode| (opcode, 9, 5));
-    let shifts = [OP_SHL, OP_LSHR, OP_ASHR].map(|opcode| (opcode, 12, 1));
-    let doubles = [OP_FADD, OP_FSUB, OP_FMUL, OP_FDIV]
-        .map(|opcode| (opcode, 1.5f64.to_bits(), 0.25f64.to_bits()));
-    let frem = (OP_FREM, (-7.5f64).to_bits(), 2f64.to_bits());
-    for (opcode, a, b) in integers
-        .into_iter()
-        .chain(shifts)
-        .chain(doubles)
-        .chain([frem])
-    {
-        let expected = computed(constants(opcode, a, b));
-        let from_a = computed_by(&[set(2, a), binary(opcode, FLAG_SRC1_IMM, 1, 2, b)]);
-        let from_b = computed_by(&[set(2, b), binary(opcode, FLAG_SRC0_IMM, 1, a, 2)]);
-        assert_eq!([from_a, from_b], [expected; 2], "{opcode:#x}");
-    }
-}
-
 /// -2.5 converted to an integer.
 #[test]
 fn fptosi_rounds_toward_zero() {
     assert_eq!(computed(unary(OP_FPTOSI, (-2.5f64).to_bits(), 0)), -2);
 }
 
-/// 1e300 and +inf, past the greatest integer, and -1e300 and -inf, past
-/// the least, converted to integers.
+/// 1e300 and +inf, past the greatest integer, -1e300 and -inf, past the
+/// least, and NaN, converted by `FPTOSI`; and -2.5 and -inf, below 0,
+/// 1e300 and +inf, past the greatest unsigned integer, and NaN, converted
+/// by `FPTOUI`.
 #[test]
-fn fptosi_saturates_out_of_range() {
-    // COMPATIBILITY NOTE: LLVM leaves an `fptosi` out of range poison;
-    // `run_shot` (bytecode/runtime.rs, `OP_FPTOSI`: an `as i64` cast)
-    // saturates, and the machine keeps that value.
-    let fptosi = |value: f64| computed(unary(OP_FPTOSI, value.to_bits(), 0));
-    assert_eq!(fptosi(1e300), i64::MAX);
-    assert_eq!(fptosi(f64::INFINITY), i64::MAX);
-    assert_eq!(fptosi(-1e300), i64::MIN);
-    assert_eq!(fptosi(f64::NEG_INFINITY), i64::MIN);
-}
-
-/// NaN converted to an integer.
-#[test]
-fn fptosi_converts_nan_to_0() {
-    // COMPATIBILITY NOTE: LLVM leaves an `fptosi` of NaN poison;
-    // `run_shot` (bytecode/runtime.rs, `OP_FPTOSI`: an `as i64` cast)
-    // gives 0, and the machine keeps that value.
-    assert_eq!(computed(unary(OP_FPTOSI, f64::NAN.to_bits(), 0)), 0);
-}
-
-/// 2^63, past the greatest signed integer, converted to an integer.
-#[test]
-fn fptoui_converts_as_unsigned() {
-    assert_eq!(
-        computed(unary(OP_FPTOUI, 2f64.powi(63).to_bits(), 0)),
-        i64::MIN
-    );
-}
-
-/// -2.5 and -inf, below 0, and 1e300 and +inf, past the greatest unsigned
-/// integer, converted to unsigned integers.
-#[test]
-fn fptoui_saturates_out_of_range() {
-    // COMPATIBILITY NOTE: LLVM leaves an `fptoui` out of range poison;
-    // `run_shot` (bytecode/runtime.rs, `OP_FPTOUI`: an `as u64` cast)
-    // saturates, and the machine keeps that value.
-    let fptoui = |value: f64| computed(unary(OP_FPTOUI, value.to_bits(), 0));
-    assert_eq!(fptoui(-2.5), 0);
-    assert_eq!(fptoui(f64::NEG_INFINITY), 0);
-    assert_eq!(fptoui(1e300), u64::MAX.cast_signed());
-    assert_eq!(fptoui(f64::INFINITY), u64::MAX.cast_signed());
-}
-
-/// NaN converted to an unsigned integer.
-#[test]
-fn fptoui_converts_nan_to_0() {
-    // COMPATIBILITY NOTE: LLVM leaves an `fptoui` of NaN poison;
-    // `run_shot` (bytecode/runtime.rs, `OP_FPTOUI`: an `as u64` cast)
-    // gives 0, and the machine keeps that value.
-    assert_eq!(computed(unary(OP_FPTOUI, f64::NAN.to_bits(), 0)), 0);
-}
-
-/// -2 converted to a real.
-#[test]
-fn sitofp_converts_as_signed() {
-    assert_eq!(
-        computed(unary(OP_SITOFP, (-2i64).cast_unsigned(), 0)),
-        real(-2.0)
-    );
-}
-
-/// 2^63 converted to a real.
-#[test]
-fn uitofp_converts_as_unsigned() {
-    assert_eq!(computed(unary(OP_UITOFP, 1 << 63, 0)), real(2f64.powi(63)));
-}
-
-/// -2.5 converted by `FPTOSI`, 2.5 by `FPTOUI`, and 3 by `SITOFP` and by
-/// `UITOFP`, from a constant and from a register.
-#[test]
-fn a_conversion_reads_its_value_as_a_constant_or_a_register_by_its_flag() {
+fn a_float_to_integer_conversion_saturates_out_of_range_and_takes_nan_to_0() {
+    // COMPATIBILITY NOTE: LLVM leaves an `fptosi` or an `fptoui` out of
+    // range or of NaN poison; `run_shot` (bytecode/runtime.rs, `OP_FPTOSI`
+    // and `OP_FPTOUI`: an `as i64` and an `as u64` cast) saturates, and
+    // gives 0 for NaN, and the machine keeps those values.
     for (opcode, value, converted) in [
-        (OP_FPTOSI, (-2.5f64).to_bits(), -2),
-        (OP_FPTOUI, 2.5f64.to_bits(), 2),
-        (OP_SITOFP, 3, real(3.0)),
-        (OP_UITOFP, 3, real(3.0)),
+        (OP_FPTOSI, 1e300, i64::MAX),
+        (OP_FPTOSI, f64::INFINITY, i64::MAX),
+        (OP_FPTOSI, -1e300, i64::MIN),
+        (OP_FPTOSI, f64::NEG_INFINITY, i64::MIN),
+        (OP_FPTOSI, f64::NAN, 0),
+        (OP_FPTOUI, -2.5, 0),
+        (OP_FPTOUI, f64::NEG_INFINITY, 0),
+        (OP_FPTOUI, 1e300, u64::MAX.cast_signed()),
+        (OP_FPTOUI, f64::INFINITY, u64::MAX.cast_signed()),
+        (OP_FPTOUI, f64::NAN, 0),
     ] {
-        assert_eq!(by_flag(opcode, value, 0), [converted; 2], "{opcode:#x}");
+        assert_eq!(
+            computed(unary(opcode, value.to_bits(), 0)),
+            converted,
+            "{opcode:#x} of {value}"
+        );
+    }
+}
+
+/// 2^63, past the greatest signed integer, converted by `FPTOUI`; -2
+/// converted by `SITOFP`; and 2^63 converted by `UITOFP`.
+#[test]
+fn a_conversion_takes_its_integer_as_signed_or_unsigned_by_its_opcode() {
+    for (opcode, value, converted) in [
+        (OP_FPTOUI, 2f64.powi(63).to_bits(), i64::MIN),
+        (OP_SITOFP, (-2i64).cast_unsigned(), real(-2.0)),
+        (OP_UITOFP, 1 << 63, real(2f64.powi(63))),
+    ] {
+        assert_eq!(computed(unary(opcode, value, 0)), converted, "{opcode:#x}");
     }
 }
 
@@ -730,27 +580,80 @@ fn gep_offsets_its_base_by_index_times_size_wrapping() {
     assert_eq!(computed(gep(u64::MAX)), 92);
 }
 
-/// `GEP`s of base 2, index 2 and size 2, each operand in turn read
-/// instead from register 1, which holds 3.
-#[test]
-fn gep_reads_each_operand_as_a_constant_or_a_register_by_its_own_flag() {
-    let gep = |flags, base, index, size| Instruction {
-        dst: 1,
-        src0: base,
-        src1: index,
-        aux0: size,
-        ..op(OP_GEP, flags)
+/// `instruction` with its operand `name` (`src0`, `src1` or `aux0`) read
+/// instead from register 2: its flag cleared and the register in its
+/// place; and the value that operand held.
+fn reading_register_2(mut instruction: Instruction<u64>, name: &str) -> (Instruction<u64>, u64) {
+    let (flag, operand) = match name {
+        "src0" => (FLAG_SRC0_IMM, &mut instruction.src0),
+        "src1" => (FLAG_SRC1_IMM, &mut instruction.src1),
+        "aux0" => (FLAG_AUX0_IMM, &mut instruction.aux0),
+        _ => unreachable!("no instruction here reads {name} by a flag"),
     };
-    assert_eq!(
-        computed(gep(FLAG_SRC1_IMM | FLAG_AUX0_IMM, 1, 2, 2)),
-        3 + 2 * 2
-    );
-    assert_eq!(
-        computed(gep(FLAG_SRC0_IMM | FLAG_AUX0_IMM, 2, 1, 2)),
-        2 + 3 * 2
-    );
-    assert_eq!(
-        computed(gep(FLAG_SRC0_IMM | FLAG_SRC1_IMM, 2, 2, 1)),
-        2 + 2 * 3
-    );
+    let value = std::mem::replace(operand, 2);
+    instruction.opcode &= !flag;
+    (instruction, value)
+}
+
+/// Each classical instruction of constants into register 1, then with
+/// each operand it reads by a flag read in turn from register 2, set to
+/// that operand's value: each gives what it gives of the constants. Every
+/// operand differs from 2, and gives another value read as the constant
+/// 2, so a flag misread, or another operand's, shows. (A `SEXT`'s width is
+/// a constant whatever its flags.)
+#[test]
+fn each_operand_is_read_as_a_constant_or_a_register_by_its_own_flag() {
+    const BOTH: &[&str] = &["src0", "src1"];
+    let of = |instruction: Instruction<u64>, a, b, aux0| Instruction {
+        dst: 1,
+        src0: a,
+        src1: b,
+        aux0,
+        opcode: instruction.opcode | FLAG_SRC0_IMM | FLAG_SRC1_IMM | FLAG_AUX0_IMM,
+        ..instruction
+    };
+    let comparisons = [compare(OP_ICMP, ICMP_EQ), compare(OP_FCMP, FCMP_OEQ)]
+        .map(|comparison| (of(comparison, 3, 3, 0), BOTH));
+    let integers = [
+        OP_ADD, OP_SUB, OP_MUL, OP_UDIV, OP_SDIV, OP_UREM, OP_SREM, OP_AND, OP_OR, OP_XOR,
+    ]
+    .map(|opcode| (of(op(opcode, 0), 9, 5, 0), BOTH));
+    let shifts = [OP_SHL, OP_LSHR, OP_ASHR].map(|opcode| (of(op(opcode, 0), 12, 1, 0), BOTH));
+    let doubles = [OP_FADD, OP_FSUB, OP_FMUL, OP_FDIV].map(|opcode| {
+        let (a, b) = (1.5f64.to_bits(), 0.25f64.to_bits());
+        (of(op(opcode, 0), a, b, 0), BOTH)
+    });
+    let frem = of(op(OP_FREM, 0), (-7.5f64).to_bits(), 2f64.to_bits(), 0);
+    let copies = [OP_ZEXT, OP_TRUNC, OP_INTTOPTR, OP_MOV, OP_FPEXT, OP_FPTRUNC]
+        .map(|opcode| (of(op(opcode, 0), 3, 0, 0), &["src0"][..]));
+    let conversions = [
+        (OP_FPTOSI, (-2.5f64).to_bits()),
+        (OP_FPTOUI, 2.5f64.to_bits()),
+        (OP_SITOFP, 3),
+        (OP_UITOFP, 3),
+    ]
+    .map(|(opcode, value)| (of(op(opcode, 0), value, 0, 0), &["src0"][..]));
+    let gep = of(op(OP_GEP, 0), 5, 3, 4);
+    let rows = comparisons
+        .into_iter()
+        .chain(integers)
+        .chain(shifts)
+        .chain(doubles)
+        .chain([(frem, BOTH)])
+        .chain(copies)
+        .chain([(of(op(OP_SEXT, 0), 3, 0, 2), &["src0"][..])])
+        .chain(conversions)
+        .chain([(gep, &["src0", "src1", "aux0"][..])]);
+    for (constants, operands) in rows {
+        let expected = computed(constants);
+        for name in operands {
+            let (from_register, value) = reading_register_2(constants, name);
+            assert_eq!(
+                computed_by(&[set(2, value), from_register]),
+                expected,
+                "{:#x}, {name} from a register",
+                constants.opcode
+            );
+        }
+    }
 }
