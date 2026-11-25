@@ -1,23 +1,45 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Finding and loading NVIDIA cuTensorNet and the CUDA Runtime at run time.
+//! Running the QDK's tensor-network simulations, the MPS (matrix product
+//! state) simulator first, on an NVIDIA GPU, through cuTensorNet, NVIDIA's
+//! tensor-network library, without making NVIDIA software part of the QDK's
+//! build.
 //!
-//! The crate never links them, so the QDK builds and runs without them.
-//! When a GPU run is asked for, [`discover`] opens the libraries installed
-//! on the host. It looks up the functions of a table per library, and
-//! checks the libraries' versions against the audited ones. It returns an
-//! [`Availability`] that keeps the libraries loaded, or an
-//! [`AvailabilityError`] listing every fault of each library. A caller can
-//! then report the faults or run on the CPU instead.
+//! An MPS simulation method written against `tensornet::MpsEngine` (gates
+//! as matrices on sites; probabilities, projections, forks, samples and
+//! expectations back) runs on any engine. This crate gives it one on the
+//! GPU, in two halves:
 //!
-//! A later change adds the MPS engine, which calls cuTensorNet through
-//! these tables.
+//! - **The MPS engine.** [`CudaMpsEngine`] is `canonical_mps`'s
+//!   canonical-form MPS engine on [`CudaAlgebra`], its `SiteAlgebra` on
+//!   cuTensorNet's tensor API: the sites are [`DeviceTensor`]s in device
+//!   memory, split and moved by cuTensorNet. `CudaMpsEngine::try_from`
+//!   (Linux x86-64) opens one on the [`Availability`] discovery returns. A
+//!   failure of the algebra is a [`CudaAlgebraError`].
+//! - **Finding and loading.** cuTensorNet runs on the CUDA Runtime, and most
+//!   users have neither. So the QDK must build, install and run without
+//!   them, and the crate never links them. When a GPU run is asked for,
+//!   [`discover`] opens the libraries installed on the host. It looks up
+//!   the functions of a table per library, and checks the libraries'
+//!   versions against the audited ones. It returns an [`Availability`]
+//!   that keeps the libraries loaded, or an [`AvailabilityError`] listing
+//!   every fault of each library. A caller can then report the faults or
+//!   run on the CPU instead.
 //!
-//! The crate's README says why. Its `docs/loading.md` shows the steps of
-//! discovery and the faults each one can find.
+//! The crate's README says why. Its `docs/engine.md` shows how the algebra
+//! calls cuTensorNet, and its `docs/loading.md` the steps of discovery and
+//! the faults each one can find.
 
 mod discovery;
+#[cfg_attr(
+    not(all(target_os = "linux", target_arch = "x86_64")),
+    allow(
+        dead_code,
+        reason = "off Linux x86-64 nothing calls the native API; the engine stays compiled so its host tests run"
+    )
+)]
+mod engine;
 #[cfg_attr(
     not(all(target_os = "linux", target_arch = "x86_64")),
     allow(
@@ -30,4 +52,5 @@ mod libraries;
 mod test_utils;
 
 pub use discovery::{Availability, discover, error::AvailabilityError, report::AvailabilityReport};
+pub use engine::{CudaAlgebra, CudaAlgebraError, CudaMpsEngine, DeviceTensor};
 pub use libraries::report::{LibraryFault, LibraryReport, Version};

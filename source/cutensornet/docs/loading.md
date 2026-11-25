@@ -35,7 +35,7 @@ flowchart TD
   GPU run needs, in the order they are opened. It opens every library before
   it requires any.
 
-A library's life, from discovery to the `Availability` that keeps it:
+A library's life, from discovery to the last algebra or tensor that uses it:
 
 ```mermaid
 stateDiagram-v2
@@ -44,13 +44,17 @@ stateDiagram-v2
   Located --> Open: loaded by the system loader
   Open --> Bound: functions looked up, versions checked
   Bound --> Loaded: every library bound
-  Loaded --> Closed: the Availability dropped
+  Loaded --> Closed: the Availability, every algebra and every tensor dropped
   Located --> Faulted: no file to load, a path it cannot access, or it fails to load
   Open --> Faulted: a function missing, or a version refused
   Bound --> Closed: another library at fault
   Faulted --> [*]: recorded in its report, closed if open
   Closed --> [*]
 ```
+
+The `Availability`, the CUDA algebras and their tensors share a loaded
+library. It closes after the last of them, cuTensorNet before the CUDA
+Runtime it runs on.
 
 ## The steps of discovery
 
@@ -60,7 +64,18 @@ recorded in the library's report:
 
 1. Reading its override variable and opening it: `InvalidOverride`,
    `NotFound`, `InaccessiblePath` or `LoadFailed`, which end that library's
-   checks.
+   checks. Without an override, the default paths are tried in order:
+   - An absolute path is skipped when nothing exists there, including when
+     part of it is a file rather than a directory.
+   - It fails discovery when the process cannot access it, for instance
+     behind a directory it lacks the permission to search, or at a symlink
+     loop. It fails too when what is there is not a library, such as a
+     directory.
+   - A bare file name is searched for on the system loader's usual path.
+     It is skipped when the loader reports no file of that name
+     ([`loader.rs`](../src/libraries/loader.rs) says when glibc does).
+   - A library that is found but fails to load, for instance for a
+     missing dependency, fails discovery.
 2. Looking up its functions: `MissingRequiredSymbol`, one per missing
    function. Looking a function up stores its address; it does not call
    it.

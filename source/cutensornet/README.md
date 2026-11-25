@@ -1,11 +1,15 @@
-# cuTensorNet for the QDK: the discovery and loading of its libraries
+# cuTensorNet for the QDK: the MPS engine, and the discovery and loading of its libraries
 
 The `qdk_cutensornet` crate is for running the QDK's tensor-network
 simulations, the MPS (matrix product state) simulator first, on an NVIDIA GPU
-with NVIDIA's cuTensorNet library. It does so without making NVIDIA software
-part of the QDK. This part of the crate finds and loads the libraries. It
-solves two problems:
+with NVIDIA's cuTensorNet library. The MPS engine and its rules are
+[`canonical_mps`'s](../canonical_mps/README.md); this crate adds a
+cuTensorNet algebra for that engine, without making NVIDIA software part of
+the QDK. It solves three problems:
 
+- The instances a GPU is for, such as chemistry at a large bond dimension,
+  are slow on the CPU. So their site tensors should stay, and be factored, in
+  the GPU's memory.
 - Most QDK users have neither cuTensorNet nor the CUDA Runtime it runs on
   (NVIDIA's library for driving a GPU). So the QDK must build, load and
   simulate on the CPU without them.
@@ -13,13 +17,23 @@ solves two problems:
   to tell the user or to run on the CPU instead.
 
 The crate never links cuTensorNet or the CUDA Runtime. It opens and checks
-them at run time
-([discovery](#the-discovery-and-loading-of-the-libraries)). Discovery
-returns the loaded libraries, or why they cannot be used: every fault it
-found, or, off Linux x86-64, that the platform is unsupported.
+them at run time ([discovery](#the-discovery-and-loading-of-the-libraries)).
+Discovery returns the loaded libraries, for an engine to open on, or why
+they cannot be used: every fault it found, or, off Linux x86-64, that the
+platform is unsupported.
 
 Today the crate holds:
 
+- **[The MPS engine](#the-mps-engine):**
+  [`CudaMpsEngine`](src/engine.rs), `canonical_mps`'s canonical-form MPS
+  engine on [`CudaAlgebra`](src/engine/cuda_algebra.rs), its
+  `SiteAlgebra` on cuTensorNet's tensor API.
+- **What passes between the engine and the algebra:**
+  [`DeviceTensor`](src/engine/cuda_algebra/device_tensor.rs), one site in
+  the GPU's memory, which only the algebra that made it accepts.
+- **Failures:** [`CudaAlgebraError`](src/engine/cuda_algebra_error.rs),
+  why a call of the algebra failed, which the engine wraps as
+  `CanonicalMpsError::Algebra`.
 - **[The discovery and loading of the libraries](#the-discovery-and-loading-of-the-libraries):**
   [`discover`](src/discovery.rs), which opens and checks the libraries,
   and [`Availability`](src/discovery.rs), which keeps them loaded.
@@ -29,11 +43,74 @@ Today the crate holds:
   [`AvailabilityError`](src/discovery/error.rs), with the
   [`LibraryFault`](src/libraries/report.rs)s it lists.
 
+A simulator calls `discover()`, then opens the engine with
+`CudaMpsEngine::try_from(&availability)` (Linux x86-64), as the example on
+[`CudaMpsEngine`](src/engine.rs) shows. It opens the engine in each run's
+first step and drops it at the run's end.
+
+## The MPS engine
+
+**The problem.** `canonical_mps`'s engine makes synchronous calls that
+hand its algebra site tensors. cuTensorNet's calls run asynchronously on
+the GPU, on tensors it knows by descriptors, in memory its caller lends.
+
+**How it is solved.** [`CudaMpsEngine`](src/engine.rs) is
+`CanonicalMpsEngine<CudaAlgebra>`:
+[`canonical_mps`'s engine](../canonical_mps/README.md#the-engine) on this
+crate's algebra, which meets
+[the backend contract](../canonical_mps/README.md#the-backend-contract).
+The algebra runs on one CUDA device, a GPU as CUDA numbers them: device
+0 ([`settings.rs`](src/engine/cuda_algebra/settings.rs)). A process
+selects another with `CUDA_VISIBLE_DEVICES`. The algebra bridges the two
+models:
+
+- Each `SiteAlgebra` method selects the algebra's device, queues its
+  native calls on the algebra's CUDA stream (a queue of work the device
+  runs in order), and waits for them, so it returns with the device idle.
+- It describes each tensor of a call to cuTensorNet, and lends each call
+  the workspace memory it asks for, from scratch it keeps and grows.
+- It keeps each contraction cuTensorNet has prepared (its path found) for
+  its shape, as a run's moves of the centre repeat their shapes.
+- What a call creates is released when it returns, once the device is
+  done with it. A failed call that cannot wait for the device poisons the
+  algebra.
+
+[`docs/engine.md`](docs/engine.md) defines the algebra's terms, and gives
+the phases each method runs, how and why, their native calls, when each
+guarantee holds, and the numerics; each file's header gives the details.
+
+**Why this approach: sites stay on the GPU.** The GPU engine is for the
+large instances the CPU engine is slow on, such as chemistry: it is faster
+at large bonds, slower on small circuits. Only an upload or a read copies
+a site between the host and the GPU.
+
+### What a caller can rely on
+
+- Without device 0, the opening (`CudaAlgebra::new`,
+  `CudaMpsEngine::try_from`) fails with `CudaAlgebraError::NoDevice`, and
+  releases what it made.
+- Each method returns with the device idle and its inputs unchanged, as
+  [the contract](../canonical_mps/README.md#the-operations) asks, so the
+  engine may use a tensor at once.
+- Each method refuses, before it makes any native object, another
+  engine's tensor and arguments it cannot serve: a tensor shorter than
+  the call reads, an upload or a duplicate of no element, and extents
+  whose product overflows.
+- A failed method frees its outputs once the device is idle. If it
+  cannot wait for the device, the algebra is poisoned: every later method
+  returns `CudaAlgebraError::Poisoned`.
+- Dropping a tensor or the algebra attempts every release: one CUDA
+  refuses is leaked and logged as a warning.
+
+[When each guarantee holds](docs/engine.md#when-each-guarantee-holds)
+gives the order of the checks and what a failure or a drop releases.
+
 ## The discovery and loading of the libraries
 
 [`src/discovery.rs`](src/discovery.rs) finds, opens and checks the libraries
 a GPU run needs. Each library's module in [`src/libraries/`](src/libraries)
-says what the crate needs of it.
+says what the crate needs of it. A caller runs discovery before it opens
+an engine, which opens on its result.
 
 **How it is solved.** When a GPU run is asked for,
 [`discover`](src/discovery.rs) opens the shared libraries it needs. Today
@@ -76,8 +153,9 @@ flowchart TD
 - [`discover`](src/discovery.rs) selects no device, allocates no GPU memory
   and runs no GPU work.
 - [`Availability`](src/discovery.rs) holds each library's functions as typed
-  function pointers, ready to call. It is `Send` and `Sync`, so one
-  discovery serves every thread.
+  function pointers, which the algebra calls. It is `Send` and `Sync`, so
+  one discovery serves every thread. An engine, its algebra and its states
+  stay on the thread that created them.
 - Its [`AvailabilityReport`](src/discovery/report.rs) has a
   [`LibraryReport`](src/libraries/report.rs) per library, in the order they
   are opened: its name, the path it was opened from, the
@@ -129,21 +207,9 @@ variable and default paths
 
 An override must be an absolute path to a file, or to a symlink to one. It
 is then the only path tried, so a wrong setting fails instead of loading
-another installation.
-
-Without an override, the default paths are tried in order:
-
-- An absolute path is skipped when nothing exists there, including when
-  part of it is a file rather than a directory.
-- It fails discovery when the process cannot access it, for instance
-  behind a directory it lacks the permission to search, or at a symlink
-  loop. It fails too when what is there is not a library, such as a
-  directory.
-- A bare file name is searched for on the system loader's usual path. It
-  is skipped when the loader reports no file of that name
-  ([`loader.rs`](src/libraries/loader.rs) says when glibc does).
-- A library that is found but fails to load, for instance for a missing
-  dependency, fails discovery.
+another installation. Without an override, the default paths are tried
+in order; [the steps of discovery](docs/loading.md#the-steps-of-discovery)
+say when a path is skipped.
 
 ### Versions
 
@@ -162,16 +228,31 @@ cuTensorNet's has `cuTensorNet` and `cuTensorNet's CUDA Runtime`.
 
 ## Tests
 
-The unit tests, each in a `tests.rs` beside its module (for instance
-[the libraries'](src/libraries/tests.rs)), drive each way discovery fails,
-without NVIDIA's libraries:
+The [engine's tests](src/engine/tests.rs) run in CI, without a GPU. Most
+run on [fake libraries](src/engine/native_calls/fake_libraries.rs). A fake
+is a test double with a working but simpler implementation. This one
+computes each call's result on the CPU, and enforces cuTensorNet's call
+order and its rules on streams and copies. Two sets of tests use it:
 
-- On any Unix host: refused libraries, missing functions, failed version
-  probes, refused versions, and bad override variables, each reported with
-  the others.
-- On Linux with glibc, the tests that need a library open or glibc's
-  messages: a library found nowhere, an opened library at fault reported
-  with its path, and what discovery concludes from each library's faults.
+- the [native calls' tests](src/engine/native_calls/tests.rs) pin the
+  fake's rules;
+- the [CUDA algebra's tests](src/engine/cuda_algebra/tests.rs) run
+  `canonical_mps`'s
+  [conformance kit](../canonical_mps/README.md#conformance-the-kit-and-the-engines-circuits)
+  on the fake, and check the algebra's
+  release of every native object, its scratch, its failures and its
+  refusals.
+
+[`tests/cuda_mps_engine_on_the_gpu.rs`](tests/cuda_mps_engine_on_the_gpu.rs)
+runs the kit and `canonical_mps`'s engine circuits on a GPU, with the real
+libraries. It, and the native calls' cases that also run on a GPU, need
+one, so they run only when asked for (`--ignored`).
+
+Discovery's unit tests, each in a `tests.rs` beside its module (for
+instance [the libraries'](src/libraries/tests.rs)), drive each way it
+fails, without NVIDIA's libraries, each fault reported with the others;
+those that need a library open or glibc's messages run on Linux with glibc
+only.
 
 [`tests/availability.rs`](tests/availability.rs) discovers the audited
 libraries where they are installed.
@@ -181,12 +262,19 @@ libraries where they are installed.
 The crate checks its requirements when it runs. The table also lists where
 it has run. Anything else is expected to work, but not verified.
 
-| Requirement   | Checked by                                              | Verified on                                                                                      |
-| ------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Linux x86-64  | `discover`: `UnsupportedPlatform` elsewhere             | Ubuntu 22.04 on an NVIDIA A100 host                                                              |
-| The libraries | `discover`: the exact versions of [Versions](#versions) | from NVIDIA's apt packages, at the default paths, and from its pip wheels, through the overrides |
-| A CUDA driver | not checked: its version is reported only               | NVIDIA's driver 580.178.04, from Ubuntu's packages                                               |
+| Requirement   | Checked by                                                   | Verified on                                                                                      |
+| ------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| Linux x86-64  | `discover`: `UnsupportedPlatform` elsewhere                  | Ubuntu 22.04 on an NVIDIA A100 host                                                              |
+| The libraries | `discover`: the exact versions of [Versions](#versions)      | from NVIDIA's apt packages, at the default paths, and from its pip wheels, through the overrides |
+| A CUDA driver | not checked: its version is reported only                    | NVIDIA's driver 580.178.04, from Ubuntu's packages                                               |
+| An NVIDIA GPU | `CudaAlgebra::new`: `CudaAlgebraError::NoDevice` without one | an A100 80GB (below)                                                                             |
 
+- **On an A100 80GB:** `CudaAlgebra` passes `canonical_mps`'s
+  conformance kit. `CudaMpsEngine` passes `canonical_mps`'s engine
+  conformance circuits, and reads a capped circuit as `CpuMpsEngine`
+  does. The kit and the capped circuit pass NVIDIA's `compute-sanitizer`
+  memcheck, with its leak check, and synccheck. Not verified there: the
+  native calls' cases that also run on a GPU.
 - **Expected, not verified:** other x86-64 Linux distributions, with the
   libraries from NVIDIA's pip wheels or at a path an override gives (the
   default paths are those of NVIDIA's apt packages).

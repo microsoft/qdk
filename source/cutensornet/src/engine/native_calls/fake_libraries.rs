@@ -1,0 +1,539 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+//! [`FakeLibraries`]: a fake of cuTensorNet and the CUDA Runtime, for the
+//! tests of the native calls' callers. A fake is a test double with a
+//! working but simpler implementation: this one computes each call's result
+//! on the CPU.
+//!
+//! CI has no GPU. So the callers' real code, every call they make in the
+//! order they make them, runs against these fake libraries. They implement
+//! `NativeCalls` as the loaded libraries do, one file per trait. They catch
+//! what a GPU run would otherwise be the first to show: a call out of
+//! cuTensorNet's order, memory freed while still in use, a read before the
+//! write is done. The fake is compiled only with the tests. This file holds
+//! what the traits' files share: the objects the fake keeps by id, the
+//! checks every call goes through, and what a test sets and reads.
+//!
+//! The fake checks how its callers use the libraries, not what they
+//! compute. What the algebra returns is checked by `canonical_mps`'s
+//! conformance kit, which CI runs on the algebra over this fake.
+//!
+//! A misuse of the tensor API is refused with the status of the rule it
+//! breaks ([`FakeRule`]); those rules are in `fake_libraries/tensor_calls.rs`.
+//! The rules on memory, streams and handles, refused with status 1:
+//!
+//! - A buffer lent to a device slot of a live workspace is never freed:
+//!   the descriptor would hold freed memory.
+//! - A tensor call runs with no copy still running (`synchronize_copies`,
+//!   the legacy stream). The source of a copy still running is not freed.
+//! - A tensor call runs on a live stream, and a stream is synchronized
+//!   only while live.
+//! - After a tensor call, no buffer is freed (`free`) until every stream
+//!   recorded as the last to write a pending object (below) is
+//!   synchronized, since the fake does not track what a stream's work
+//!   reads. A stream whose writes another stream has overwritten is no
+//!   longer recorded, so these waits do not cover its work.
+//! - A buffer or SVD info a tensor call wrote is copied, copied into or
+//!   reported only once the stream last queued to write it is
+//!   synchronized. The copies run on CUDA's legacy stream, which a
+//!   non-blocking stream does not wait for. The fake flags no race of two
+//!   streams writing one object, nor of a later call's inputs and outputs.
+//! - A stream destroyed with writes pending keeps them, as its work may
+//!   still run after `cudaStreamDestroy`. No buffer is freed while it is
+//!   their last recorded writer.
+//! - Every object a call takes a handle for (a workspace, a descriptor, an
+//!   SVD config or info, a network or an optimizer info) belongs to the
+//!   handle it was created with. It is used only with that handle, which
+//!   must be live. A handle is destroyed only once none of its objects
+//!   lives, so a handle released too early is caught.
+//!
+//! What a test can set (a call made to fail, the device count, the free
+//! memory, a workspace's sizes, a gate split's truncation) and read (the
+//! device scratch allocated) are [`FakeLibraries`]' methods.
+
+mod dense_tensor;
+mod memory_calls;
+mod session_calls;
+mod tensor_calls;
+
+use super::{
+    NativePointer,
+    complex::Complex64Abi,
+    memory_calls::{WorkspaceDescriptor, WorkspaceSlot},
+    session_calls::{CuTensorNetHandle, CudaStream},
+};
+use crate::engine::CudaAlgebraError;
+use std::{
+    collections::BTreeMap,
+    ffi::c_void,
+    ptr::NonNull,
+    sync::{Mutex, MutexGuard},
+};
+use tensor_calls::{gate_split::SvdConfig, tensor_shape::TensorShape, workspace_sizing::SizedFor};
+
+/// The bytes `workspace_size` asks for in the device scratch, unless
+/// [`FakeLibraries::set_workspace_slot_bytes`] says otherwise.
+pub(crate) const WORKSPACE_BYTES: i64 = 1024;
+
+/// Every slot of a workspace descriptor.
+const WORKSPACE_SLOTS: [WorkspaceSlot; 4] = [
+    WorkspaceSlot::DeviceScratch,
+    WorkspaceSlot::DeviceCache,
+    WorkspaceSlot::HostScratch,
+    WorkspaceSlot::HostCache,
+];
+
+#[derive(Default)]
+pub(crate) struct FakeLibraries {
+    inner: Mutex<Inner>,
+}
+
+#[derive(Default)]
+struct Inner {
+    next_id: usize,
+    objects: BTreeMap<usize, Object>,
+    events: Vec<&'static str>,
+    calls: BTreeMap<&'static str, usize>,
+    failures: Vec<(&'static str, usize)>,
+    /// Every buffer ever attached to a workspace as scratch.
+    scratch: Vec<usize>,
+    /// Whether a copy may still be running on the legacy stream: set by a
+    /// copy, cleared by `synchronize_copies`.
+    copies_running: bool,
+    /// What the work queued on a stream may still be writing (a tensor
+    /// call's outputs and SVD info), by id, with the stream of the last
+    /// call queued to write it. Set by the call, cleared by
+    /// `synchronize_stream` on that stream alone, and kept when the stream
+    /// is destroyed (the rules on streams, in this file's header).
+    pending_writes: BTreeMap<usize, usize>,
+    /// The sources of the device-to-device copies that may still be
+    /// running, which must not be freed.
+    copy_sources: Vec<usize>,
+    /// The free device memory `memory_info` reports, if not 1 TiB.
+    free_memory: Option<usize>,
+    /// The bytes `workspace_size` asks for in a slot, by its index, when
+    /// set: otherwise [`WORKSPACE_BYTES`] in the device scratch, and none
+    /// elsewhere.
+    slot_bytes: [Option<i64>; 4],
+    /// The slot and the bytes `slot_bytes` takes when the next QR runs.
+    slot_bytes_after_qr: Option<(WorkspaceSlot, i64)>,
+    /// The handle each live object that takes one was created with.
+    owners: BTreeMap<usize, usize>,
+    /// The device count `device_count` reports, if not 1.
+    device_count: Option<i32>,
+    /// The truncation every gate split reports, instead of its own.
+    misreported_truncation: Option<super::tensor_calls::SvdTruncation>,
+    /// How many allocations are left before one returns the live buffer
+    /// held here, by id, instead of a new one.
+    aliased_allocation: Option<(usize, usize)>,
+}
+
+enum Object {
+    Stream,
+    Handle,
+    Buffer(Vec<Complex64Abi>),
+    /// A workspace descriptor: the memory lent to each slot, by
+    /// [`slot_index`], and the bytes it lends; and the tensor call it was
+    /// last sized for.
+    Workspace {
+        lent: [Option<(usize, i64)>; 4],
+        sized_for: Option<SizedFor>,
+    },
+    TensorDescriptor(TensorShape),
+    SvdConfig(SvdConfig),
+    /// An SVD info, and what the last gate split given it truncated.
+    SvdInfo(Option<super::tensor_calls::SvdTruncation>),
+    /// A contraction network: the info whose path it was last optimized
+    /// to, and, once prepared, the device scratch bytes lent at its last
+    /// preparation.
+    Network {
+        inputs: [TensorShape; 2],
+        output: TensorShape,
+        path: Option<usize>,
+        prepared: Option<i64>,
+    },
+    OptimizerInfo {
+        network: usize,
+        optimized: bool,
+    },
+}
+
+fn failed(operation: &'static str, message: &str) -> CudaAlgebraError {
+    CudaAlgebraError::NativeCallFailed {
+        component: "fake libraries",
+        operation,
+        status: 1,
+        message: message.to_string(),
+    }
+}
+
+/// The rules of cuTensorNet and CUDA the fake refuses a misuse of, each
+/// with its own status, as a library's status names its error. So a test
+/// checks which rule refused a call by its status, not by its message's
+/// wording. Other failures (a rule on memory, streams or handles broken, a
+/// call made to fail, a missing object) have status 1.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FakeRule {
+    /// A tensor call ran with a workspace slot that asks for memory unlent.
+    NoMemoryLent = 101,
+    /// A tensor call ran with a slot lent less than it asks for.
+    LessMemoryLent,
+    /// A tensor call ran with a workspace sized for another call.
+    WorkspaceNotSizedForTheCall,
+    /// A gate split's inputs (A, B, the gate) do not each share a label
+    /// with the other two.
+    GateSplitNotPairwiseConnected,
+    /// A gate split's input has a label outside the split's topology.
+    LabelOutsideGateSplitTopology,
+    /// A gate split's shared extent exceeds its matrix's smaller side.
+    SharedExtentExceedsSmallerSide,
+    /// A QR's shared extent is not its matrix's smaller side.
+    SharedExtentNotSmallerSide,
+    /// A contraction ran on a network never prepared.
+    NetworkNotPrepared,
+}
+
+impl FakeRule {
+    /// The status the fake returns when this rule refuses a call.
+    pub(crate) fn status(self) -> u32 {
+        self as u32
+    }
+
+    fn message(self) -> &'static str {
+        match self {
+            Self::NoMemoryLent => "no memory lent to a slot that asks for it",
+            Self::LessMemoryLent => "less memory lent than a slot asks for",
+            Self::WorkspaceNotSizedForTheCall => "the workspace is not sized for this call",
+            Self::GateSplitNotPairwiseConnected => "A, B and the gate are not pairwise connected",
+            Self::LabelOutsideGateSplitTopology => {
+                "an input label is outside a gate split's topology"
+            }
+            Self::SharedExtentExceedsSmallerSide => {
+                "the shared extent exceeds the split's smaller side"
+            }
+            Self::SharedExtentNotSmallerSide => "the shared extent is not the smaller side",
+            Self::NetworkNotPrepared => "the network is not prepared",
+        }
+    }
+}
+
+/// `operation` refused by `rule`, with the rule's status.
+fn refused(operation: &'static str, rule: FakeRule) -> CudaAlgebraError {
+    CudaAlgebraError::NativeCallFailed {
+        component: "fake libraries",
+        operation,
+        status: rule.status(),
+        message: rule.message().to_string(),
+    }
+}
+
+/// The fake's object `id`, as a pointer of the kind `P`.
+fn pointer<P: NativePointer>(id: usize) -> P {
+    P::from_pointer(
+        NonNull::new(std::ptr::without_provenance_mut::<c_void>(id)).unwrap_or(NonNull::dangling()),
+    )
+}
+
+/// The id of the fake's object `object` points to, whatever its kind.
+fn id(object: impl NativePointer) -> usize {
+    object.pointer().addr().get()
+}
+
+fn to_usize(value: i64) -> Result<usize, CudaAlgebraError> {
+    usize::try_from(value).map_err(|_| failed("conversion", "negative value"))
+}
+
+/// Where a workspace's `lent` keeps `slot`.
+fn slot_index(slot: WorkspaceSlot) -> usize {
+    match slot {
+        WorkspaceSlot::DeviceScratch => 0,
+        WorkspaceSlot::DeviceCache => 1,
+        WorkspaceSlot::HostScratch => 2,
+        WorkspaceSlot::HostCache => 3,
+    }
+}
+
+/// Whether `slot` takes device memory: a buffer of the fake.
+fn is_device(slot: WorkspaceSlot) -> bool {
+    matches!(
+        slot,
+        WorkspaceSlot::DeviceScratch | WorkspaceSlot::DeviceCache
+    )
+}
+
+impl FakeLibraries {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    /// Makes the `occurrence`-th call (from 1) to `operation` fail, beside
+    /// the calls made to fail before.
+    pub(crate) fn fail(&self, operation: &'static str, occurrence: usize) {
+        self.lock().failures.push((operation, occurrence));
+    }
+
+    pub(crate) fn events(&self) -> Vec<&'static str> {
+        self.lock().events.clone()
+    }
+
+    pub(crate) fn count(&self, operation: &'static str) -> usize {
+        self.lock().calls.get(operation).copied().unwrap_or(0)
+    }
+
+    /// Every native object not yet released.
+    pub(crate) fn live_objects(&self) -> usize {
+        self.lock().objects.len()
+    }
+
+    /// How many cuTensorNet handles are live.
+    pub(crate) fn live_handles(&self) -> usize {
+        self.lock()
+            .objects
+            .values()
+            .filter(|object| matches!(object, Object::Handle))
+            .count()
+    }
+
+    /// How many buffers were ever attached to a workspace as scratch.
+    pub(crate) fn scratch_buffers(&self) -> usize {
+        self.lock().scratch.len()
+    }
+
+    /// The memory `workspace` lends `slot`, by address, and the bytes it
+    /// lends: `None` if the slot was never lent any, or the workspace is
+    /// gone.
+    pub(crate) fn lent(
+        &self,
+        workspace: WorkspaceDescriptor,
+        slot: WorkspaceSlot,
+    ) -> Option<(usize, i64)> {
+        match self.lock().objects.get(&id(workspace)) {
+            Some(Object::Workspace { lent, .. }) => lent[slot_index(slot)],
+            _ => None,
+        }
+    }
+
+    /// Makes `memory_info` report `bytes` free.
+    pub(crate) fn set_free_memory(&self, bytes: usize) {
+        self.lock().free_memory = Some(bytes);
+    }
+
+    /// Makes `device_count` report `count` devices.
+    pub(crate) fn set_device_count(&self, count: i32) {
+        self.lock().device_count = Some(count);
+    }
+
+    /// Makes every gate split from now on report `truncation` in its SVD
+    /// info, as a library that misreported it would. Its outputs are
+    /// unchanged.
+    pub(crate) fn misreport_truncation(&self, truncation: super::tensor_calls::SvdTruncation) {
+        self.lock().misreported_truncation = Some(truncation);
+    }
+
+    /// Makes the `occurrence`-th allocation from now on (from 1) return the
+    /// buffer allocated last before this call, still live, as an allocator
+    /// that handed out memory in use would.
+    pub(crate) fn alias_allocation(&self, occurrence: usize) {
+        let mut inner = self.lock();
+        let last = inner
+            .objects
+            .iter()
+            .rev()
+            .find_map(|(&id, object)| matches!(object, Object::Buffer(_)).then_some(id))
+            .expect("a live buffer to alias");
+        inner.aliased_allocation = Some((occurrence, last));
+    }
+
+    /// Makes every workspace ask for `bytes` in `slot` from now on, instead
+    /// of [`WORKSPACE_BYTES`] in the device scratch and nothing elsewhere.
+    pub(crate) fn set_workspace_slot_bytes(&self, slot: WorkspaceSlot, bytes: i64) {
+        self.lock().slot_bytes[slot_index(slot)] = Some(bytes);
+    }
+
+    /// Makes every workspace ask for `bytes` in `slot` once the next QR has
+    /// run, as [`set_workspace_slot_bytes`](Self::set_workspace_slot_bytes)
+    /// would then, so that the contraction a move of the centre runs after
+    /// its QR asks for another size than the QR.
+    pub(crate) fn set_workspace_slot_bytes_after_the_next_qr(
+        &self,
+        slot: WorkspaceSlot,
+        bytes: i64,
+    ) {
+        self.lock().slot_bytes_after_qr = Some((slot, bytes));
+    }
+
+    fn lock(&self) -> MutexGuard<'_, Inner> {
+        self.inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Records a call to `operation` and fails it if asked to.
+    fn call(&self, operation: &'static str) -> Result<MutexGuard<'_, Inner>, CudaAlgebraError> {
+        let mut inner = self.lock();
+        inner.events.push(operation);
+        let count = inner.calls.entry(operation).or_insert(0);
+        *count += 1;
+        let count = *count;
+        if inner.failures.contains(&(operation, count)) {
+            return Err(failed(operation, "injected failure"));
+        }
+        Ok(inner)
+    }
+}
+
+impl Inner {
+    /// Fails unless the work about to run may: no copy is still running,
+    /// and `workspace` lends every slot that asks for memory at least what
+    /// it asks for, live in a device slot. Returns the bytes of the device
+    /// scratch buffer, 0 if none is lent.
+    fn lent_scratch(
+        &self,
+        workspace: WorkspaceDescriptor,
+        operation: &'static str,
+    ) -> Result<usize, CudaAlgebraError> {
+        if self.copies_running {
+            return Err(failed(operation, "a copy may still be running"));
+        }
+        let Some(Object::Workspace { lent, .. }) = self.objects.get(&id(workspace)) else {
+            return Err(failed(operation, "no such workspace"));
+        };
+        for slot in WORKSPACE_SLOTS {
+            let asked = self.recommended_bytes(slot);
+            if asked <= 0 {
+                continue;
+            }
+            let Some((memory, bytes)) = lent[slot_index(slot)] else {
+                return Err(refused(operation, FakeRule::NoMemoryLent));
+            };
+            if bytes < asked {
+                return Err(refused(operation, FakeRule::LessMemoryLent));
+            }
+            if is_device(slot) {
+                self.buffer(memory, operation)?;
+            }
+        }
+        match lent[slot_index(WorkspaceSlot::DeviceScratch)] {
+            Some((scratch, _)) => Ok(size_of_val(self.buffer(scratch, operation)?)),
+            None => Ok(0),
+        }
+    }
+
+    /// Queues work on `stream` that writes `written`, by id, until
+    /// `synchronize_stream(stream)`.
+    fn queue_on(&mut self, stream: CudaStream, written: impl IntoIterator<Item = usize>) {
+        for object in written {
+            self.pending_writes.insert(object, id(stream));
+        }
+    }
+
+    /// Whether work queued on a stream not synchronized since may still
+    /// write `object`.
+    fn write_pending(&self, object: usize) -> bool {
+        self.pending_writes.contains_key(&object)
+    }
+
+    /// Whether any stream may still be running work, as far as the last
+    /// writers of pending writes record it. `free` needs it, since the fake
+    /// does not track what a stream's work reads.
+    fn any_stream_busy(&self) -> bool {
+        !self.pending_writes.is_empty()
+    }
+
+    /// The bytes `workspace` lends its device scratch, 0 if none.
+    fn lent_scratch_bytes(
+        &self,
+        workspace: WorkspaceDescriptor,
+        operation: &'static str,
+    ) -> Result<i64, CudaAlgebraError> {
+        match self.objects.get(&id(workspace)) {
+            Some(Object::Workspace { lent, .. }) => {
+                Ok(lent[slot_index(WorkspaceSlot::DeviceScratch)].map_or(0, |(_, bytes)| bytes))
+            }
+            _ => Err(failed(operation, "no such workspace")),
+        }
+    }
+
+    /// The bytes every workspace asks for in `slot`.
+    fn recommended_bytes(&self, slot: WorkspaceSlot) -> i64 {
+        self.slot_bytes[slot_index(slot)].unwrap_or(match slot {
+            WorkspaceSlot::DeviceScratch => WORKSPACE_BYTES,
+            _ => 0,
+        })
+    }
+
+    fn create<P: NativePointer>(&mut self, object: Object) -> P {
+        self.next_id += 1;
+        let id = self.next_id * 256;
+        self.objects.insert(id, object);
+        pointer(id)
+    }
+
+    /// Creates `object` on the live `handle`, which it belongs to.
+    fn create_on<P: NativePointer>(
+        &mut self,
+        handle: CuTensorNetHandle,
+        operation: &'static str,
+        object: Object,
+    ) -> Result<P, CudaAlgebraError> {
+        self.require(handle, operation, |o| matches!(o, Object::Handle))?;
+        let created: P = self.create(object);
+        self.owners.insert(id(created), id(handle));
+        Ok(created)
+    }
+
+    /// Fails unless `handle` is live and `object` was created with it.
+    fn owned(
+        &self,
+        handle: CuTensorNetHandle,
+        object: impl NativePointer,
+        operation: &'static str,
+    ) -> Result<(), CudaAlgebraError> {
+        self.require(handle, operation, |o| matches!(o, Object::Handle))?;
+        match self.owners.get(&id(object)) {
+            Some(&owner) if owner == id(handle) => Ok(()),
+            Some(_) => Err(failed(operation, "the object belongs to another handle")),
+            None => Err(failed(operation, "no such object")),
+        }
+    }
+
+    fn destroy(
+        &mut self,
+        handle: impl NativePointer,
+        operation: &'static str,
+        is_kind: fn(&Object) -> bool,
+    ) -> Result<(), CudaAlgebraError> {
+        match self.objects.get(&id(handle)) {
+            Some(object) if is_kind(object) => {
+                self.objects.remove(&id(handle));
+                self.owners.remove(&id(handle));
+                Ok(())
+            }
+            _ => Err(failed(operation, "no such object")),
+        }
+    }
+
+    fn require(
+        &self,
+        handle: impl NativePointer,
+        operation: &'static str,
+        is_kind: fn(&Object) -> bool,
+    ) -> Result<(), CudaAlgebraError> {
+        match self.objects.get(&id(handle)) {
+            Some(object) if is_kind(object) => Ok(()),
+            _ => Err(failed(operation, "no such object")),
+        }
+    }
+
+    fn buffer(
+        &self,
+        id: usize,
+        operation: &'static str,
+    ) -> Result<&[Complex64Abi], CudaAlgebraError> {
+        match self.objects.get(&id) {
+            Some(Object::Buffer(buffer)) => Ok(buffer),
+            _ => Err(failed(operation, "no such buffer")),
+        }
+    }
+}

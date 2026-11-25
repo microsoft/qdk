@@ -8,8 +8,21 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+canonical_mps = { path = "../canonical_mps" }
 libloading = { workspace = true }
+log = { workspace = true }
+num-complex = { workspace = true }
+tensornet = { path = "../tensornet" }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+# The algebra's conformance kit and the engine's circuits, which the tests
+# run on the fake libraries and on the GPU (`src/engine/cuda_algebra/tests.rs`,
+# `tests/cuda_mps_engine_on_the_gpu.rs`).
+canonical_mps = { path = "../canonical_mps", features = ["conformance"] }
+# The dense SVD and QR the fake libraries factor with
+# (`src/engine/native_calls/fake_libraries/tensor_calls.rs` and its folder).
+dense_linalg = { path = "../dense_linalg" }
 
 [lints]
 workspace = true
