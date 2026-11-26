@@ -5,18 +5,23 @@
 //! gates, their mnemonics, the matrix of each against its textbook value,
 //! and the angle.
 
-use super::{correlated_noise, gate, measure, op, program, reset, ret};
-use crate::bytecode::encoding::{
-    FLAG_AUX0_IMM, FLAG_AUX1_IMM, FLAG_AUX2_IMM, OP_PEEK_LOSS, OP_READOUT_NOISE, OPID_CX, OPID_CY,
-    OPID_CZ, OPID_H, OPID_MOVE, OPID_MRESETZ, OPID_MX, OPID_MY, OPID_MZ, OPID_RX, OPID_RXX,
-    OPID_RY, OPID_RYY, OPID_RZ, OPID_RZZ, OPID_S, OPID_S_ADJ, OPID_SWAP, OPID_SX, OPID_SX_ADJ,
-    OPID_T, OPID_T_ADJ, OPID_X, OPID_Y, OPID_Z,
-};
-use crate::qir::OperatorMatrix;
-use crate::qir::{QIR_INSTRUCTIONS, QirGate, QirInstruction, QirProgram};
-use crate::tests::qir::operator_matrix::{I, L, O, rows};
+use crate::qir::quantum_instruction_encoding::QIR_INSTRUCTIONS;
+use crate::qir::test_utils::{I, L, O};
+use crate::qir::{OperatorMatrix, QirGate, QirInstruction};
 use num_complex::Complex64;
 use std::f64::consts::{FRAC_1_SQRT_2, PI};
+
+/// The matrix as rows `M[out][in]`, read through [`OperatorMatrix::entry`].
+fn rows(matrix: &OperatorMatrix) -> Vec<Vec<Complex64>> {
+    let dimension = matrix.dimension();
+    (0..dimension)
+        .map(|output| {
+            (0..dimension)
+                .map(|input| matrix.entry(output, input))
+                .collect()
+        })
+        .collect()
+}
 
 /// The one-qubit gates that take no angle.
 const ONE_QUBIT_FIXED: [QirGate; 10] = [
@@ -38,55 +43,6 @@ const TWO_QUBIT_FIXED: [QirGate; 4] = [QirGate::Cx, QirGate::Cy, QirGate::Cz, Qi
 /// The two-qubit rotations.
 const TWO_QUBIT_ROTATIONS: [QirGate; 3] = [QirGate::Rxx, QirGate::Ryy, QirGate::Rzz];
 
-/// The instructions of a program that uses every instruction of the `qir`
-/// set.
-fn every_instruction() -> Vec<QirInstruction> {
-    let mut block: Vec<_> = [
-        OPID_X,
-        OPID_Y,
-        OPID_Z,
-        OPID_H,
-        OPID_S,
-        OPID_S_ADJ,
-        OPID_T,
-        OPID_T_ADJ,
-        OPID_SX,
-        OPID_SX_ADJ,
-        OPID_RX,
-        OPID_RY,
-        OPID_RZ,
-        OPID_CX,
-        OPID_CZ,
-        OPID_RXX,
-        OPID_RYY,
-        OPID_RZZ,
-        OPID_SWAP,
-        OPID_CY,
-    ]
-    .into_iter()
-    .map(|op_id| gate(op_id, 0, 1))
-    .collect();
-    block.extend([
-        measure(OPID_MZ, 0, 0),
-        measure(OPID_MRESETZ, 0, 1),
-        measure(OPID_MX, 0, 0),
-        measure(OPID_MY, 0, 0),
-        reset(0),
-        gate(OPID_MOVE, 0, 0),
-        correlated_noise(0, 0),
-        op(OP_PEEK_LOSS, FLAG_AUX0_IMM | FLAG_AUX1_IMM),
-        op(
-            OP_READOUT_NOISE,
-            FLAG_AUX0_IMM | FLAG_AUX1_IMM | FLAG_AUX2_IMM,
-        ),
-        ret(),
-    ]);
-    QirProgram::new(program(&[&block]))
-        .expect("the program has no fault")
-        .instructions()
-        .to_vec()
-}
-
 /// The matrix of `gate`, at `angle` for a rotation.
 fn matrix(gate: QirGate, angle: f64) -> OperatorMatrix {
     let rotation = ONE_QUBIT_ROTATIONS.contains(&gate) || TWO_QUBIT_ROTATIONS.contains(&gate);
@@ -98,19 +54,14 @@ fn fixed(gate: QirGate) -> OperatorMatrix {
     matrix(gate, f64::NAN)
 }
 
-/// A program using the whole set, which a simulator builds its table of:
-/// its unitary instructions are gates, and nothing else is.
+/// The whole `qir` set, which a simulator builds its table of: its
+/// unitary instructions are gates, and nothing else is.
 #[test]
 fn only_the_unitary_instructions_are_gates() {
-    let instructions = every_instruction();
-    assert_eq!(
-        instructions.len(),
-        QIR_INSTRUCTIONS.len(),
-        "the program uses the whole set"
-    );
     let mnemonics = |gates: bool| {
-        instructions
+        QIR_INSTRUCTIONS
             .iter()
+            .map(|(_, instruction)| instruction)
             .filter(|instruction| matches!(instruction, QirInstruction::Gate(_)) == gates)
             .map(|instruction| instruction.mnemonic())
             .collect::<Vec<_>>()

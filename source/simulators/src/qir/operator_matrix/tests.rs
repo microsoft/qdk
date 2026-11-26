@@ -4,24 +4,9 @@
 //! The shared layout of an [`OperatorMatrix`]: where its entries are, which
 //! matrices are diagonal.
 
+use crate::qir::test_utils::{I, L, O};
 use crate::qir::{OperatorMatrix, QirGate};
 use num_complex::Complex64;
-
-pub(super) const O: Complex64 = Complex64::new(0.0, 0.0);
-pub(super) const L: Complex64 = Complex64::new(1.0, 0.0);
-pub(super) const I: Complex64 = Complex64::new(0.0, 1.0);
-
-/// The matrix as rows `M[out][in]`, read through [`OperatorMatrix::entry`].
-pub(super) fn rows(matrix: &OperatorMatrix) -> Vec<Vec<Complex64>> {
-    let dimension = matrix.dimension();
-    (0..dimension)
-        .map(|output| {
-            (0..dimension)
-                .map(|input| matrix.entry(output, input))
-                .collect()
-        })
-        .collect()
-}
 
 /// A 2×2 and a 4×4 matrix with distinct entries: each entry `M[out][in]` is
 /// read at `out · d + in`.

@@ -293,3 +293,6 @@ impl MeasuredQubit {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -116,3 +116,6 @@ pub fn expect_ready<F: Future>(future: F) -> F::Output {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

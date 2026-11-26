@@ -4,9 +4,6 @@
 //! What a context records: its records in order, the whole register for
 //! each kind, and every result when the program records nothing.
 
-use super::super::{
-    branch, measure, op, program, record, record_bool, record_int, record_result, ret, set, write,
-};
 use super::{both, records, trap};
 use crate::MeasurementResult::{Loss, One, Zero};
 use crate::OutputRecord;
@@ -14,6 +11,9 @@ use crate::bytecode::Instruction;
 use crate::bytecode::encoding::{
     FLAG_SRC0_IMM, OP_RECORD_OUTPUT, OPID_MZ, RECORD_ARRAY, RECORD_BOOL, RECORD_DOUBLE, RECORD_INT,
     RECORD_TUPLE,
+};
+use crate::qir::test_utils::{
+    branch, measure, op, program, record, record_bool, record_int, record_result, ret, set, write,
 };
 use crate::qir::{QirReadout, QirTrap};
 

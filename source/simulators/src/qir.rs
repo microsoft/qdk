@@ -59,7 +59,8 @@ pub use machine::{QirMachine, QirShotContext, QirStop};
 pub use operator_matrix::OperatorMatrix;
 pub use outcome::{QirOutcome, QirReadout};
 pub use program::{MeasuredQubit, QirProgram, TwoQubitGate};
-#[cfg(test)]
-pub(crate) use quantum_instruction_encoding::QIR_INSTRUCTIONS;
 pub use resumer::{QirResumeError, QirResumer, QirShotId, expect_ready};
 pub use trap::QirTrap;
+
+#[cfg(test)]
+mod test_utils;

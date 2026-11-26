@@ -21,11 +21,11 @@ use std::sync::Arc;
 
 use qsc_data_structures::measurement::MeasurementBasis;
 
-use super::{SIZE, copy_of, op, program, record_int, ret, set};
 use crate::bytecode::encoding::{FLAG_AUX1_IMM, OP_MEASURE, OPID_MZ};
 use crate::bytecode::runtime::run_shot;
 use crate::bytecode::{AdaptiveProgram, Instruction};
 use crate::cpu_full_state_simulator::FullStateSimulator;
+use crate::qir::test_utils::{SIZE, copy_of, op, program, record_int, ret, set};
 use crate::qir::{
     QirCall, QirGate, QirMachine, QirOutcome, QirProgram, QirReadout, QirShotContext, QirStop,
     QirTrap,

@@ -942,3 +942,6 @@ impl<'a> Check<'a> {
         op_id
     }
 }
+
+#[cfg(test)]
+mod tests;

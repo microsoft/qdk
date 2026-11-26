@@ -172,8 +172,10 @@ and none a change to the machine:
 
 ## Tests
 
-[The module's tests](../tests/qir/) pin each rule of building and
-of the machine, one rule per test. Where the machine differs from
+The tests beside each file (for instance
+[`program/check/tests.rs`](program/check/tests.rs) and
+[`machine/tests/`](machine/tests/)) pin each rule of building and of the
+machine, one rule per test. Where the machine differs from
 `run_shot`, the test or the check says why (`COMPATIBILITY NOTE`), or
 asks for a review (`DISCUSS COMPATIBILITY`).
 

@@ -4,10 +4,6 @@
 //! Building a [`QirProgram`] refuses every fault its bytecode shows, and
 //! reports them all.
 
-use super::super::{
-    SIZE, at_instruction, binary, branch, call, call_return, compare, copy_of, correlated_noise,
-    faults, gate, jump, measure, op, phi, program, reset, ret, switch,
-};
 use crate::bytecode::encoding::{
     FCMP_OEQ, FLAG_AUX0_IMM, FLAG_AUX1_IMM, FLAG_AUX2_IMM, FLAG_SRC0_IMM, FLAG_SRC1_IMM, ICMP_EQ,
     OP_ADD, OP_ALLOCA, OP_AND, OP_ASHR, OP_CONST, OP_FADD, OP_FCMP, OP_FDIV, OP_FMUL, OP_FPEXT,
@@ -20,6 +16,10 @@ use crate::bytecode::encoding::{
 };
 use crate::bytecode::{
     AdaptiveProgram, Block, Function, Instruction, Op, PhiNodeEntry, SwitchCase,
+};
+use crate::qir::test_utils::{
+    SIZE, at_instruction, binary, branch, call, call_return, compare, copy_of, correlated_noise,
+    faults, gate, jump, measure, op, phi, program, reset, ret, switch,
 };
 use crate::qir::{QirError, QirFault, QirFaultSite, QirFaults, QirProgram, SideTable};
 

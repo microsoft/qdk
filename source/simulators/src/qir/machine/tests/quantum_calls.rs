@@ -5,9 +5,6 @@
 //! constants or registers, correlated noise, and the traps on a qubit past
 //! the program's.
 
-use super::super::{
-    SIZE, correlated_noise, gate, measure, op, program, reset, ret, set, with_noise_table,
-};
 use super::{batches, built, trap};
 use crate::bytecode::encoding::{
     FLAG_AUX0_IMM, FLAG_AUX1_IMM, FLAG_AUX2_IMM, FLAG_SRC0_IMM, OP_MEASURE, OP_PEEK_LOSS,
@@ -17,6 +14,9 @@ use crate::bytecode::encoding::{
     OPID_Y, OPID_Z,
 };
 use crate::bytecode::{Instruction, Op};
+use crate::qir::test_utils::{
+    SIZE, correlated_noise, gate, measure, op, program, reset, ret, set, with_noise_table,
+};
 use crate::qir::{QirCall, QirMachine, QirStop, QirTrap};
 
 /// Calls of one, two and three operands (`x`, `rx`, `cx`, `rzz`, `mz`),

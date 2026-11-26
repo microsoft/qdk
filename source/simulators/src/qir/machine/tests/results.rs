@@ -5,10 +5,6 @@
 //! that answer a batch, a result with no value, and the traps on a result
 //! past the program's or a value that is no result.
 
-use super::super::{
-    SIZE, binary, gate, measure, program, read, record, record_bool, record_int, record_result,
-    ret, set, write,
-};
 use super::{
     answers, batches_then_trap_answered, both, built, measure_into_register, records, run, trap,
 };
@@ -18,6 +14,10 @@ use crate::bytecode::AdaptiveProgram;
 use crate::bytecode::encoding::{
     FLAG_SRC0_IMM, FLAG_SRC1_IMM, OP_READ_LOSS, OP_READ_RESULT, OP_WRITE_RESULT, OPID_MX, OPID_MY,
     OPID_MZ, OPID_X, RECORD_RESULT,
+};
+use crate::qir::test_utils::{
+    SIZE, binary, gate, measure, program, read, record, record_bool, record_int, record_result,
+    ret, set, write,
 };
 use crate::qir::{QirCall, QirMachine, QirOutcome, QirReadout, QirStop, QirTrap};
 use qsc_data_structures::measurement::MeasurementBasis;

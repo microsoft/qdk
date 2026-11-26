@@ -4,10 +4,6 @@
 //! A context as data: started or restarted, cloned, resumed in any order,
 //! on another machine of its program, moved to another thread.
 
-use super::super::{
-    binary, call, call_return, jump, measure, program, read, record_bool, record_int,
-    record_result, ret, set,
-};
 use super::{answers, built, records, records_or_trap};
 use crate::MeasurementResult::{One, Zero};
 use crate::OutputRecord;
@@ -16,6 +12,10 @@ use crate::bytecode::encoding::{
     VOID_RETURN,
 };
 use crate::bytecode::{AdaptiveProgram, Function};
+use crate::qir::test_utils::{
+    binary, call, call_return, jump, measure, program, read, record_bool, record_int,
+    record_result, ret, set,
+};
 use crate::qir::{
     QirMachine, QirOutcome, QirProgram, QirReadout, QirShotContext, QirStop, QirTrap,
 };

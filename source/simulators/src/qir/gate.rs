@@ -233,3 +233,6 @@ impl QirGate {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

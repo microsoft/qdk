@@ -4,10 +4,6 @@
 //! Where a context goes: its entry, conditions, `select`, branches,
 //! `PHI`s, switches, and function calls and returns.
 
-use super::super::{
-    binary, branch, call, call_return, compare, jump, measure, op, phi, program, read, record_int,
-    ret, set,
-};
 use super::{both, records, run, trap};
 use crate::OutputRecord;
 use crate::bytecode::encoding::{
@@ -16,6 +12,10 @@ use crate::bytecode::encoding::{
     OP_SWITCH, OPID_MZ, VOID_RETURN,
 };
 use crate::bytecode::{AdaptiveProgram, Function, Instruction, PhiNodeEntry, SwitchCase};
+use crate::qir::test_utils::{
+    binary, branch, call, call_return, compare, jump, measure, op, phi, program, read, record_int,
+    ret, set,
+};
 use crate::qir::{QirReadout, QirTrap};
 
 /// A register holding 0, 1, 2 or 3 (2 as `add i1 true, true` leaves it

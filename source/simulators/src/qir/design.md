@@ -75,7 +75,7 @@ sequenceDiagram
 Two resumes, one batch: the quantum part went to the quantum state once,
 and every classical instruction ran in the machine. The machine's tests
 run this shot from bytecode written by hand from the `.ll` file
-([`machine.rs`](../tests/qir/machine.rs)).
+([`batches.rs`](machine/tests/batches.rs)).
 
 ## Why a pull machine
 

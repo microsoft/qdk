@@ -86,3 +86,6 @@ impl OperatorMatrix {
             .all(|(index, value)| index / dimension == index % dimension || *value == ZERO)
     }
 }
+
+#[cfg(test)]
+mod tests;

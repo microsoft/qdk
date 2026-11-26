@@ -4,11 +4,11 @@
 //! A context's memory: `alloca`s, loads and stores, what a function's
 //! return frees, and the traps past the memory's end.
 
-use super::super::{binary, program, record_int, ret, set};
 use super::{both, records, trap};
 use crate::OutputRecord;
 use crate::bytecode::Instruction;
 use crate::bytecode::encoding::{FLAG_SRC0_IMM, FLAG_SRC1_IMM, OP_ALLOCA, OP_LOAD, OP_STORE};
+use crate::qir::test_utils::{binary, program, record_int, ret, set};
 use crate::qir::{QirReadout, QirTrap};
 
 /// Loads from, and stores to, the last word of three of constant data,

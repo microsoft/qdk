@@ -3,10 +3,6 @@
 
 //! Where a context stops, what its batches hold, and when a trap comes.
 
-use super::super::{
-    SIZE, binary, branch, compare, gate, jump, measure, op, program, read, record, record_bool,
-    record_int, record_result, reset, ret, set, write,
-};
 use super::{batches, batches_then_trap, built, measure_into_register, records};
 use crate::MeasurementResult::{One, Zero};
 use crate::OutputRecord;
@@ -16,6 +12,10 @@ use crate::bytecode::encoding::{
     OP_UDIV, OP_WRITE_RESULT, OPID_CX, OPID_MRESETZ, OPID_MZ, OPID_X, RECORD_TUPLE,
 };
 use crate::bytecode::{AdaptiveProgram, Instruction};
+use crate::qir::test_utils::{
+    SIZE, binary, branch, compare, gate, jump, measure, op, program, read, record, record_bool,
+    record_int, record_result, reset, ret, set, write,
+};
 use crate::qir::{QirMachine, QirReadout, QirStop, QirTrap};
 
 /// A measurement into result 0, then a use of result 0 before the next
@@ -317,21 +317,38 @@ fn a_trap_at_an_instruction_the_context_does_not_stop_before_comes_at_once() {
     }
 }
 
-/// Three measurements into different results, `mz` and `mresetz` by
-/// constants and `mz` by a register: one batch.
+/// Three measurements into different results, `mz` by a constant, `mz` by a
+/// register and `mresetz` by a constant: one batch. And
+/// [`measurement_comparison`], whose reads all follow its measurements: its
+/// gates, measurements and resets go in one batch, as `qir/design.md`
+/// traces it.
 #[test]
 fn a_measurement_does_not_stop_a_context() {
-    let bytecode = program(&[&[
+    let three_measurements = program(&[&[
         set(3, 2),
         measure(OPID_MZ, 0, 0),
-        measure(OPID_MRESETZ, 1, 1),
         measure_into_register(2, 3),
+        measure(OPID_MRESETZ, 1, 1),
         ret(),
     ]]);
-    assert_eq!(
-        batches(&bytecode),
-        ["mz(qubit 0, result 0), mresetz(qubit 1, result 1), mz(qubit 2, result 2)"]
-    );
+    let cases = [
+        (
+            "three measurements",
+            three_measurements,
+            "mz(qubit 0, result 0), mz(qubit 2, result 2), mresetz(qubit 1, result 1)",
+        ),
+        (
+            "`MeasurementComparison`",
+            measurement_comparison(),
+            concat!(
+                "x(qubit 0), cx(qubit 0, qubit 1), mz(qubit 0, result 0), ",
+                "mz(qubit 1, result 1), reset(qubit 0), reset(qubit 1)"
+            ),
+        ),
+    ];
+    for (name, bytecode, batch) in cases {
+        assert_eq!(batches(&bytecode), [batch], "{name}");
+    }
 }
 
 /// `MeasurementComparison` of the Python package's tests
@@ -406,20 +423,6 @@ fn measurement_comparison() -> AdaptiveProgram<u64> {
     bytecode.num_results = 2;
     bytecode.num_registers = 24;
     bytecode
-}
-
-/// `MeasurementComparison`, whose reads all follow its measurements: its
-/// gates, measurements and resets go in one batch, as `qir/design.md`
-/// traces it.
-#[test]
-fn a_program_reading_only_after_its_measurements_yields_one_batch() {
-    assert_eq!(
-        batches(&measurement_comparison()),
-        [concat!(
-            "x(qubit 0), cx(qubit 0, qubit 1), mz(qubit 0, result 0), ",
-            "mz(qubit 1, result 1), reset(qubit 0), reset(qubit 1)"
-        )]
-    );
 }
 
 /// `MeasurementComparison`, both outcomes `One`, as its qubits are: the

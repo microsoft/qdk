@@ -3,17 +3,17 @@
 
 //! What a [`QirProgram`] tells about its qubits and its instructions: each
 //! instruction counted once, whether a shot runs it many times or never.
-//! What building a program refuses is tested in `program/check.rs`.
+//! What building a program refuses is tested in `check/tests.rs`.
 
-mod check;
-
-use super::{SIZE, branch, copy_of, correlated_noise, gate, jump, measure, op, program, ret};
 use crate::bytecode::encoding::{
     FLAG_AUX0_IMM, FLAG_AUX1_IMM, FLAG_AUX2_IMM, FLAG_SRC0_IMM, OP_MEASURE, OP_PEEK_LOSS,
     OP_QUANTUM_GATE, OP_READ_RESULT, OPID_CX, OPID_H, OPID_MRESETZ, OPID_MX, OPID_MY, OPID_MZ,
     OPID_RZZ,
 };
 use crate::bytecode::{AdaptiveProgram, Instruction, Op};
+use crate::qir::test_utils::{
+    SIZE, branch, copy_of, correlated_noise, gate, jump, measure, op, program, ret,
+};
 use crate::qir::{MeasuredQubit, QirProgram, TwoQubitGate};
 
 /// Builds `bytecode`, which has no fault.

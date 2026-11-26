@@ -5,7 +5,6 @@
 //! floating-point arithmetic, conversions and `gep`, each operand read
 //! from a constant or a register by its flag.
 
-use super::super::{binary, compare, op, program, record_bool, ret, set};
 use super::{both, computed, computed_by, records, trap};
 use crate::OutputRecord;
 use crate::bytecode::Instruction;
@@ -18,6 +17,7 @@ use crate::bytecode::encoding::{
     OP_ICMP, OP_INTTOPTR, OP_LSHR, OP_MOV, OP_MUL, OP_NOP, OP_OR, OP_SDIV, OP_SEXT, OP_SHL,
     OP_SITOFP, OP_SREM, OP_SUB, OP_TRUNC, OP_UDIV, OP_UITOFP, OP_UREM, OP_XOR, OP_ZEXT,
 };
+use crate::qir::test_utils::{binary, compare, op, program, record_bool, ret, set};
 use crate::qir::{QirReadout, QirTrap};
 
 /// Each integer division and remainder of 5 by a register holding 0.

@@ -231,3 +231,6 @@ fn block_start(bytecode: &AdaptiveProgram<u64>, block: u64) -> usize {
     // The check refused a block or an offset past the tables.
     bytecode.block_table[block as usize].instr_offset as usize
 }
+
+#[cfg(test)]
+mod tests;

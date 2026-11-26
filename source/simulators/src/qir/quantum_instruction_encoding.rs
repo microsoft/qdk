@@ -52,10 +52,8 @@ pub(crate) enum Encoding {
 /// come by operation id, then the loss and readout-noise instructions,
 /// which have none. Neither the identity (operation 0) nor `ccx`
 /// (operation 20) is one ([`QirInstruction`] says why).
-///
-/// Crate-visible so that the tests can check they cover every instruction.
 #[rustfmt::skip]
-pub(crate) const QIR_INSTRUCTIONS: [(Encoding, QirInstruction); 29] = [
+pub(super) const QIR_INSTRUCTIONS: [(Encoding, QirInstruction); 29] = [
     (Encoding::Reset(OPID_RESETZ), QirInstruction::Reset),
     (Encoding::Gate(OPID_X), QirInstruction::Gate(QirGate::X)),
     (Encoding::Gate(OPID_Y), QirInstruction::Gate(QirGate::Y)),
