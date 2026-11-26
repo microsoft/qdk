@@ -52,3 +52,6 @@ impl SplitMix64 {
         uniform
     }
 }
+
+#[cfg(test)]
+mod tests;

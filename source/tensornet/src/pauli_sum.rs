@@ -157,3 +157,6 @@ pub enum PauliSumError {
     #[error("the coefficient {0} is not finite")]
     NonFinite(Complex64),
 }
+
+#[cfg(test)]
+mod tests;

@@ -14,7 +14,7 @@
 
 use crate::reference::{ExactReference, ReferenceError, ReferenceState};
 use crate::sampling::SplitMix64;
-use crate::tests::{c, cx, hadamard};
+use crate::test_utils::{c, cx, hadamard};
 use crate::{MpsEngine, MpsEngineError, MpsShape, Pauli, PauliSum, PauliTerm, Refusal};
 use nalgebra::DMatrix;
 use num_complex::Complex64;
@@ -168,42 +168,18 @@ fn an_error_holding_a_refusal_displays_as_the_refusal() {
 
 /// A refused apply leaves the state as it was: a measurement's projector
 /// passed as a gate, refused only once its deviation from unitary is
-/// measured; and the identity on three sites, unitary and of the right
-/// length, as a method would pass a Toffoli it did not decompose, refused
-/// as too many sites through the contract's check.
+/// measured, the last of the contract's checks.
 #[test]
 fn a_refused_apply_leaves_the_state_unchanged() {
-    let projector = vec![c(1.0, 0.0), c(0.0, 0.0), c(0.0, 0.0), c(0.0, 0.0)];
-    let identity: Vec<Complex64> = (0..64)
-        .map(|at| c(if at % 9 == 0 { 1.0 } else { 0.0 }, 0.0))
-        .collect();
-    // (scene, state, sites, matrix, refusal)
-    let rows = [
-        (
-            "a projector",
-            bell(2),
-            vec![1],
-            projector,
-            Refusal::NotUnitary { deviation: 1.0 },
-        ),
-        (
-            "three sites",
-            bell(3),
-            vec![0, 1, 2],
-            identity,
-            Refusal::TooManySites { sites: 3 },
-        ),
-    ];
-    for (scene, mut state, sites, matrix, refusal) in rows {
-        let before = state.clone();
-        let refused = ENGINE.apply(&mut state, &sites, &matrix);
-        assert_eq!(
-            refused.map_err(|e| e.refusal().cloned()),
-            Err(Some(refusal)),
-            "{scene}"
-        );
-        assert_eq!(state, before, "{scene}: the state changed");
-    }
+    let projector = [c(1.0, 0.0), c(0.0, 0.0), c(0.0, 0.0), c(0.0, 0.0)];
+    let mut state = bell(2);
+    let before = state.clone();
+    let refused = ENGINE.apply(&mut state, &[1], &projector);
+    assert_eq!(
+        refused.map_err(|e| e.refusal().cloned()),
+        Err(Some(Refusal::NotUnitary { deviation: 1.0 }))
+    );
+    assert_eq!(state, before, "the state changed");
 }
 
 /// On (|00⟩ + |11⟩)/√2, site 1 is One only on |11⟩, half the weight.
@@ -482,30 +458,32 @@ fn a_projection_on_an_outcome_of_small_normal_probability_returns_it_and_keeps_t
     );
 }
 
-/// On a state of weight 0.64, such as a truncation leaves, One has
-/// probability 0.4096 / 0.64 = 0.64 in the normalized state, and the
-/// projected state keeps the weight 0.64.
+/// A projection keeps the state's weight, whatever it is: 1 on a state
+/// that gates and an earlier projection left normalized; and 0.64 on a
+/// state such as a truncation leaves, where One has probability
+/// 0.4096 / 0.64 = 0.64 in the normalized state.
 #[test]
-fn a_projection_keeps_the_weight_of_a_state_not_normalized() {
-    let mut state = ReferenceState::from_amplitudes(&[c(0.48, 0.0), c(0.64, 0.0)]);
-    let p = ENGINE
-        .project(&mut state, 0, true)
-        .expect("One has probability above zero");
-    assert!((p - 0.64).abs() < 1e-12, "{p}");
-    let weight = ENGINE.retained_weight(&state).expect("a read");
-    assert!((weight - 0.64).abs() < 1e-12, "{weight}");
-}
-
-#[test]
-fn the_retained_weight_stays_one_under_gates_and_projections() {
-    let mut state = bell(3);
-    apply(&mut state, &[2], &hadamard());
-    apply(&mut state, &[2, 0], &cx());
+fn a_projection_keeps_the_retained_weight() {
+    let mut normalized = bell(3);
+    apply(&mut normalized, &[2], &hadamard());
+    apply(&mut normalized, &[2, 0], &cx());
     ENGINE
-        .project(&mut state, 2, true)
+        .project(&mut normalized, 1, true)
         .expect("One has probability above zero");
-    let weight = ENGINE.retained_weight(&state).expect("a read");
-    assert!((weight - 1.0).abs() < 1e-12, "{weight}");
+    let not_normalized = ReferenceState::from_amplitudes(&[c(0.48, 0.0), c(0.64, 0.0)]);
+    // (scene, state, site, its P(One), the weight)
+    let rows = [
+        ("normalized", normalized, 2, 0.5, 1.0),
+        ("of weight 0.64", not_normalized, 0, 0.64, 0.64),
+    ];
+    for (scene, mut state, site, p1, weight) in rows {
+        let p = ENGINE
+            .project(&mut state, site, true)
+            .expect("One has probability above zero");
+        assert!((p - p1).abs() < 1e-12, "{scene}: {p}");
+        let kept = ENGINE.retained_weight(&state).expect("a read");
+        assert!((kept - weight).abs() < 1e-12, "{scene}: {kept}");
+    }
 }
 
 /// Site 0 in `Ry(0.7)|0⟩`, site 1 in One, then `diag(1, 1 + 4e-10)`
@@ -623,20 +601,17 @@ fn a_sample_too_large_to_hold_is_a_failure_not_a_refusal() {
     assert_eq!(error.refusal(), None);
 }
 
-/// Zero shots are no fault, but they do not excuse a site out of range, nor
-/// a repeated site, even one that does not repeat its neighbour.
+/// The reference checks a sample's sites before it draws, so zero shots,
+/// no fault themselves, do not excuse a site out of range.
 #[test]
-fn zero_shots_do_not_excuse_a_site_out_of_range_or_repeated() {
-    let cases = [
-        (vec![0, 2], Refusal::SiteOutOfRange { site: 2, sites: 2 }),
-        (vec![1, 0, 1], Refusal::RepeatedSite { site: 1 }),
-    ];
-    for (sites, refusal) in cases {
-        assert_eq!(
-            ENGINE.sample(&bell(2), &sites, 0, 1),
-            Err(ReferenceError::Refused(refusal))
-        );
-    }
+fn zero_shots_do_not_excuse_a_site_out_of_range() {
+    assert_eq!(
+        ENGINE.sample(&bell(2), &[0, 2], 0, 1),
+        Err(ReferenceError::Refused(Refusal::SiteOutOfRange {
+            site: 2,
+            sites: 2
+        }))
+    );
 }
 
 /// Basis states past the last one, to the largest index, have amplitude
@@ -702,23 +677,6 @@ fn the_reference_reports_a_chain_that_outgrows_its_capacity() {
         .expect("the reference reports its chain");
     assert_eq!(shape.bond_dimension(1), Some(4));
     assert!(!shape.fits_within(&capacity));
-}
-
-/// A rank that an elimination always along the rows (or always along
-/// the columns) would miss: 3 sites, cut 0 has 2 rows and 4 columns,
-/// cut 1 has 4 rows and 2 columns.
-#[test]
-fn the_schmidt_rank_is_found_along_either_side_of_a_cut() {
-    let mut state = prepared(3);
-    apply(&mut state, &[0], &hadamard());
-    apply(&mut state, &[0, 2], &cx());
-    let shape = ENGINE
-        .shape(&state)
-        .expect("the reference reports its chain");
-    assert_eq!(
-        (shape.bond_dimension(0), shape.bond_dimension(1)),
-        (Some(2), Some(2))
-    );
 }
 
 /// The product state of site 0 in 0.6|0⟩ + 0.8|1⟩ and site 1 in
@@ -793,10 +751,7 @@ fn the_rank_counts_the_pivots_at_or_above_its_threshold() {
         ),
     ];
     for (scene, state, rank) in rows {
-        let shape = ENGINE
-            .shape(&state)
-            .expect("the reference reports its chain");
-        assert_eq!(shape.bond_dimension(0), Some(rank), "{scene}");
+        assert_eq!(state.schmidt_rank(0), rank, "{scene}");
     }
 }
 

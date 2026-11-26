@@ -94,7 +94,7 @@ impl ReferenceState {
     /// do not reach but other engines do, such as a truncated chain; the
     /// reference's answers on it are its contract too.
     #[cfg(test)]
-    pub(crate) fn from_amplitudes(amplitudes: &[Complex64]) -> Self {
+    pub(super) fn from_amplitudes(amplitudes: &[Complex64]) -> Self {
         let sites = amplitudes.len().trailing_zeros() as usize;
         assert!(
             amplitudes.len() > 1 && amplitudes.len() == 1 << sites,
@@ -470,3 +470,6 @@ impl MpsEngine for ExactReference {
         Ok(state.norm())
     }
 }
+
+#[cfg(test)]
+mod tests;

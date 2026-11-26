@@ -64,4 +64,4 @@ pub use mps_shape::{MpsShape, MpsShapeError};
 pub use pauli_sum::{Pauli, PauliSum, PauliSumError, PauliTerm};
 
 #[cfg(test)]
-mod tests;
+mod test_utils;

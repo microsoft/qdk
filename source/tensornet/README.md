@@ -184,8 +184,9 @@ sampler and a default `conditional_probability_of_one`:
 
 ## Tests
 
-The crate's tests are in [`src/tests/`](src/tests/), one file per module
-with run-time behaviour. They check that each check refuses each fault and
+Each module with run-time behaviour has its tests beside it, in its
+folder's `tests.rs` (for instance
+[`src/engine/sampling/tests.rs`](src/engine/sampling/tests.rs)). They check that each check refuses each fault and
 accepts its edges, and that `SplitMix64` gives the published SplitMix64
 stream. They check that the shared sampler draws its values from that
 stream, and that the reference's chain has the Schmidt ranks a singular
@@ -205,5 +206,6 @@ value decomposition gives on random circuits.
 | `src/engine/sampling/splitmix64.rs` | `SplitMix64`, the seeded generator the shared sampler draws its uniforms from, for tests that need random circuits too                    |
 | `src/mps_shape.rs`                  | `MpsShape`, the shape of a chain, and `MpsShapeError`                                                                                     |
 | `src/pauli_sum.rs`                  | `PauliSum`, `PauliTerm`, `Pauli` and `PauliSumError`: the observables of `expectation`                                                    |
-| `src/tests/`                        | the crate's tests, one file per module with run-time behaviour, in the same folders                                                       |
+| `src/<module>/tests.rs`             | the tests of `src/<module>.rs`, for each module with run-time behaviour                                                                   |
+| `src/test_utils.rs`                 | the gates that the tests of several modules share                                                                                         |
 | `docs/design.md`                    | why a chain is described by its extents, refusals versus failures, what libraries offer, the reference's arithmetic, and what is left out |

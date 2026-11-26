@@ -4,11 +4,15 @@
 //! The shared sampler, through its public function, on conditional
 //! probabilities a test chooses.
 
-mod splitmix64;
-
 use crate::sampling::{SplitMix64, TooManyValues, sample_by_conditionals};
-use splitmix64::{SEED_OF_A_ZERO_UNIFORM, SEED_OF_THE_LARGEST_UNIFORM};
 use std::collections::BTreeSet;
+
+/// The seed whose first uniform is 0, and the seed whose first uniform is
+/// 1 − 2⁻⁵³, the largest. The generator's test
+/// `a_uniform_reaches_zero_and_its_largest_value` checks both; they sit
+/// here, in the module that holds both their users.
+pub(super) const SEED_OF_A_ZERO_UNIFORM: u64 = 0x61c8_8646_80b5_83eb;
+pub(super) const SEED_OF_THE_LARGEST_UNIFORM: u64 = 0x3162_8af6_7b21_31ab;
 
 /// The error of the tests' conditional probabilities: the sampler's own,
 /// or one the probability call returns.

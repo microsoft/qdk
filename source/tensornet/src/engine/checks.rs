@@ -229,3 +229,6 @@ fn distinct_sites<T>(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

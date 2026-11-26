@@ -170,19 +170,18 @@ fn a_fault_of_a_site_comes_before_a_bond_mismatch() {
     );
 }
 
-/// With no cap, each bond is the largest Schmidt rank at its cut,
-/// `2^min(left, right)`: what an exact simulation needs.
+/// Each bond is the largest Schmidt rank at its cut,
+/// `2^min(left, right)`: what an exact simulation needs. A simulator's χ
+/// caps the bonds above it and leaves those below it.
 #[test]
-fn a_qubit_chain_has_the_largest_schmidt_rank_at_each_cut() {
-    let chain = MpsShape::qubit_chain(5, usize::MAX).expect("five sites form a chain");
-    assert_eq!(bonds(&chain), [Some(2), Some(4), Some(4), Some(2)]);
-}
-
-/// A simulator's χ caps the bonds above it; those below it stay.
-#[test]
-fn a_qubit_chain_caps_each_bond_at_its_max_bond_dimension() {
-    let chain = MpsShape::qubit_chain(6, 3).expect("six sites form a chain");
-    assert_eq!(bonds(&chain), [Some(2), Some(3), Some(3), Some(3), Some(2)]);
+fn a_qubit_chain_has_the_largest_schmidt_rank_at_each_cut_up_to_its_max_bond_dimension() {
+    let rows: [(usize, usize, &[usize]); 2] =
+        [(5, usize::MAX, &[2, 4, 4, 2]), (6, 3, &[2, 3, 3, 3, 2])];
+    for (sites, max_bond_dimension, expected) in rows {
+        let chain = MpsShape::qubit_chain(sites, max_bond_dimension).expect("a chain of qubits");
+        let expected: Vec<Option<usize>> = expected.iter().copied().map(Some).collect();
+        assert_eq!(bonds(&chain), expected, "χ {max_bond_dimension}");
+    }
 }
 
 /// A one-qubit program's chain, whatever its χ.

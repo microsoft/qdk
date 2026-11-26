@@ -4,13 +4,8 @@
 //! The generator's streams: the published `SplitMix64` values, and the
 //! uniforms taken from them.
 
+use crate::engine::sampling::tests::{SEED_OF_A_ZERO_UNIFORM, SEED_OF_THE_LARGEST_UNIFORM};
 use crate::sampling::SplitMix64;
-
-/// The seed whose first uniform is 0, and the seed whose first uniform is
-/// 1 − 2⁻⁵³, the largest (`a_uniform_reaches_zero_and_its_largest_value`
-/// checks both).
-pub(super) const SEED_OF_A_ZERO_UNIFORM: u64 = 0x61c8_8646_80b5_83eb;
-pub(super) const SEED_OF_THE_LARGEST_UNIFORM: u64 = 0x3162_8af6_7b21_31ab;
 
 /// A test that draws its random circuits from a seed, here or in a crate
 /// that uses an engine, gets the same circuits from every release: seed

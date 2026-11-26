@@ -4,8 +4,8 @@
 //! The observable's promises: each Pauli's matrix in the layout `apply`
 //! takes, the terms and sums it refuses, and the order it keeps.
 
-use super::c;
 use crate::reference::ExactReference;
+use crate::test_utils::c;
 use crate::{MpsEngine, MpsShape, Pauli, PauliSum, PauliSumError, PauliTerm};
 
 /// `pauli` applied to |0⟩ by the reference, which reads its matrix as

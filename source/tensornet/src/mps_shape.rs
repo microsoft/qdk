@@ -259,3 +259,6 @@ pub enum MpsShapeError {
         site: usize,
     },
 }
+
+#[cfg(test)]
+mod tests;

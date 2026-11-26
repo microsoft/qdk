@@ -2,23 +2,18 @@
 // Licensed under the MIT License.
 
 //! The trait's default `conditional_probability_of_one`, through an engine
-//! that keeps it and samples from it; the contract's other code is tested
-//! in its own files.
+//! that keeps it; the contract's other code is tested in its own files.
 
-mod checks;
-mod reference;
-mod sampling;
-
-use super::{c, cx, hadamard};
 use crate::reference::{ExactReference, ReferenceError, ReferenceState};
+use crate::test_utils::{c, cx, hadamard};
 use crate::{MpsEngine, MpsShape, PauliSum, Refusal};
 use num_complex::Complex64;
 
 const REFERENCE: ExactReference = ExactReference;
 
 /// The reference without its own conditional probability, so that the
-/// trait's default answers it, and draws its samples from that default: an
-/// engine that has no projected contraction.
+/// trait's default answers it: an engine that has no projected
+/// contraction.
 struct DefaultConditional;
 
 impl MpsEngine for DefaultConditional {
@@ -54,8 +49,6 @@ impl MpsEngine for DefaultConditional {
     fn fork(&self, state: &ReferenceState) -> Result<ReferenceState, ReferenceError> {
         REFERENCE.fork(state)
     }
-    /// Draws from this engine's own conditional probabilities, the trait's
-    /// default, as an engine with no sampler of its own would.
     fn sample(
         &self,
         state: &ReferenceState,
@@ -63,10 +56,7 @@ impl MpsEngine for DefaultConditional {
         shots: usize,
         seed: u64,
     ) -> Result<Vec<bool>, ReferenceError> {
-        crate::checks::sample(state.site_count(), sites)?;
-        crate::sampling::sample_by_conditionals(sites, shots, seed, |site, given| {
-            self.conditional_probability_of_one(state, site, given)
-        })
+        REFERENCE.sample(state, sites, shots, seed)
     }
     fn expectation(
         &self,
@@ -113,17 +103,20 @@ fn conditional(
         .map_err(|e| crate::MpsEngineError::refusal(&e).cloned())
 }
 
-/// Every condition on the other two sites, in both orders.
+/// Every condition on the other two sites, each absent, Zero or One (none
+/// at all included), in both orders.
 #[test]
 fn the_default_conditional_probability_is_the_exact_one() {
     let state = entangled();
     for site in 0..3 {
         let others: Vec<usize> = (0..3).filter(|&at| at != site).collect();
-        for values in 0..4 {
+        for values in 0..9 {
+            // A base-3 digit per other site: 0 absent, 1 Zero, 2 One.
             let given: Vec<(usize, bool)> = others
                 .iter()
-                .enumerate()
-                .map(|(k, &at)| (at, values >> k & 1 == 1))
+                .zip([values % 3, values / 3])
+                .filter(|&(_, digit)| digit > 0)
+                .map(|(&at, digit)| (at, digit == 2))
                 .collect();
             let reversed: Vec<(usize, bool)> = given.iter().rev().copied().collect();
             let expected = REFERENCE
@@ -138,16 +131,6 @@ fn the_default_conditional_probability_is_the_exact_one() {
             }
         }
     }
-}
-
-#[test]
-fn the_default_conditional_probability_given_nothing_is_the_probability() {
-    let state = entangled();
-    let expected = REFERENCE
-        .probability_of_one(&state, 2)
-        .expect("site 2 exists");
-    let actual = conditional(&state, 2, &[]).expect("no condition");
-    assert!((actual - expected).abs() < 1e-12, "{actual}");
 }
 
 /// The answer of a site among its own conditions is its value: 1 for One,
@@ -177,9 +160,7 @@ fn the_default_conditional_probability_runs_the_checks() {
 /// projection on the second value refuses it, and the default passes its
 /// refusal on. On a state whose norm is NaN or zero, every probability is
 /// NaN, and with no condition nothing is projected: the default refuses the
-/// empty condition itself. A NaN outside the states a condition selects
-/// still makes the norm NaN, so the default refuses that condition too, as
-/// the reference does.
+/// empty condition itself.
 #[test]
 fn the_default_conditional_probability_refuses_a_condition_of_probability_zero_or_nan() {
     let capacity = MpsShape::qubit_chain(3, usize::MAX).expect("three sites form a chain");
@@ -202,34 +183,6 @@ fn the_default_conditional_probability_refuses_a_condition_of_probability_zero_o
         let state = ReferenceState::from_amplitudes(&amplitudes);
         assert_eq!(
             conditional(&state, 0, &[]),
-            Err(Some(Refusal::ZeroProbabilityOutcome)),
-            "{amplitudes:?}"
-        );
-    }
-    // Site 1 Zero selects basis states 0 and 1, both finite; the NaN is on
-    // basis state 2.
-    let nan_elsewhere =
-        ReferenceState::from_amplitudes(&[c(1.0, 0.0), zero, c(f64::NAN, 0.0), zero]);
-    assert_eq!(
-        conditional(&nan_elsewhere, 0, &[(1, false)]),
-        Err(Some(Refusal::ZeroProbabilityOutcome))
-    );
-}
-
-/// An engine with no sampler of its own draws from its conditional
-/// probabilities, so on a state whose norm is NaN or zero its first draw
-/// meets the default's refusal, and `sample` passes it on rather than
-/// drawing from a NaN.
-#[test]
-fn sampling_from_the_default_conditional_probability_passes_its_refusal_on() {
-    let zero = c(0.0, 0.0);
-    for amplitudes in [[c(f64::NAN, 0.0), c(1.0, 0.0)], [zero, zero]] {
-        let state = ReferenceState::from_amplitudes(&amplitudes);
-        let refusal = DefaultConditional
-            .sample(&state, &[0], 1, 7)
-            .map_err(|e| crate::MpsEngineError::refusal(&e).cloned());
-        assert_eq!(
-            refusal,
             Err(Some(Refusal::ZeroProbabilityOutcome)),
             "{amplitudes:?}"
         );

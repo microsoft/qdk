@@ -341,3 +341,6 @@ pub trait MpsEngine {
     /// Fails as every method may; refuses nothing.
     fn retained_weight(&self, state: &Self::State) -> Result<f64, Self::Error>;
 }
+
+#[cfg(test)]
+mod tests;

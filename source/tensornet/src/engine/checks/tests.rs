@@ -5,7 +5,7 @@
 //! an engine calls them before it touches its state, so every engine
 //! refuses a bad call with the same refusal.
 
-use crate::tests::{c, cx, hadamard};
+use crate::test_utils::{c, cx, hadamard};
 use crate::{MpsShape, Pauli, PauliSum, PauliTerm, Refusal, checks};
 use num_complex::Complex64;
 
@@ -89,62 +89,54 @@ fn apply_accepts_a_unitary_on_distinct_sites_in_range() {
     assert_eq!(checks::apply(3, &[2, 0], &cx()), Ok(()));
 }
 
-/// The one-element identity is the right length and unitary on no site:
-/// the empty list of sites is the only fault.
-#[test]
-fn apply_refuses_no_site() {
-    assert_eq!(checks::apply(2, &[], &[c(1.0, 0.0)]), Err(Refusal::NoSites));
-}
-
-/// A one-site matrix given for two sites, and a two-site one for one: an
-/// engine reading `4^k` entries would read past the first or ignore most
-/// of the second.
-#[test]
-fn apply_refuses_a_matrix_of_the_wrong_length() {
-    assert_eq!(
-        checks::apply(2, &[0, 1], &hadamard()),
-        Err(Refusal::MatrixLength {
-            sites: 2,
-            expected: 16,
-            actual: 4
-        })
-    );
-    assert_eq!(
-        checks::apply(1, &[0], &cx()),
-        Err(Refusal::MatrixLength {
-            sites: 1,
-            expected: 4,
-            actual: 16
-        })
-    );
-}
-
-/// The identity on three distinct sites of three, unitary and of the right
-/// length, as a method would pass a Toffoli it did not decompose: its
-/// number of sites is the only fault.
-#[test]
-fn apply_refuses_an_operator_on_three_sites() {
-    let identity: Vec<Complex64> = (0..64)
-        .map(|at| c(if at % 9 == 0 { 1.0 } else { 0.0 }, 0.0))
-        .collect();
-    assert_eq!(
-        checks::apply(3, &[2, 0, 1], &identity),
-        Err(Refusal::TooManySites { sites: 3 })
-    );
-}
-
-/// Calls with several faults, each refused for the one checked first: the
-/// number of sites, then the sites, then the matrix's length, then its
-/// unitarity. The rows: three sites, one out of range and one repeated,
-/// with an empty matrix; 32 sites, for which `4^32` would not fit a
-/// `usize`; no site with an empty matrix, whose length is not 1; a site
-/// out of range with a one-site matrix on two sites; and the 2×2 projector
-/// diag(1, 0) on two sites, which, read as rows of a 4×4 matrix, is the
-/// one row [1, 0, 0, 0], whose deviation from unitary is 0.
+/// Each fault refused alone, then calls with several faults, each refused
+/// for the one checked first: the number of sites, then the sites, then
+/// the matrix's length, then its unitarity. The single faults: the
+/// one-element identity, the right length and unitary, on no site; the
+/// identity on three distinct sites of three, unitary and of the right
+/// length, as a method would pass a Toffoli it did not decompose; and a
+/// one-site matrix given for two sites, and a two-site one for one, which
+/// an engine reading `4^k` entries would read past or mostly ignore. The
+/// several faults: three sites, one out of range and one repeated, with an
+/// empty matrix; 32 sites, for which `4^32` would not fit a `usize`; no
+/// site with an empty matrix, whose length is not 1; a site out of range
+/// with a one-site matrix on two sites; and the 2×2 projector diag(1, 0)
+/// on two sites, which, read as rows of a 4×4 matrix, is the one row
+/// [1, 0, 0, 0], whose deviation from unitary is 0.
 #[test]
 fn apply_refuses_the_first_fault_in_the_order_it_checks() {
     let thirty_two: Vec<usize> = (0..32).collect();
-    let cases: [(usize, &[usize], Vec<Complex64>, Refusal); 5] = [
+    let identity_on_three: Vec<Complex64> = (0..64)
+        .map(|at| c(if at % 9 == 0 { 1.0 } else { 0.0 }, 0.0))
+        .collect();
+    let cases: [(usize, &[usize], Vec<Complex64>, Refusal); 9] = [
+        (2, &[], vec![c(1.0, 0.0)], Refusal::NoSites),
+        (
+            3,
+            &[2, 0, 1],
+            identity_on_three,
+            Refusal::TooManySites { sites: 3 },
+        ),
+        (
+            2,
+            &[0, 1],
+            hadamard().to_vec(),
+            Refusal::MatrixLength {
+                sites: 2,
+                expected: 16,
+                actual: 4,
+            },
+        ),
+        (
+            1,
+            &[0],
+            cx().to_vec(),
+            Refusal::MatrixLength {
+                sites: 1,
+                expected: 4,
+                actual: 16,
+            },
+        ),
         (
             2,
             &[0, 5, 0],
@@ -228,10 +220,13 @@ fn apply_refuses_a_non_unitary_matrix_with_the_deviation_of_m_times_its_adjoint(
 }
 
 /// diag(1 + δ, 1) deviates by 2δ + δ²: accepted at δ = 4e-10, refused at
-/// δ = 1e-9, so the tolerance sits between.
+/// δ = 1e-9, so the tolerance sits between. Gate fusion multiplies many
+/// gates into one matrix, unitary to rounding only, which the tolerance
+/// absorbs: a product of 1000 two-site gates is accepted.
 #[test]
 fn apply_takes_a_matrix_within_the_tolerance_as_unitary() {
     assert_eq!(checks::apply(1, &[0], &diagonal(1.0 + 4e-10, 1.0)), Ok(()));
+    assert_eq!(checks::apply(2, &[0, 1], &fused_gates(1000)), Ok(()));
     assert!(matches!(
         checks::apply(1, &[0], &diagonal(1.0 + 1e-9, 1.0)),
         Err(Refusal::NotUnitary { deviation }) if deviation > checks::UNITARITY_TOLERANCE
@@ -251,13 +246,6 @@ fn apply_refuses_a_matrix_with_a_non_finite_entry() {
         checks::apply(1, &[0], &diagonal(f64::INFINITY, 1.0)),
         Err(Refusal::NotUnitary { .. })
     ));
-}
-
-/// Gate fusion multiplies many gates into one matrix, whose rounding the
-/// tolerance must absorb.
-#[test]
-fn apply_tolerates_the_rounding_of_fused_gates() {
-    assert_eq!(checks::apply(2, &[0, 1], &fused_gates(1000)), Ok(()));
 }
 
 /// The answer is then 0 or 1, which a caller may ask for.

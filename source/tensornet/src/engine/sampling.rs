@@ -165,3 +165,6 @@ impl PrefixTree {
         Ok((node, p1))
     }
 }
+
+#[cfg(test)]
+mod tests;
