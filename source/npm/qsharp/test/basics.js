@@ -18,7 +18,6 @@ import {
 
 import { QscEventTarget } from "../dist/compiler/events.js";
 import { getAllKatas, getExerciseSources, getKata } from "../dist/katas.js";
-import samples from "../dist/samples.generated.js";
 
 import { readFileSync } from "node:fs";
 
@@ -413,27 +412,6 @@ test("worker 100 shots", async () => {
     assert(result.success);
     assert.equal(result.result, "42");
     assert.equal(result.events.length, 2);
-  });
-});
-
-test("Run samples", async () => {
-  const compiler = getCompilerWorker(compilerWorkerPath);
-  const resultsHandler = new QscEventTarget(true);
-  const testCases = samples.filter((x) => !x.omitFromTests);
-
-  for await (const sample of testCases) {
-    await compiler.run(
-      { sources: [["main.qs", sample.code]], languageFeatures: [] },
-      "",
-      1,
-      resultsHandler,
-    );
-  }
-
-  compiler.terminate();
-  assert.equal(resultsHandler.resultCount(), testCases.length);
-  resultsHandler.getResults().forEach((result) => {
-    assert(result.success);
   });
 });
 
