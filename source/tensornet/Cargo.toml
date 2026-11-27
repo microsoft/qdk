@@ -1,0 +1,30 @@
+[package]
+name = "tensornet"
+
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+num-complex = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+# The crate itself with the reference, so that its doctests, which use the
+# reference, run in every `cargo test`, the workspace's included.
+tensornet = { path = ".", features = ["conformance"] }
+# An implementation independent of the reference that its tests compare it
+# with: nalgebra's singular value decomposition, for its Schmidt ranks.
+nalgebra = { workspace = true }
+
+[features]
+# Compiles `tensornet::reference` (`ExactReference`, the exact dense-state
+# engine that engines' tests compare with). Test-only code, off in normal
+# builds: a crate turns it on from its [dev-dependencies],
+# `features = ["conformance"]`.
+conformance = []
+
+[lints]
+workspace = true
