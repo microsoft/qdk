@@ -144,7 +144,7 @@ operation = context.import_circuit(
 
 ## Q\#
 
-For Q# language syntax details, see [qsharp.md](./qsharp.md).
+For Q# language syntax details, see [qsharp.md](./qsharp.md) and [qsharp-reference.md](./qsharp-reference.md).
 
 ### Inline Simulation
 
