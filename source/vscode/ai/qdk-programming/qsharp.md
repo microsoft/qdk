@@ -46,38 +46,39 @@ needs an import. The `.*` matters:
 Keep the shape of the code you are given. If it has a `namespace` block, keep the block and its
 name, and write the imports inside it. If it has none, add none, and write the imports at the
 top of the file: a file without a block is a namespace of its own, named after the file, and
-other files find its callables under that name. A block you add moves them out of reach.
+other files find its callables under that name (`src/Foo/Bar.qs` is `Foo.Bar`). A block you add
+moves them out of reach.
 
 | Import                      | Gives                                                                                                                                 |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `import Std.Math.*;`        | `PI()`, `E()`, `Sqrt`, `Sin`, `Cos`, `ArcTan2`, `Log`, `AbsD`, `AbsI`, `MaxI`, `MinI`, `Round`, `Truncate`, `Floor`                   |
+| `import Std.Math.*;`        | `PI()`, `E()`, `Sqrt`, `Sin`, `Cos`, `ArcTan2`, `Log`, `AbsD`, `AbsI`, `MaxI`, `MinI`, `Round`, `Truncate`, `Floor`, `ComplexPolar`   |
 | `import Std.Convert.*;`     | `IntAsDouble`, `IntAsBoolArray`, `BoolArrayAsInt`, `ResultArrayAsInt`, `ResultAsBool`                                                 |
 | `import Std.Arrays.*;`      | `IndexRange`, `Enumerated`, `Zipped`, `Reversed`, `Most`, `Rest`, `Head`, `Tail`, `Mapped`, `Fold`, `All`, `Any`, `Count`, `Filtered` |
-| `import Std.Diagnostics.*;` | `Fact`, `DumpMachine`                                                                                                                 |
+| `import Std.Diagnostics.*;` | `Fact`, `DumpMachine`, `DumpRegister`                                                                                                 |
 
 Names from the old QDK or from other languages that are not found, and what to write:
 
-| Not found                                                        | Write                                                              |
-| ---------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `Exp(x)` or `ExpD(x)` for a power of e                           | `E() ^ x`. `Exp` is a rotation: see section 5                      |
-| `PowD(a, b)`, `PowI(a, b)`, `PowL(a, b)`                         | `a ^ b`                                                            |
-| `ControlledOnInt(n, op)(cs, t)`                                  | `ApplyControlledOnInt(n, op, cs, t)`: one call with four arguments |
-| `ControlledOnBitString(bits, op)(cs, t)`                         | `ApplyControlledOnBitString(bits, op, cs, t)`, likewise            |
-| `LittleEndian(qs)`, `BigEndian(qs)`                              | `qs`: registers are plain `Qubit[]`                                |
-| `MultiM(qs)`                                                     | `MeasureEachZ(qs)`                                                 |
-| `ResultAsInt(r)`                                                 | `ResultAsBool(r)`, or compare with `One`                           |
-| `IsResultZero(r)`, `IsResultOne(r)`                              | `r == Zero`, `r == One`                                            |
-| `EqualA(EqualI, xs, ys)`, `EqualI(a, b)`                         | `xs == ys`, `a == b`: arrays and tuples compare with `==`          |
-| `IntAsString(n)`, `BoolAsString(b)`, `DoubleAsString(x)`         | `$"{n}"`                                                           |
-| `ConstantArray(n, v)`, `Zip(xs, ys)`                             | `Repeated(v, n)`, `Zipped(xs, ys)`                                 |
-| `AssertQubit`, `AssertMeasurement`, `EqualityFactI`              | `Fact(condition, "message")`                                       |
-| `DumpRegister((), qs)`                                           | `DumpRegister(qs)`                                                 |
-| `ApplyToFirstQubit`, `OperationPow`, `CControlledCA`, `Fraction` | Gone: write the index, the loop, the `if` or the tuple yourself    |
-| `DoubleAsInt(x)`                                                 | `Truncate(x)`, `Round(x)` or `Floor(x)`                            |
-| `Ln(x)`, `Pi()`, `Abs(x)`, `RY`                                  | `Log(x)`, `PI()`, `AbsD(x)` or `AbsI(n)`, `Ry`                     |
-| `PauliX(q)`                                                      | `X(q)`. `PauliX` is a value of type `Pauli`, not a gate            |
-| `CH(c, t)`                                                       | `Controlled H([c], t)`                                             |
-| `Std.Arrays.Length`                                              | `Length`                                                           |
+| Not found                                                        | Write                                                                                     |
+| ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `Exp(x)` or `ExpD(x)` for a power of e                           | `E() ^ x`. `Exp` is a rotation: see "Gates and angles"                                    |
+| `PowD(a, b)`, `PowI(a, b)`, `PowL(a, b)`                         | `a ^ b`                                                                                   |
+| `ControlledOnInt(n, op)(cs, t)`                                  | `ApplyControlledOnInt(n, op, cs, t)`: one call with four arguments                        |
+| `ControlledOnBitString(bits, op)(cs, t)`                         | `ApplyControlledOnBitString(bits, op, cs, t)`, likewise                                   |
+| `LittleEndian(qs)`, `BigEndian(qs)`                              | `qs`: registers are plain `Qubit[]`                                                       |
+| `MultiM(qs)`                                                     | `MeasureEachZ(qs)`                                                                        |
+| `ResultAsInt(r)`                                                 | `if r == One { 1 } else { 0 }` for an `Int`; `ResultAsBool(r)` or `r == One` for a `Bool` |
+| `IsResultZero(r)`, `IsResultOne(r)`                              | `r == Zero`, `r == One`                                                                   |
+| `EqualA(EqualI, xs, ys)`, `EqualI(a, b)`                         | `xs == ys`, `a == b`: arrays and tuples compare with `==`                                 |
+| `IntAsString(n)`, `BoolAsString(b)`, `DoubleAsString(x)`         | `$"{n}"`                                                                                  |
+| `ConstantArray(n, v)`, `Zip(xs, ys)`                             | `Repeated(v, n)`, `Zipped(xs, ys)`                                                        |
+| `AssertQubit`, `AssertMeasurement`, `EqualityFactI`              | `Fact(condition, "message")`                                                              |
+| `DumpRegister((), qs)`                                           | `DumpRegister(qs)`                                                                        |
+| `ApplyToFirstQubit`, `OperationPow`, `CControlledCA`, `Fraction` | Gone: write the index, the loop, the `if` or the tuple yourself                           |
+| `DoubleAsInt(x)`                                                 | `Truncate(x)`, `Round(x)` or `Floor(x)`                                                   |
+| `Ln(x)`, `Pi()`, `Abs(x)`, `RY`                                  | `Log(x)`, `PI()`, `AbsD(x)` or `AbsI(n)`, `Ry`                                            |
+| `PauliX(q)`                                                      | `X(q)`. `PauliX` is a value of type `Pauli`, not a gate                                   |
+| `CH(c, t)`                                                       | `Controlled H([c], t)`                                                                    |
+| `Std.Arrays.Length`                                              | `Length`                                                                                  |
 
 Before you finish, check every library name you used against the two tables: a missing
 import is the error most often left in otherwise correct code.
@@ -127,11 +128,14 @@ which limits the body:
   use `mutable` and `while` freely.
 - Every operation it calls must support the same functors. `ApplyToEach` supports none: use
   `ApplyToEachCA` (or `ApplyToEachA`, `ApplyToEachC`). `Reset` and every measurement support
-  none either. A helper operation of your own needs
-  `is Adj + Ctl` too, and so does the type of an operation passed in:
-  `op : Qubit => Unit is Adj + Ctl`.
+  none either. A helper operation of your own needs the same `is` clause, and so does the type
+  of an operation passed in: `op : Qubit => Unit is Adj + Ctl`.
 
 ```qsharp
+import Std.Arrays.*;
+import Std.Convert.*;
+import Std.Math.*;
+
 function Weights(flags : Bool[]) : Double[] {
     mutable weights = [];
     for (index, flag) in Enumerated(flags) {
@@ -171,7 +175,7 @@ operation Calls(cs : Qubit[], a : Qubit, b : Qubit, theta : Double) : Unit is Ad
   `R(PauliX, theta, q)`. Two or three: `CNOT`, `CY`, `CZ`, `SWAP`, `CCNOT`.
 - `R1(theta, q)` multiplies |1⟩ by e^(i·theta) and leaves |0⟩ alone. `Rz(theta, q)` differs
   from it by a global phase, which becomes a real difference once the gate is controlled.
-- `R1Frac(n, k, q)` is `R1(PI() * n / 2^k, q)`: the angle is π·n/2^k, not 2π·n/2^k.
+- `R1Frac(n, k, q)` is `R1` with the angle π·n/2^k, not 2π·n/2^k.
 - `Exp(paulis, theta, qubits)` applies e^(i·theta·P): `Exp([PauliZ], theta, [q])` is
   `Rz(-2.0 * theta, q)`.
 
@@ -189,10 +193,12 @@ operation Calls(cs : Qubit[], a : Qubit, b : Qubit, theta : Double) : Unit is Ad
 ## 7. Bit order
 
 - Kets and `DumpMachine` list qubit 0 first: after `X(qs[0])` on two qubits the state is |10⟩.
-  So when a text writes a register as |j₁j₂…jₙ⟩, or numbers its basis states |k⟩, `qs[0]`
-  is the leftmost bit, the most significant one, unless the text says otherwise. Read the
-  exercise this way first.
-- Only the library callables that relate an integer to an array use the other order,
+  So when a text writes a register as a ket of bits, |j1 j2 … jn⟩, or numbers its basis states
+  |k⟩, `qs[0]` is j1: the leftmost bit, the most significant one, unless the text says
+  otherwise. Read the exercise this way first.
+- The library callables that relate an integer to an array use the other order,
   little-endian, where index 0 is the least significant bit: `IntAsBoolArray(1, 3)` is `[true, false, false]`,
   and `BoolArrayAsInt`, `ResultArrayAsInt`, `MeasureInteger`, `ApplyXorInPlace` and `ApplyControlledOnInt` agree.
   For a register read the first way, hand them `Reversed(qs)`.
+- Other library operations that treat a register as a number state their order in their
+  comment, and they differ: check it before you call one.

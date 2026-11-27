@@ -10,7 +10,7 @@ Read [qsharp.md](./qsharp.md) first when writing Q#. This file covers what it do
 
 ### File Structure
 
-Every `.qs` file is a namespace (the filename minus extension). No `namespace` blocks needed.
+Every `.qs` file is a namespace (its path under `src` minus extension: `src/Foo/Bar.qs` is `Foo.Bar`). No `namespace` blocks needed.
 
 ```qsharp
 // Main.qs — this file's namespace is "Main"
