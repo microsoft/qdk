@@ -134,12 +134,18 @@ impl NativeLibrary for CudaRuntime {
     }
 }
 
+/// `cudaStreamLegacy`, `((cudaStream_t)0x1)`: the legacy default stream,
+/// which `cudaMemcpy` runs on. `cudart_12` lacks it, as bindgen does not
+/// translate a macro that casts.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub(crate) const STREAM_LEGACY: usize = 1;
+
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 super::function_table::function_table! {
     /// Every CUDA Runtime function discovery looks up.
     #[expect(
         dead_code,
-        reason = "discovery only looks the functions up; the MPS engine and the setup check, added later, call them"
+        reason = "the version rows are only looked up, so that a missing one is reported (the versions are read through CudaVersionFunctions); cudaDeviceGetAttribute is for the setup check"
     )]
     struct CudaFunctions, declared in cudart_12 {
         required versions::cudaRuntimeGetVersion,

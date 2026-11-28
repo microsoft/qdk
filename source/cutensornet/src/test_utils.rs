@@ -4,10 +4,16 @@
 //! Helpers the crate's unit tests share. Each module's tests are in a
 //! `tests.rs` beside it.
 //!
-//! None needs a GPU or NVIDIA's libraries. The loader is driven through
-//! files that are not libraries, paths that do not exist, and a resolver
-//! that hands out stand-in functions (`stand_ins`). The loader compiles for
-//! its tests on any Unix host, so they run off Linux x86-64 too.
+//! None needs a GPU or NVIDIA's libraries:
+//!
+//! - The loader is driven through files that are not libraries, paths that
+//!   do not exist, and a resolver that hands out stand-in functions
+//!   (`stand_ins`). The loader compiles for its tests on any Unix host, so
+//!   they run off Linux x86-64 too.
+//! - The CUDA algebra runs its real code against fake libraries, a test
+//!   double of cuTensorNet and the CUDA Runtime that computes on the CPU
+//!   (`src/engine/native_calls/fake_libraries.rs`), so its tests run on
+//!   every host.
 //!
 //! Some tests need a library open, to check what discovery reports of it or
 //! concludes from it. They open the C library instead, on Linux with glibc

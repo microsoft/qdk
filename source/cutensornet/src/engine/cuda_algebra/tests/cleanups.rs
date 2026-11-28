@@ -1,0 +1,95 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+//! Tests of the algebra's cleanups: a failed release skips no other
+//! release and poisons nothing, and a call whose releases fail returns the
+//! first failure.
+
+use super::*;
+use crate::engine::cuda_algebra::settings::NETWORKS_KEPT;
+
+/// A release that fails with the device idle: at the algebra's drop (a
+/// buffer's free), in a split (a descriptor's destroy), or in a move when
+/// the cache of networks starts again (a network's destroy). Every other
+/// release is still made, and the object is leaked, never retried. A
+/// method whose release fails returns the failure and poisons nothing: the
+/// same method then runs. The fake refuses to destroy a handle while an
+/// object of it lives, so a leaked descriptor or network leaks the handle
+/// at the session's close too; a buffer belongs to no handle.
+#[test]
+fn a_failed_release_leaks_its_object_and_poisons_nothing() {
+    type Method = fn(&CudaAlgebra) -> Result<(), CudaAlgebraError>;
+    struct Case {
+        release: &'static str,
+        /// The calls made before the release is made to fail.
+        before: fn(&CudaAlgebra),
+        /// The method whose release fails; none for the algebra's drop.
+        method: Option<Method>,
+        /// The objects left once the algebra is dropped.
+        left: usize,
+    }
+    fn split(algebra: &CudaAlgebra) -> Result<(), CudaAlgebraError> {
+        let (a, b) = random_pair(1, 1, 1, 4);
+        one_qubit_split(&a, &b).on(algebra).map(drop)
+    }
+    let cases = [
+        Case {
+            release: "free",
+            before: |algebra| split(algebra).expect("a split, so that the algebra holds buffers"),
+            method: None,
+            left: 1,
+        },
+        Case {
+            release: "destroy_tensor_descriptor",
+            before: |algebra| split(algebra).expect("a split that sizes the scratch"),
+            method: Some(split),
+            left: 2,
+        },
+        Case {
+            release: "destroy_contraction_network",
+            before: |algebra| {
+                for shape in 0..NETWORKS_KEPT {
+                    move_of_a_new_shape(algebra, shape).expect("a move whose network is kept");
+                }
+            },
+            method: Some(|algebra| move_of_a_new_shape(algebra, NETWORKS_KEPT)),
+            left: 2,
+        },
+    ];
+    for case in cases {
+        let release = case.release;
+        let (algebra, libraries) = algebra();
+        (case.before)(&algebra);
+        libraries.fail(release, libraries.count(release) + 1);
+        if let Some(method) = case.method {
+            let failed = method(&algebra);
+            assert_eq!(failed_at(&failed), Some(release), "{failed:?}");
+            method(&algebra).unwrap_or_else(|error| panic!("{release}: the next call: {error}"));
+        }
+        drop(algebra);
+        assert_eq!(libraries.live_objects(), case.left, "{release}");
+    }
+}
+
+/// A call's cleanup makes several releases, each attempted even after an
+/// earlier one failed; when two fail, the call returns the first in the
+/// order they were made. Here a split whose SVD config and SVD info both
+/// fail to be destroyed.
+#[test]
+fn a_call_whose_releases_fail_returns_the_first_failure() {
+    let (algebra, libraries) = algebra();
+    let (a, b) = random_pair(1, 1, 1, 4);
+    let failing = ["destroy_svd_config", "destroy_svd_info"];
+    for release in failing {
+        libraries.fail(release, libraries.count(release) + 1);
+    }
+    let before = libraries.events().len();
+    let failed = one_qubit_split(&a, &b).on(&algebra).map(drop);
+    let made = libraries.events()[before..].to_vec();
+    let first = made.iter().copied().find(|event| failing.contains(event));
+    assert!(
+        failing.iter().all(|release| made.contains(release)),
+        "both releases are made: {made:?}"
+    );
+    assert_eq!(failed_at(&failed), first, "{failed:?}");
+}

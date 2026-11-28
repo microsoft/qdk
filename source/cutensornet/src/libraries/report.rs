@@ -74,7 +74,7 @@ pub enum LibraryFault {
     /// No candidate path named a file of the library. For an absolute path,
     /// nothing exists there (or part of it is a file rather than a
     /// directory). For a bare file name, the system loader reported no file
-    /// of that name (README, "Where the libraries are looked for").
+    /// of that name (docs/loading.md, "The steps of discovery").
     #[error("not found; attempted {}", quoted_paths(.attempted))]
     NotFound { attempted: Vec<PathBuf> },
 
