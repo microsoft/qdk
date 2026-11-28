@@ -4,6 +4,7 @@ members = [
     "library",
     "source/allocator",
     "source/allocator/mimalloc-sys",
+    "source/canonical_mps",
     "source/compiler/qsc",
     "source/compiler/qsc_ast",
     "source/compiler/qsc_circuit",
