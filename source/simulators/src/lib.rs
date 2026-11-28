@@ -5,6 +5,7 @@ pub mod bytecode;
 pub mod cpu_full_state_simulator;
 #[cfg(feature = "gpu")]
 mod gpu_full_state_simulator;
+pub mod mps_simulator;
 pub mod noise_config;
 pub mod qir;
 pub mod sparse_state_simulator;

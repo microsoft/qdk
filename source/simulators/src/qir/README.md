@@ -159,16 +159,14 @@ the classical part and hand batches of quantum calls to the target.
 The parts were found from concrete needs, each a choice of the resumer
 and none a change to the machine:
 
-| Need                | Case                                                   | Status                                               |
-| ------------------- | ------------------------------------------------------ | ---------------------------------------------------- |
-| A new target        | a matrix-product-state simulator, a device             | the resumer contract: built                          |
-| Efficiency          | the CPU simulators, as fast as `run_shot`              | built; its benchmark: planned                        |
-| Many shots per call | a GPU, a device                                        | the machine: built; a grouping resumer: planned      |
-| Concurrency         | a device that answers later                            | the async trait: built; a device: planned            |
-| Threads             | shots run on several threads                           | the machine: built; a resumer on threads: planned    |
-| Composability       | Qodec's and QEP's codes, noise, an observer in between | planned                                              |
-| Stepping, copying   | a debugger; shots that share a prefix                  | a context can be left or cloned; a debugger: planned |
-| One runtime for all | the GPU simulator, with an interpreter in its shader   | planned: a GPU resumer on the shader's kernels       |
+| Need                | Case                                      | Served by                                                                        |
+| ------------------- | ----------------------------------------- | -------------------------------------------------------------------------------- |
+| A new target        | a matrix-product-state simulator          | the resumer contract and [the MPS simulation method](../mps_simulator/README.md) |
+| Efficiency          | the CPU simulators, as fast as `run_shot` | the machine                                                                      |
+| Many shots per call | a GPU                                     | the machine and the MPS simulation method's grouping resumer                     |
+| Concurrency         | a target that answers later               | the async trait                                                                  |
+| Threads             | shots run on several threads              | the machine                                                                      |
+| Stepping, copying   | a debugger; shots that share a prefix     | a context can be left or cloned                                                  |
 
 ## Tests
 
