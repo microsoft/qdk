@@ -34,7 +34,13 @@ For Cirq integration, which exposes Cirq interop utilities in the `qdk.cirq` sub
 pip install "qdk[cirq]"
 ```
 
-To easily install all the above extras:
+`qdk.simulation.tensornetwork_qir` runs on the CPU (`engine="cpu"`) with no extra. For its GPU engine (Linux x86-64 with an NVIDIA GPU only), install NVIDIA's cuTensorNet, CUDA Runtime, cuBLAS and cuSOLVER:
+
+```bash
+pip install "qdk[tensornetwork]"
+```
+
+To easily install all the above extras, except `tensornetwork`:
 
 ```bash
 pip install "qdk[all]"
@@ -673,7 +679,7 @@ Submodules:
 - `qdk.openqasm` – OpenQASM compilation, execution, parsing, semantic analysis,
   source navigation, visitors, and canonical serialization.
 - `qdk.estimator` – resource estimation utilities.
-- `qdk.simulation` – noise-aware simulation utilities: `NeutralAtomDevice`, `NoiseConfig`, `run_qir`, `DensityMatrixSimulator`, `StateVectorSimulator`, and related types.
+- `qdk.simulation` – noise-aware and tensor-network simulation: `NeutralAtomDevice`, `NoiseConfig`, `run_qir`, `DensityMatrixSimulator`, `StateVectorSimulator`, and related types. `tensornetwork_qir` simulates QIR programs by tensor-network methods, such as matrix product states. `check_tensornetwork_setup` checks the setup of its GPU engine (the `qdk[tensornetwork]` extra).
 - `qdk.code` – dynamic namespace populated at runtime with user-defined Q# and OpenQASM callables.
 - `qdk.qre` – quantum resource estimation v3: `estimate`, `Application`, `Architecture`, `ISA`, `ISATransform`, and related types.
 - `qdk.applications` – domain-specific quantum applications (e.g. `qdk.applications.magnets`).

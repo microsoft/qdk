@@ -1742,6 +1742,7 @@ name = "qdk"
 version = "0.0.0"
 dependencies = [
  "allocator",
+ "canonical_mps",
  "expect-test",
  "memchr",
  "miette",
@@ -1750,6 +1751,7 @@ dependencies = [
  "num-complex",
  "num-traits",
  "pyo3",
+ "qdk_cutensornet",
  "qdk_openqasm",
  "qdk_simulators",
  "qre",
@@ -1761,6 +1763,7 @@ dependencies = [
  "serde",
  "serde_json",
  "stim_compiler",
+ "tensornet",
 ]
 
 [[package]]

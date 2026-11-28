@@ -32,6 +32,19 @@ azure = ["azure-quantum>=3.8.0"]
 qiskit = ["qiskit>=1.2.2,<3.0.0"]
 cirq = ["cirq-core>=1.6.1,<1.8", "cirq-ionq>=1.6.1,<1.8", "ply>=3.11"]
 qre = ["pandas>=2.1"]
+# The GPU engine of `tensornetwork_qir`. cuTensorNet and the CUDA Runtime are
+# pinned to the versions the bindings were audited against. cuTensorNet's
+# library needs cuBLAS and cuSOLVER, which its wheel does not declare; they
+# are pinned to the versions the engine was verified with.
+# `_PACKAGED_LIBRARIES`, in `qdk/simulation/_tensor_network.py`, lists the
+# libraries the QDK opens. Not in `all`: the libraries run only with an
+# NVIDIA GPU and driver.
+tensornetwork = [
+  "cutensornet-cu12==2.13.0; platform_system == 'Linux' and platform_machine == 'x86_64'",
+  "nvidia-cuda-runtime-cu12==12.9.*; platform_system == 'Linux' and platform_machine == 'x86_64'",
+  "nvidia-cublas-cu12==12.9.2.10; platform_system == 'Linux' and platform_machine == 'x86_64'",
+  "nvidia-cusolver-cu12==11.7.5.82; platform_system == 'Linux' and platform_machine == 'x86_64'",
+]
 applications = ["cirq-core>=1.6.1,<1.8"]
 # Tooling to develop, test, and deploy quantum error correction schemes (qodecs).
 # `qodec` is the declarative qodec file format and object model; `paulimer` and
