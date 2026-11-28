@@ -1,0 +1,18 @@
+[package]
+name = "dense_linalg"
+
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# The matrix product;
+# src/kernels/matrixmultiply_householder.rs says why this crate.
+matrixmultiply = { workspace = true, features = ["cgemm"] }
+num-complex = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true
