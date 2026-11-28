@@ -1,0 +1,102 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+//! cuTensorNet's decompositions of tensors: the SVD's configuration and report,
+//! the gate split (a gate applied to two tensors, then split back by an SVD),
+//! and the QR. Each type is the pointer type of the C function of its name.
+
+use super::v2_13;
+use crate::libraries::cuda_runtime::cudart_12;
+use std::ffi::c_void;
+
+pub(crate) type cutensornetCreateTensorSVDConfig =
+    unsafe extern "C" fn(
+        v2_13::cutensornetHandle_t,
+        *mut v2_13::cutensornetTensorSVDConfig_t,
+    ) -> v2_13::cutensornetStatus_t;
+
+pub(crate) type cutensornetDestroyTensorSVDConfig =
+    unsafe extern "C" fn(v2_13::cutensornetTensorSVDConfig_t) -> v2_13::cutensornetStatus_t;
+
+pub(crate) type cutensornetTensorSVDConfigSetAttribute =
+    unsafe extern "C" fn(
+        v2_13::cutensornetHandle_t,
+        v2_13::cutensornetTensorSVDConfig_t,
+        v2_13::cutensornetTensorSVDConfigAttributes_t,
+        *const c_void,
+        usize,
+    ) -> v2_13::cutensornetStatus_t;
+
+pub(crate) type cutensornetCreateTensorSVDInfo = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    *mut v2_13::cutensornetTensorSVDInfo_t,
+)
+    -> v2_13::cutensornetStatus_t;
+
+pub(crate) type cutensornetDestroyTensorSVDInfo =
+    unsafe extern "C" fn(v2_13::cutensornetTensorSVDInfo_t) -> v2_13::cutensornetStatus_t;
+
+pub(crate) type cutensornetTensorSVDInfoGetAttribute =
+    unsafe extern "C" fn(
+        v2_13::cutensornetHandle_t,
+        v2_13::cutensornetTensorSVDInfo_t,
+        v2_13::cutensornetTensorSVDInfoAttributes_t,
+        *mut c_void,
+        usize,
+    ) -> v2_13::cutensornetStatus_t;
+
+pub(crate) type cutensornetWorkspaceComputeGateSplitSizes =
+    unsafe extern "C" fn(
+        v2_13::cutensornetHandle_t,
+        v2_13::cutensornetTensorDescriptor_t,
+        v2_13::cutensornetTensorDescriptor_t,
+        v2_13::cutensornetTensorDescriptor_t,
+        v2_13::cutensornetTensorDescriptor_t,
+        v2_13::cutensornetTensorDescriptor_t,
+        v2_13::cutensornetGateSplitAlgo_t,
+        v2_13::cutensornetTensorSVDConfig_t,
+        v2_13::cutensornetComputeType_t,
+        v2_13::cutensornetWorkspaceDescriptor_t,
+    ) -> v2_13::cutensornetStatus_t;
+
+pub(crate) type cutensornetGateSplit = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    v2_13::cutensornetTensorDescriptor_t,
+    *const c_void,
+    v2_13::cutensornetTensorDescriptor_t,
+    *const c_void,
+    v2_13::cutensornetTensorDescriptor_t,
+    *const c_void,
+    v2_13::cutensornetTensorDescriptor_t,
+    *mut c_void,
+    *mut c_void,
+    v2_13::cutensornetTensorDescriptor_t,
+    *mut c_void,
+    v2_13::cutensornetGateSplitAlgo_t,
+    v2_13::cutensornetTensorSVDConfig_t,
+    v2_13::cutensornetComputeType_t,
+    v2_13::cutensornetTensorSVDInfo_t,
+    v2_13::cutensornetWorkspaceDescriptor_t,
+    cudart_12::cudaStream_t,
+) -> v2_13::cutensornetStatus_t;
+
+pub(crate) type cutensornetWorkspaceComputeQRSizes =
+    unsafe extern "C" fn(
+        v2_13::cutensornetHandle_t,
+        v2_13::cutensornetTensorDescriptor_t,
+        v2_13::cutensornetTensorDescriptor_t,
+        v2_13::cutensornetTensorDescriptor_t,
+        v2_13::cutensornetWorkspaceDescriptor_t,
+    ) -> v2_13::cutensornetStatus_t;
+
+pub(crate) type cutensornetTensorQR = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    v2_13::cutensornetTensorDescriptor_t,
+    *const c_void,
+    v2_13::cutensornetTensorDescriptor_t,
+    *mut c_void,
+    v2_13::cutensornetTensorDescriptor_t,
+    *mut c_void,
+    v2_13::cutensornetWorkspaceDescriptor_t,
+    cudart_12::cudaStream_t,
+) -> v2_13::cutensornetStatus_t;

@@ -1,0 +1,21 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
+# What cuTensorNet's bindings are made of, read by
+# scripts/generate_bindings.py with the tools and archives of
+# scripts/generate_bindings.toml. Bindgen declares the header's API, every
+# function, type and constant whose name has the prefix, and the types they
+# reach, into generated/<output>.
+
+# Found in the first of the archives' include/ folders, which clang searches
+# in this order.
+header = "cutensornet.h"
+includes = ["cuquantum", "cuda_cudart", "cuda_nvcc", "cuda_cccl"]
+# In any case: cutensornetCreate, cutensornetStatus_t, CUTENSORNET_VERSION.
+prefix = "cutensornet"
+# Named for the release, as the module src/libraries/cutensornet.rs declares.
+output = "v2_13.rs"
+# The CUDA Runtime's bindings own CUDA's stream type, so that a stream they
+# create passes to cuTensorNet unchanged.
+blocklist_types = ["cudaStream_t", "CUstream_st"]
+raw_lines = ["use crate::libraries::cuda_runtime::cudart_12::cudaStream_t;"]
