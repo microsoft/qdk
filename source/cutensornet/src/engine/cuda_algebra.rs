@@ -63,7 +63,7 @@ mod modes;
 mod qr_move;
 mod resources;
 mod scratch;
-mod settings;
+pub(crate) mod settings;
 mod tensor_layout;
 
 pub use device_tensor::DeviceTensor;
@@ -163,7 +163,7 @@ impl CudaAlgebra {
             reason = "only host tests create an algebra off Linux x86-64"
         )
     )]
-    pub(super) fn with_native_calls(
+    pub(crate) fn with_native_calls(
         native_calls: Arc<dyn NativeCalls>,
     ) -> Result<Self, CudaAlgebraError> {
         let device_session = DeviceSession::new(native_calls, settings::DEVICE_ORDINAL)?;

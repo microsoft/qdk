@@ -24,6 +24,8 @@
 pub(crate) mod stand_ins;
 
 #[cfg(unix)]
+use crate::libraries::NativeLibrary;
+#[cfg(unix)]
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -58,4 +60,38 @@ pub(crate) fn not_a_shared_object(label: &str) -> (PathBuf, RemoveFile) {
     let path = unique_temp_path(label);
     fs::write(&path, b"not an ELF shared object").expect("the temporary directory is writable");
     (path.clone(), RemoveFile(path))
+}
+
+/// Where a package would install `L`'s file: `L::FILE_NAME` in a new
+/// directory of the test's own. Dropping the guard removes the directory,
+/// with what the test puts at the path.
+#[cfg(unix)]
+pub(crate) fn packaged_path<L: NativeLibrary>(label: &str) -> (PathBuf, RemovePackage) {
+    let directory = unique_temp_path(label);
+    fs::create_dir(&directory).expect("the temporary directory is writable");
+    let path = directory.join(L::FILE_NAME);
+    (path.clone(), RemovePackage(path))
+}
+
+/// Removes a packaged file and its directory, even when the test fails.
+#[cfg(unix)]
+pub(crate) struct RemovePackage(PathBuf);
+
+#[cfg(unix)]
+impl Drop for RemovePackage {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+        if let Some(directory) = self.0.parent() {
+            let _ = fs::remove_dir(directory);
+        }
+    }
+}
+
+/// `L`'s file, as a package installs it, with contents that are not a
+/// shared object: see [`packaged_path`].
+#[cfg(unix)]
+pub(crate) fn packaged_file<L: NativeLibrary>(label: &str) -> (PathBuf, RemovePackage) {
+    let (path, remove) = packaged_path::<L>(label);
+    fs::write(&path, b"not an ELF shared object").expect("the directory is writable");
+    (path, remove)
 }

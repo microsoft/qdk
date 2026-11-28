@@ -29,9 +29,9 @@
 //! An engine, its algebra and its tensors are `!Send`: the stream and the
 //! handle stay on the thread that created them.
 
-mod cuda_algebra;
+pub(crate) mod cuda_algebra;
 mod cuda_algebra_error;
-mod native_calls;
+pub(crate) mod native_calls;
 
 pub use cuda_algebra::{CudaAlgebra, DeviceTensor};
 pub use cuda_algebra_error::CudaAlgebraError;

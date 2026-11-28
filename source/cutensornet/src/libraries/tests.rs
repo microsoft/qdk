@@ -3,9 +3,10 @@
 
 //! The rules every library shares, shown on cuTensorNet and the CUDA
 //! Runtime. They are how its paths are chosen (the override variable,
-//! checked before anything is loaded, or else the library's defaults), and
-//! how an open library is checked and reported. Each library's own rules
-//! (its table, probes and versions) are tested in its module's file.
+//! checked before anything is loaded, or else the library's packaged file,
+//! then its defaults), and how an open library is checked and reported
+//! with the other copies beside it. Each library's own rules (its table,
+//! probes and versions) are tested in its module's file.
 
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 use crate::test_utils::stand_ins::ALWAYS_PRESENT_LIBRARY;
@@ -13,21 +14,25 @@ use crate::test_utils::stand_ins::ALWAYS_PRESENT_LIBRARY;
 use crate::test_utils::stand_ins::{StandInResolver, cuda_version, cutensornet_version};
 use crate::test_utils::unique_temp_path;
 #[cfg(unix)]
-use crate::test_utils::{RemoveFile, not_a_shared_object};
+use crate::test_utils::{RemoveFile, not_a_shared_object, packaged_file, packaged_path};
 use crate::{LibraryFault, libraries::validate_override_path};
 #[cfg(unix)]
 use crate::{
-    LibraryReport, Version,
+    LibraryReport, PackagedLibraries, Version,
     libraries::{
         NativeLibrary, candidates, cuda_runtime::CudaRuntime, cutensornet::CuTensorNet, inspect,
+        other_copies, override_of,
     },
 };
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 use crate::{
+    LibrarySource,
     libraries::function_table::{FunctionTable, SymbolResolver, resolve_required},
     libraries::{ProbedVersions, open},
 };
 use std::ffi::OsString;
+#[cfg(unix)]
+use std::path::Path;
 use std::path::PathBuf;
 
 /// An empty report of `L`, as discovery starts it once `L` is open.
@@ -38,6 +43,8 @@ fn opened<L: NativeLibrary>() -> LibraryReport {
         path: Some(PathBuf::from("/fixture/library.so")),
         versions: Vec::new(),
         faults: Vec::new(),
+        other_copies: Vec::new(),
+        source: None,
     }
 }
 
@@ -204,11 +211,16 @@ fn each_library_is_overridden_by_its_own_variable() {
     let (path, _remove) = not_a_shared_object("override-candidate");
     let read_variable =
         |variable: &'static str| (variable == "QDK_CUDART_LIBRARY").then(|| OsString::from(&path));
-    let cudart = candidates::<CudaRuntime>(read_variable).expect("the override names a file");
-    let cutensornet =
-        candidates::<CuTensorNet>(read_variable).expect("no cuTensorNet override is set");
-    assert_eq!(cudart, std::slice::from_ref(&path));
-    assert!(!cutensornet.contains(&path));
+    assert_eq!(
+        override_of::<CudaRuntime>(read_variable),
+        Ok(Some(path.clone())),
+        "the CUDA Runtime reads its override"
+    );
+    assert_eq!(
+        override_of::<CuTensorNet>(read_variable),
+        Ok(None),
+        "cuTensorNet does not"
+    );
 }
 
 /// Without an override, each library is looked for at the paths the README
@@ -216,8 +228,9 @@ fn each_library_is_overridden_by_its_own_variable() {
 #[cfg(unix)]
 #[test]
 fn without_an_override_the_default_paths_are_tried() {
-    let cudart = candidates::<CudaRuntime>(|_| None).expect("no override is set");
-    let cutensornet = candidates::<CuTensorNet>(|_| None).expect("no override is set");
+    let packaged = PackagedLibraries::default();
+    let cudart = candidates::<CudaRuntime>(None, &packaged);
+    let cutensornet = candidates::<CuTensorNet>(None, &packaged);
     assert_eq!(
         cudart,
         [
@@ -233,6 +246,178 @@ fn without_an_override_the_default_paths_are_tried() {
             "libcutensornet.so.2"
         ]
         .map(PathBuf::from)
+    );
+}
+
+/// A packaged file is tried before the default paths. So a user who
+/// installed NVIDIA's Python wheels needs no `LD_LIBRARY_PATH`. A packager's
+/// list holds every file it installed, of every library. Each library tries
+/// only the file of its own name: the CUDA Runtime's file is not tried as
+/// cuTensorNet, and a file of another version of cuTensorNet is not tried
+/// at all. Of two files of one name, only the first listed is tried.
+#[cfg(unix)]
+#[test]
+fn a_packaged_file_is_tried_before_the_defaults_only_for_the_library_it_is_named() {
+    let packaged = PackagedLibraries {
+        files: [
+            "/env/nvidia/cuda_runtime/lib/libcudart.so.12",
+            "/env/cuquantum/lib/libcutensornet.so.3",
+            "/env/torch/lib/libcudart.so.12",
+        ]
+        .map(PathBuf::from)
+        .to_vec(),
+        install_command: None,
+    };
+    let cudart = candidates::<CudaRuntime>(None, &packaged);
+    let cutensornet = candidates::<CuTensorNet>(None, &packaged);
+    assert_eq!(
+        cudart,
+        std::iter::once("/env/nvidia/cuda_runtime/lib/libcudart.so.12")
+            .chain(CudaRuntime::DEFAULTS.iter().copied())
+            .map(PathBuf::from)
+            .collect::<Vec<_>>(),
+        "the first file of its name, then the default paths"
+    );
+    assert_eq!(
+        cutensornet,
+        CuTensorNet::DEFAULTS
+            .iter()
+            .map(PathBuf::from)
+            .collect::<Vec<_>>(),
+        "only the default paths are tried"
+    );
+}
+
+/// A set override is still the only path tried when a package installed
+/// the library: the user's setting decides.
+#[cfg(unix)]
+#[test]
+fn an_override_is_tried_alone_even_beside_a_packaged_library() {
+    let path = PathBuf::from("/opt/cuda/libcudart.so.12");
+    let packaged = PackagedLibraries {
+        files: vec![PathBuf::from(
+            "/env/nvidia/cuda_runtime/lib/libcudart.so.12",
+        )],
+        install_command: None,
+    };
+    let cudart = candidates::<CudaRuntime>(Some(path.clone()), &packaged);
+    assert_eq!(cudart, std::slice::from_ref(&path));
+}
+
+/// The packaged files `files`, with no install command.
+#[cfg(unix)]
+fn packaged(files: &[&Path]) -> PackagedLibraries {
+    PackagedLibraries {
+        files: files.iter().map(|file| file.to_path_buf()).collect(),
+        install_command: None,
+    }
+}
+
+/// The other copies of `L` reported beside `loaded`, among the test's own
+/// files (a host's system copies, if any, left out).
+#[cfg(unix)]
+fn other_test_copies<L: NativeLibrary>(
+    loaded: &Path,
+    override_path: Option<&Path>,
+    packaged: &PackagedLibraries,
+) -> Vec<PathBuf> {
+    let temporary = unique_temp_path("");
+    let directory = temporary
+        .parent()
+        .expect("a temporary file has a directory");
+    other_copies::<L>(loaded, override_path, packaged)
+        .into_iter()
+        .filter(|path| path.starts_with(directory))
+        .collect()
+}
+
+/// A user who overrides the CUDA Runtime while a wheel's copy is installed
+/// is told of the wheel's copy.
+#[cfg(unix)]
+#[test]
+fn a_wheels_copy_beside_an_override_is_another_copy() {
+    let (loaded, _remove_loaded) = not_a_shared_object("loaded-copy");
+    let (wheel, _remove_wheel) = packaged_file::<CudaRuntime>("wheel-copy");
+    assert_eq!(
+        other_test_copies::<CudaRuntime>(&loaded, Some(&loaded), &packaged(&[&wheel])),
+        vec![wheel.clone()]
+    );
+}
+
+/// A path that names the loaded file, through a link or not, or a file of
+/// another library, is no other copy. A user with no override is told of
+/// none when the CUDA Runtime was loaded from the wheel, when the wheel
+/// holds a link to the file loaded, or when it was loaded through a link to
+/// the wheel's file. cuTensorNet's other copies are looked for among its
+/// own paths only, so the CUDA Runtime's wheel is none. Each row is a scene
+/// and the other copies reported in it.
+#[cfg(unix)]
+#[test]
+fn a_path_to_the_loaded_file_or_another_library_is_no_other_copy() {
+    let (wheel, _remove_wheel) = packaged_file::<CudaRuntime>("loaded-wheel-copy");
+    let (cutensornet, _remove_cutensornet) = not_a_shared_object("loaded-cutensornet");
+    let (loaded, _remove_loaded) = not_a_shared_object("loaded-linked");
+    let (link_to_loaded, _remove_link) = packaged_path::<CudaRuntime>("link-to-loaded");
+    std::os::unix::fs::symlink(&loaded, &link_to_loaded).expect("a link is made");
+    let loaded_link = unique_temp_path("loaded-link");
+    std::os::unix::fs::symlink(&wheel, &loaded_link).expect("a link is made");
+    let _remove_loaded_link = RemoveFile(loaded_link.clone());
+    for (scene, copies) in [
+        (
+            "the wheel's copy loaded",
+            other_test_copies::<CudaRuntime>(&wheel, None, &packaged(&[&wheel])),
+        ),
+        (
+            "a link in the wheel to the file loaded",
+            other_test_copies::<CudaRuntime>(&loaded, None, &packaged(&[&link_to_loaded])),
+        ),
+        (
+            "the wheel's file loaded through a link",
+            other_test_copies::<CudaRuntime>(&loaded_link, None, &packaged(&[&wheel])),
+        ),
+        (
+            "cuTensorNet beside the CUDA Runtime's wheel",
+            other_test_copies::<CuTensorNet>(&cutensornet, None, &packaged(&[&wheel])),
+        ),
+    ] {
+        assert_eq!(copies, Vec::<PathBuf>::new(), "{scene}");
+    }
+}
+
+/// A bare file name, such as the default `libcudart.so.12`, is searched for
+/// by the system loader, not in the working directory. So a file of that
+/// name there is no other copy. The defaults are fixed, so the test names a
+/// bare file through the override instead (which discovery refuses before
+/// loading anything). Tests run in the crate's directory, which holds a
+/// `Cargo.toml`.
+#[cfg(unix)]
+#[test]
+fn a_bare_file_name_is_not_looked_for_in_the_working_directory() {
+    assert!(
+        Path::new("Cargo.toml").is_file(),
+        "tests run in the crate's directory"
+    );
+    let (loaded, _remove_loaded) = not_a_shared_object("loaded-beside-bare-name");
+    let copies = other_copies::<CudaRuntime>(
+        &loaded,
+        Some(Path::new("Cargo.toml")),
+        &PackagedLibraries::default(),
+    );
+    assert!(!copies.contains(&PathBuf::from("Cargo.toml")));
+}
+
+/// One other file named twice, by the override and by a link to it, is
+/// reported once, under the first name.
+#[cfg(unix)]
+#[test]
+fn one_file_named_twice_is_reported_once() {
+    let (loaded, _remove_loaded) = not_a_shared_object("loaded-beside-twice-named");
+    let (other, _remove_other) = not_a_shared_object("other-named-twice");
+    let (link_to_other, _remove_link) = packaged_path::<CudaRuntime>("link-to-other");
+    std::os::unix::fs::symlink(&other, &link_to_other).expect("a link is made");
+    assert_eq!(
+        other_test_copies::<CudaRuntime>(&loaded, Some(&other), &packaged(&[&link_to_other])),
+        vec![other.clone()]
     );
 }
 
@@ -448,6 +633,7 @@ impl FunctionTable for AbsentFunctionTable {
 impl NativeLibrary for OpenedWithoutItsFunction {
     const NAME: &'static str = "C library";
     const VARIABLE: &'static str = "QDK_CUTENSORNET_TEST_UNSET_VARIABLE";
+    const FILE_NAME: &'static str = "libc.so.6";
     const DEFAULTS: &'static [&'static str] = &[ALWAYS_PRESENT_LIBRARY];
     type Functions = AbsentFunctionTable;
 
@@ -461,7 +647,7 @@ impl NativeLibrary for OpenedWithoutItsFunction {
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 #[test]
 fn an_opened_library_at_fault_is_reported_with_its_path() {
-    let (report, bound) = open::<OpenedWithoutItsFunction>(|_| None);
+    let (report, bound) = open::<OpenedWithoutItsFunction>(|_| None, &PackagedLibraries::default());
     assert!(bound.is_none(), "the library lacks a required function");
     assert_eq!(
         report.path.as_deref(),
@@ -473,4 +659,157 @@ fn an_opened_library_at_fault_is_reported_with_its_path() {
             symbol: "qdk_cutensornet_test_absent_function"
         }]
     );
+}
+
+/// The C library again, with a second default path, `/bin/sh`, an
+/// absolute file every Unix has, standing in for another copy of it.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+struct OpenedBesideAnotherFile;
+
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+impl NativeLibrary for OpenedBesideAnotherFile {
+    const NAME: &'static str = "C library";
+    const VARIABLE: &'static str = "QDK_CUTENSORNET_TEST_UNSET_VARIABLE";
+    const FILE_NAME: &'static str = "libc.so.6";
+    const DEFAULTS: &'static [&'static str] = &[ALWAYS_PRESENT_LIBRARY, "/bin/sh"];
+    type Functions = AbsentFunctionTable;
+
+    fn probe_versions<R: SymbolResolver>(_resolver: &R) -> ProbedVersions {
+        ProbedVersions::default()
+    }
+}
+
+/// A library that was opened reports the other copies its paths make
+/// visible beside it, whatever its faults, so the setup check can warn of
+/// them.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+#[test]
+fn an_opened_library_reports_the_other_copies_beside_it() {
+    let (report, _) = open::<OpenedBesideAnotherFile>(|_| None, &PackagedLibraries::default());
+    assert_eq!(
+        report.path.as_deref(),
+        Some(Path::new(ALWAYS_PRESENT_LIBRARY)),
+        "the first default path opens"
+    );
+    assert_eq!(report.other_copies, [PathBuf::from("/bin/sh")]);
+}
+
+/// The absolute path of the C library on this host, at one of the paths
+/// distributions install it at.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+fn absolute_c_library() -> PathBuf {
+    let arch = std::env::consts::ARCH;
+    [
+        format!("/lib/{arch}-linux-gnu/libc.so.6"),
+        format!("/usr/lib/{arch}-linux-gnu/libc.so.6"),
+        "/lib64/libc.so.6".to_string(),
+        "/usr/lib64/libc.so.6".to_string(),
+        "/usr/lib/libc.so.6".to_string(),
+    ]
+    .into_iter()
+    .map(PathBuf::from)
+    .find(|path| path.is_file())
+    .expect("the C library is at one of the usual paths")
+}
+
+/// A library whose one default path is an absolute file, the shell, which
+/// the system loader refuses, as it is no library.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+struct RefusedAtItsDefaultPath;
+
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+impl NativeLibrary for RefusedAtItsDefaultPath {
+    const NAME: &'static str = "shell";
+    const VARIABLE: &'static str = "QDK_CUTENSORNET_TEST_UNSET_VARIABLE";
+    const FILE_NAME: &'static str = "sh";
+    const DEFAULTS: &'static [&'static str] = &["/bin/sh"];
+    type Functions = AbsentFunctionTable;
+
+    fn probe_versions<R: SymbolResolver>(_resolver: &R) -> ProbedVersions {
+        ProbedVersions::default()
+    }
+}
+
+/// Each library reports where the copy tried, loaded or refused by the
+/// system loader, was found: the path its override names, even if the
+/// variable changes during the check (another thread unsets it), its
+/// packaged file, a default absolute path, or a file name the system
+/// loader searched for. It reports no source when no copy was tried.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+#[test]
+fn each_library_reports_where_the_copy_tried_was_found() {
+    let no_package = PackagedLibraries::default();
+    let c_library = absolute_c_library();
+    let names_c_library = |variable: &'static str| {
+        (variable == OpenedBesideAnotherFile::VARIABLE).then(|| OsString::from(&c_library))
+    };
+    let (not_a_library, _remove) = packaged_file::<OpenedBesideAnotherFile>("source-of-copy");
+    let names_not_a_library = |_: &'static str| Some(OsString::from(&not_a_library));
+    let reads = std::cell::Cell::new(0);
+    let unset_after_one_read = |_: &'static str| {
+        reads.set(reads.get() + 1);
+        (reads.get() == 1).then(|| OsString::from(&not_a_library))
+    };
+    let relative = |_: &'static str| Some(OsString::from("libc.so.6"));
+    let packaged = PackagedLibraries {
+        files: vec![not_a_library.clone()],
+        install_command: None,
+    };
+    let open_c = |read_variable: &dyn Fn(&'static str) -> Option<OsString>,
+                  packaged: &PackagedLibraries| {
+        open::<OpenedBesideAnotherFile>(read_variable, packaged).0
+    };
+    for (case, report, tried, source) in [
+        (
+            "an override loaded",
+            open_c(&names_c_library, &no_package),
+            Some(c_library.clone()),
+            Some(LibrarySource::Override),
+        ),
+        (
+            "an override refused",
+            open_c(&names_not_a_library, &no_package),
+            Some(not_a_library.clone()),
+            Some(LibrarySource::Override),
+        ),
+        (
+            "an override unset during the check",
+            open_c(&unset_after_one_read, &no_package),
+            Some(not_a_library.clone()),
+            Some(LibrarySource::Override),
+        ),
+        (
+            "a packaged file refused",
+            open_c(&|_| None, &packaged),
+            Some(not_a_library.clone()),
+            Some(LibrarySource::Packaged),
+        ),
+        (
+            "a default absolute path refused",
+            open::<RefusedAtItsDefaultPath>(|_| None, &no_package).0,
+            Some(PathBuf::from("/bin/sh")),
+            Some(LibrarySource::DefaultPath),
+        ),
+        (
+            "a file name the system loader found",
+            open_c(&|_| None, &no_package),
+            Some(PathBuf::from(ALWAYS_PRESENT_LIBRARY)),
+            Some(LibrarySource::SystemSearch),
+        ),
+        (
+            "an invalid override",
+            open_c(&relative, &no_package),
+            None,
+            None,
+        ),
+    ] {
+        let tried_path = report.path.clone().or_else(|| {
+            report.faults.iter().find_map(|fault| match fault {
+                LibraryFault::LoadFailed { path, .. } => Some(path.clone()),
+                _ => None,
+            })
+        });
+        assert_eq!(tried_path, tried, "{case}: the copy tried: {report:?}");
+        assert_eq!(report.source, source, "{case}: {report:?}");
+    }
 }

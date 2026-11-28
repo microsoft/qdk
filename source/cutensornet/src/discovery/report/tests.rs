@@ -13,6 +13,8 @@ fn not_opened(name: &'static str) -> LibraryReport {
         path: None,
         versions: Vec::new(),
         faults: Vec::new(),
+        other_copies: Vec::new(),
+        source: None,
     }
 }
 

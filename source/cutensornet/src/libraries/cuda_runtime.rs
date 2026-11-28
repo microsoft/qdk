@@ -3,11 +3,13 @@
 
 //! The CUDA Runtime, NVIDIA's API to the GPU, on which cuTensorNet runs.
 //!
-//! This module's `NativeLibrary` holds everything the crate assumes of the
-//! CUDA Runtime: where it is looked for, the functions looked up in it
-//! (`CudaFunctions`), and its versions. Its versions are `CUDA Runtime`,
-//! which must be 12.9, and `CUDA driver`, reported only. CUDA encodes a
-//! version as `1000·major + 10·minor` (`12090` is 12.9).
+//! This module holds what discovery and the setup check's library steps
+//! assume of the CUDA Runtime. Its `NativeLibrary` says where it is looked
+//! for, the functions looked up in it (`CudaFunctions`), and its versions.
+//! Its versions are `CUDA Runtime`, which must be 12.9, and `CUDA driver`,
+//! reported only. Its `LibrarySetupGuide` says what the setup check shows
+//! of it and advises. CUDA encodes a version as `1000·major + 10·minor`
+//! (`12090` is 12.9).
 //!
 //! One file per family of the table's functions declares their
 //! function-pointer types (for instance `memory`: free memory, allocation,
@@ -58,10 +60,13 @@ mod generated {
 pub(crate) use generated::cudart_12;
 
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-use super::{NativeLibrary, ProbedVersions};
+use super::{
+    NativeLibrary, ProbedVersions,
+    setup_guide::{DriverFloor, LibrarySetupGuide, cuda_version, or_unread, path_or_unread},
+};
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 use crate::{
-    LibraryFault,
+    LibraryFault, LibraryReport,
     libraries::function_table::{FunctionTable, SymbolResolver},
 };
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
@@ -76,6 +81,19 @@ use std::ffi::CStr;
 /// discovery".
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 pub(crate) struct CudaRuntime;
+
+/// The driver CUDA 12 needs: NVIDIA's floor for CUDA 12, 525.60.13 on
+/// Linux. The QDK adds none.
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+const DRIVER_FLOOR: DriverFloor = DriverFloor {
+    cuda: 12_000,
+    release: "525.60.13",
+};
+
+/// The driver version CUDA reports, with success, when no NVIDIA driver is
+/// installed (`cudaDriverGetVersion`'s documentation).
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+const NO_DRIVER: i128 = 0;
 
 /// The CUDA Runtime 12.9, the release the bindings were audited against.
 /// cuTensorNet must also have been built against it.
@@ -95,9 +113,12 @@ const _: () = assert!(
 impl NativeLibrary for CudaRuntime {
     const NAME: &'static str = "CUDA Runtime";
     const VARIABLE: &'static str = "QDK_CUDART_LIBRARY";
+    const FILE_NAME: &'static str = "libcudart.so.12";
     const DEFAULTS: &'static [&'static str] = &[
+        // Where NVIDIA's apt package installs it. The path spells out
+        // `FILE_NAME`, as a constant cannot be built from another in Rust.
         "/usr/local/cuda-12.9/targets/x86_64-linux/lib/libcudart.so.12",
-        "libcudart.so.12",
+        Self::FILE_NAME,
     ];
     type Functions = CudaFunctions;
 
@@ -134,6 +155,51 @@ impl NativeLibrary for CudaRuntime {
     }
 }
 
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+impl LibrarySetupGuide for CudaRuntime {
+    const INSTALL: &'static str = "the CUDA Runtime 12.9";
+    const MINIMUM_DRIVER: Option<DriverFloor> = Some(DRIVER_FLOOR);
+
+    /// CUDA's version probe fails mostly when the driver is too old.
+    fn version_probe_advice() -> Option<String> {
+        Some(format!(
+            "CUDA could not report its version, usually because the NVIDIA driver is too old: \
+             check `nvidia-smi`, and install {DRIVER_FLOOR}"
+        ))
+    }
+
+    /// Its path and version, and the CUDA the driver supports, or that
+    /// there is no driver.
+    fn describe(report: &LibraryReport) -> Vec<String> {
+        let driver = match report.version("CUDA driver") {
+            Some(NO_DRIVER) => "none".to_string(),
+            driver => format!("supports CUDA {}", or_unread(driver.map(cuda_version))),
+        };
+        vec![
+            format!(
+                "CUDA Runtime: {} ({})",
+                path_or_unread(report),
+                or_unread(report.version("CUDA Runtime").map(cuda_version)),
+            ),
+            format!("CUDA driver: {driver}"),
+        ]
+    }
+
+    /// No NVIDIA driver, or one that supports no CUDA of its floor.
+    fn host_problem(report: &LibraryReport) -> Option<String> {
+        match report.version("CUDA driver")? {
+            NO_DRIVER => Some(format!(
+                "no NVIDIA driver was found: install {DRIVER_FLOOR}"
+            )),
+            driver if driver < DRIVER_FLOOR.cuda => Some(format!(
+                "the NVIDIA driver supports CUDA {} only: install {DRIVER_FLOOR}",
+                cuda_version(driver)
+            )),
+            _ => None,
+        }
+    }
+}
+
 /// `cudaStreamLegacy`, `((cudaStream_t)0x1)`: the legacy default stream,
 /// which `cudaMemcpy` runs on. `cudart_12` lacks it, as bindgen does not
 /// translate a macro that casts.
@@ -145,7 +211,7 @@ super::function_table::function_table! {
     /// Every CUDA Runtime function discovery looks up.
     #[expect(
         dead_code,
-        reason = "the version rows are only looked up, so that a missing one is reported (the versions are read through CudaVersionFunctions); cudaDeviceGetAttribute is for the setup check"
+        reason = "the version rows are only looked up, so that a missing one is reported (the versions are read through CudaVersionFunctions)"
     )]
     struct CudaFunctions, declared in cudart_12 {
         required versions::cudaRuntimeGetVersion,

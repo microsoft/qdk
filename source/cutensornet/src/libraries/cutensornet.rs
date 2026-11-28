@@ -3,14 +3,15 @@
 
 //! cuTensorNet, NVIDIA's tensor-network library.
 //!
-//! This module's `NativeLibrary` holds everything the crate assumes of
-//! cuTensorNet: where it is looked for, the functions looked up in it
-//! (`CuTensorNetFunctions`), and its versions. Its versions are
-//! `cuTensorNet`, which must be 2.13.0, and `cuTensorNet's CUDA Runtime`,
-//! the CUDA Runtime it was built against, which must be 12.9. cuTensorNet
-//! encodes its version as `10000·major + 100·minor + patch` (`21300` is
-//! 2.13.0). It encodes a CUDA Runtime version as CUDA does,
-//! `1000·major + 10·minor` (`12090` is 12.9).
+//! This module holds what discovery and the setup check's library steps
+//! assume of cuTensorNet. Its `NativeLibrary` says where it is looked for,
+//! the functions looked up in it (`CuTensorNetFunctions`), and its
+//! versions. Its versions are `cuTensorNet`, which must be 2.13.0, and
+//! `cuTensorNet's CUDA Runtime`, the CUDA Runtime it was built against,
+//! which must be 12.9. Its `LibrarySetupGuide` says what the setup check
+//! shows of it and advises. cuTensorNet encodes its version as
+//! `10000·major + 100·minor + patch` (`21300` is 2.13.0). It encodes a CUDA
+//! Runtime version as CUDA does, `1000·major + 10·minor` (`12090` is 12.9).
 //!
 //! One file per family of the table's functions declares their
 //! function-pointer types (for instance `decomposition`: SVD, gate split,
@@ -66,7 +67,12 @@ pub(crate) use generated::v2_13;
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
 use super::function_table::{FunctionTable, SymbolResolver};
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
-use super::{NativeLibrary, ProbedVersions, cuda_runtime};
+use super::{
+    NativeLibrary, ProbedVersions, cuda_runtime,
+    setup_guide::{ComputeCapability, LibrarySetupGuide, cuda_version, or_unread, path_or_unread},
+};
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+use crate::LibraryReport;
 
 /// The cuTensorNet library (libcutensornet): where its file is looked for,
 /// the version it must have and the CUDA Runtime it must be built against,
@@ -95,9 +101,12 @@ const _: () = assert!(
 impl NativeLibrary for CuTensorNet {
     const NAME: &'static str = "cuTensorNet";
     const VARIABLE: &'static str = "QDK_CUTENSORNET_LIBRARY";
+    const FILE_NAME: &'static str = "libcutensornet.so.2";
     const DEFAULTS: &'static [&'static str] = &[
+        // Where NVIDIA's apt package installs it. The path spells out
+        // `FILE_NAME`, as a constant cannot be built from another in Rust.
         "/usr/lib/x86_64-linux-gnu/libcuquantum/12/libcutensornet.so.2",
-        "libcutensornet.so.2",
+        Self::FILE_NAME,
     ];
     type Functions = CuTensorNetFunctions;
 
@@ -126,6 +135,41 @@ impl NativeLibrary for CuTensorNet {
         }
         probed
     }
+}
+
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+impl LibrarySetupGuide for CuTensorNet {
+    const INSTALL: &'static str = "cuTensorNet 2.13";
+    /// NVIDIA supports cuTensorNet on devices of compute capability 7.5 or
+    /// later. The GPU engine does not check it. The setup check applies it
+    /// to the engine's device.
+    const MINIMUM_COMPUTE_CAPABILITY: Option<ComputeCapability> =
+        Some(ComputeCapability { major: 7, minor: 5 });
+
+    /// Its path and version, and the CUDA Runtime it was built for.
+    fn describe(report: &LibraryReport) -> Vec<String> {
+        vec![format!(
+            "cuTensorNet: {} ({}, built for CUDA Runtime {})",
+            path_or_unread(report),
+            or_unread(report.version("cuTensorNet").map(cutensornet_version)),
+            or_unread(
+                report
+                    .version("cuTensorNet's CUDA Runtime")
+                    .map(cuda_version)
+            ),
+        )]
+    }
+}
+
+/// cuTensorNet's `10000·major + 100·minor + patch` as `major.minor.patch`.
+#[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+fn cutensornet_version(version: i128) -> String {
+    format!(
+        "{}.{}.{}",
+        version / 10_000,
+        version / 100 % 100,
+        version % 100
+    )
 }
 
 #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
